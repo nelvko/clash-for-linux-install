@@ -7,6 +7,7 @@ if [ $n1 -lt 5 ]; then
     n2=$(wc -l < ./resource/config.yaml)
     if [ $n2 -eq 0 ]; then
         echo "链接无效，自行粘贴配置到./resource/config.yaml"
+        exit 1
     fi
 fi
 
