@@ -1,7 +1,7 @@
 #!/bin/bash
 
 n1=$(wc -l < ./resource/config.yaml)
-if [ $n1 -lt 0 ]; then
+if [ $n1 -lt 5 ]; then
     read -p '订阅链接：' url
     wget --no-check-certificate --timeout=3 -qo ./resource/config.yaml $url
     n2=$(wc -l < ./resource/config.yaml)
