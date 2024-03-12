@@ -15,7 +15,7 @@ cp ./resource/clash-linux-amd64-v3-2023.08.17.gz ./clash_copy
 # 解压
 gzip -d ./resource/clash-linux-amd64-v3-2023.08.17.gz
 # 可执行
-mv ./resource/clash-linux-amd64-v3-2023.08.17 /usr/local/bin/clash && chmod +x /usr/local/bin/clash
+/usr/bin/mv -f ./resource/clash-linux-amd64-v3-2023.08.17 /usr/local/bin/clash && chmod +x /usr/local/bin/clash
 mv ./clash_copy ./resource/clash-linux-amd64-v3-2023.08.17.gz
 
 # clash配置目录
@@ -23,7 +23,9 @@ mkdir -p /etc/clash
 tar -xf ./resource/yacd.tar.xz -C /etc/clash/
 /bin/cp -f ./resource/config.yaml  /etc/clash/
 /bin/cp -f ./resource/Country.mmdb /etc/clash/
-/bin/cp -rf ./service/ /etc/clash/
+/bin/cp -f ./sh/ui.sh /etc/clash/
+/bin/cp -f ./sh/clashctl.sh /etc/profile.d/
+source /etc/profile.d/clashctl.sh
 
 # 创建服务配置文件
 cat << EOF > /etc/systemd/system/clash.service
@@ -34,8 +36,7 @@ After=network-online.target
 [Service]
 Type=simple
 Restart=always
-ExecStart=/etc/clash/service/ExecStart.sh
-ExecStopPost=/etc/clash/service/ExecStopPost.sh
+ExecStart=/usr/local/bin/clash -d /etc/clash -ext-ui public
 
 [Install]
 WantedBy=multi-user.target
@@ -53,7 +54,7 @@ else
 fi
 
 # 启动clash服务
-systemctl start clash
+clashon
 # 检查服务启动状态
 if [ $? -eq 0 ]; then
     echo "clash 启动!"
@@ -62,5 +63,4 @@ else
 fi
 
 # ui面板
-chmod +x ./ui.sh
-bash ./ui.sh
+clashui
