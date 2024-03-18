@@ -3,7 +3,7 @@
     echo "clash: 已卸载过!"
     read -p "按 Enter 键退出，按其他键走个过场：" answer
     [[ $answer == "" ]] && {
-        echo "不走过场。"
+        echo "不走过场"
         [[ $0 == ./uninstall.sh ]] && exit 1 || return 1
     } || echo "走过场..."
 }

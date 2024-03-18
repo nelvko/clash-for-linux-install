@@ -9,7 +9,7 @@
     echo "clash: 已安装过!"
     read -p "按 Enter 键覆盖安装，按其他键退出：" answer
     [[ $answer == "" ]] && echo "开始覆盖安装 clash..." || {
-        echo "退出安装。"
+        echo "退出安装"
         [[ $0 == ./install.sh ]] && exit 1 || return 1
     }
 }
@@ -20,10 +20,9 @@ ui_zip='./resource/yacd.tar.xz'
 
 is_valid() {
     grep 'port' $config >/dev/null 2>&1
-    return $?
 }
 invalid() {
-    echo "配置无效: 自行粘贴配置到$config" && { [[ $0 == ./install.sh ]] && exit 1 || return 0; }
+    echo "配置无效: 自行粘贴配置到$config" && [[ $0 == ./install.sh ]] && exit 1 || return 0
 }
 
 if [ ! -f $config ]; then
