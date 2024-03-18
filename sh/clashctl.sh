@@ -1,24 +1,23 @@
+# clash快捷指令
 
 function clashon() {
-    # 添加环境变量 设置代理
-    cat << EOF > /etc/profile.d/clash.sh
+    cat <<EOF >/etc/clash/clashenv.sh
 export http_proxy=http://127.0.0.1:7890
 export https_proxy=http://127.0.0.1:7890
 EOF
-    source /etc/profile.d/clash.sh
-    systemctl start clash
-    
+    source /etc/clash/clashenv.sh
+    systemctl start clash && echo 'clash: 启动!' || echo 'clash: 启动失败: 执行 "systemctl status clash" 查看日志'
 }
+
 function clashoff() {
-    # 卸载环境变量
-    cat << EOF > /etc/profile.d/clash.sh
+    cat <<EOF >/etc/clash/clashenv.sh
 unset http_proxy
 unset https_proxy
 EOF
-    source /etc/profile.d/clash.sh
-    systemctl stop clash
-    
+    source /etc/clash/clashenv.sh
+    systemctl stop clash && echo 'clash: 成功关闭代理!' || echo 'clash: 关闭失败: 执行 "systemctl status clash" 查看日志'
 }
+
 function clashui() {
-    chmod +x /etc/clash/ui.sh && bash /etc/clash/ui.sh
+    source /etc/clash/ui.sh
 }

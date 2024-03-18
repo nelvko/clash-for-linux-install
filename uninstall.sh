@@ -1,19 +1,34 @@
+# prompt
+[ ! -d /etc/clash ] && {
+    echo "clash: 已卸载过!"
+    read -p "按 Enter 键退出，按其他键走个过场：" answer
+    [[ $answer == "" ]] && {
+        echo "不走过场。"
+        [[ $0 == ./uninstall.sh ]] && exit 1 || return 1
+    } || echo "走过场..."
+}
 
 # 卸载环境变量
-cat << EOF > /etc/profile.d/clash.sh
+cat <<EOF >./unenv.sh
 unset http_proxy
 unset https_proxy
 unset clashon
 unset clashoff
 unset clashui
 EOF
-source /etc/profile.d/clash.sh
-systemctl stop clash
-rm -rf /etc/clash    
-rm -f /etc/profile.d/clash*.sh
-source /etc/profile
+source ./unenv.sh >/dev/null 2>&1 && rm -f ./unenv.sh
 
+# 还原.bashrc文件
+sed -i '/# 加载clash快捷指令/d' ~/.bashrc
+sed -i '/. \/etc\/clash\/clashctl.sh/d' ~/.bashrc
+source ~/.bashrc
+
+# 重载daemon
+systemctl stop clash >/dev/null 2>&1
+systemctl disable clash >/dev/null 2>&1
 rm -f /etc/systemd/system/clash.service
-rm -f /usr/local/bin/clash
 systemctl daemon-reload
-echo clash已卸载，相关配置已清除！
+
+rm -rf /etc/clash
+rm -f /usr/local/bin/clash
+echo clash: 已卸载，相关配置已清除！
