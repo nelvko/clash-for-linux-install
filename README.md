@@ -8,7 +8,7 @@
 ## 安装脚本
 
 ```bash
-git clone https://github.com/coolapker/clash-for-linux-install.git && cd clash-for-linux-install && . install.sh
+git clone https://github.com/nelvko/clash-for-linux-install.git && cd clash-for-linux-install && . install.sh
 ```
 
 > 代理加速：<https://mirror.ghproxy.com>
