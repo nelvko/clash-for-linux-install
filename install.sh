@@ -1,58 +1,54 @@
 #!/bin/bash
+# define
+CONFIG_PATH='./resource/config.yaml'
+CLASH_PATH='./resource/clash-linux-amd64-v3-2023.08.17.gz'
+UI_PATH='./resource/yacd.tar.xz'
+function quit() {
+    echo $0 | grep -q install.sh && exit 1
+}
+function is_valid() {
+    grep -q 'port' $CONFIG_PATH
+}
+function download_config() {
+    agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
+    wget --timeout=3 --tries=1 --no-check-certificate --user-agent="$agent" -O $CONFIG_PATH "$1"
+    is_valid || \
+    curl --connect-timeout 3 \
+         --retry 1 \
+         --user-agent "$agent" \
+         -k -o $CONFIG_PATH $1
+}
 
-[[ $(whoami) != root ]] && {
-    echo "警告: 需要root用户运行!"
-    [[ $0 == ./install.sh ]] && exit 1 || return 1
+# begin
+[ $(whoami) != root ] && {
+    echo "警告: 需要root权限!" && quit || return 1
 }
 
 [ -d /etc/clash ] && {
-    echo "clash: 已安装过!"
-    read -p "按 Enter 键覆盖安装，按其他键退出：" answer
-    [[ $answer == "" ]] && echo "开始覆盖安装 clash..." || {
-        echo "退出安装"
-        [[ $0 == ./install.sh ]] && exit 1 || return 1
-    }
+    echo "clash: 已安装，如需重新安装请先执行卸载脚本" && quit || return 1
 }
 
-config='./resource/config.yaml'
-clash_zip='./resource/clash-linux-amd64-v3-2023.08.17.gz'
-ui_zip='./resource/yacd.tar.xz'
-
-is_valid() {
-    grep 'port' $config >/dev/null 2>&1
+is_valid && echo '配置可用√' || {
+    read -p '输入订阅链接：' url
+    download_config $url
+    is_valid || echo "配置无效或下载失败: 自行粘贴配置内容到 ${CONFIG_PATH} 并重新运行" && quit || return 1
 }
-invalid() {
-    echo "配置无效: 自行粘贴配置到$config" && [[ $0 == ./install.sh ]] && exit 1 || return 0
-}
+echo -------------------------
 
-if [ ! -f $config ]; then
-    read -p '订阅链接：' url
-    if wget --tries=1 --timeout=3 --no-check-certificate -O $config "$url" && is_valid; then
-        echo 配置可用√
-    else
-        touch $config && invalid && return 1
-    fi
-else
-    is_valid || { invalid && return 1; }
-fi
-
-gzip -dc $clash_zip >./clash && chmod +x ./clash
+gzip -dc $CLASH_PATH >./clash && chmod +x ./clash
 /usr/bin/mv -f ./clash /usr/local/bin/clash
 
 # clash配置目录
 mkdir -p /etc/clash
-tar -xf $ui_zip -C /etc/clash/
-/bin/cp -f $config /etc/clash/
+tar -xf $UI_PATH -C /etc/clash/
+/bin/cp -f $CONFIG_PATH /etc/clash/
 /bin/cp -f ./resource/Country.mmdb /etc/clash/
-/bin/cp -f ./sh/ui.sh /etc/clash/
 /bin/cp -f ./sh/clashctl.sh /etc/clash/
 
-grep clashctl ~/.bashrc >/dev/null 2>&1 || cat <<EOF >>~/.bashrc
-# 加载clash快捷指令
-. /etc/clash/clashctl.sh
-EOF
-source ~/.bashrc
-
+echo 'source /etc/clash/clashctl.sh' >>/etc/bashrc
+source /etc/clash/clashctl.sh
+# 定时任务：更新配置
+echo '0 0 */2 * * . /etc/bashrc;clashupdate url' >>/var/spool/cron/root
 # 服务配置文件
 cat <<EOF >/etc/systemd/system/clash.service
 [Unit]
@@ -71,4 +67,5 @@ systemctl daemon-reload
 
 systemctl enable clash >/dev/null 2>&1 && echo "clash: 设置自启成功!" || echo "clash: 设置自启失败!"
 
-clashon && clashui
+clashui && clashon
+bash
