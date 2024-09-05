@@ -4,10 +4,10 @@ CONFIG_PATH='./resource/config.yaml'
 CLASH_PATH='./resource/clash-linux-amd64-v3-2023.08.17.gz'
 UI_PATH='./resource/yacd.tar.xz'
 function quit() {
-    echo $0 | grep -q install.sh && exit 1
+    echo $0 | grep -qs install.sh && exit 1
 }
 function is_valid() {
-    grep -q 'port' $CONFIG_PATH
+    grep -qs 'port' $CONFIG_PATH
 }
 function download_config() {
     agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
@@ -31,7 +31,7 @@ function download_config() {
 is_valid && echo '配置可用√' || {
     read -p '输入订阅链接：' url
     download_config $url
-    is_valid || echo "配置无效或下载失败: 自行粘贴配置内容到 ${CONFIG_PATH} 并重新运行" && quit || return 1
+    is_valid || echo "错误：下载失败或配置无效: 自行粘贴配置内容到 ${CONFIG_PATH} 并重新运行" && quit || return 1
 }
 echo -------------------------
 
