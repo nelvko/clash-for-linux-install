@@ -20,7 +20,7 @@ function clashui() {
     # 查询公网ip
     # ifconfig.me
     # cip.cc
-    ip=$(curl -s ifconfig.me)
+    ip=$(curl -s --noproxy "*" ifconfig.me)
     cat << EOF
 clash: Web面板:
     ● 开放9090端口后使用
@@ -29,9 +29,31 @@ clash: Web面板:
 EOF
 }
 
+function _is_valid() {
+    grep -qs 'port' $CONFIG_PATH_NEW
+}
+function _download_config() {
+    agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
+    wget --timeout=3 --tries=1 --no-check-certificate --user-agent="$agent" -O $CONFIG_PATH_NEW "$1"
+    _is_valid || \
+    curl --connect-timeout 3 \
+    --retry 1 \
+    --user-agent "$agent" \
+    -k -o $CONFIG_PATH_NEW $1
+}
+
+
 function clashupdate() {
-    [ "$1" = "url" ] && return 1
+    [ "$1" == "url" ] || [ "$1" == "" ] && {
+        echo "错误：订阅链接必填"
+        return 1
+    }
     CONFIG_PATH='/etc/clash/config.yaml'
-    wget --tries=1 --timeout=3 --user-agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0' --no-check-certificate -O $CONFIG_PATH "$1" || \
-    curl --user-agent 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0' -k -o $CONFIG_PATH $1
+    CONFIG_PATH_NEW="${CONFIG_PATH}.clashupdate"
+    _download_config $1
+    _is_valid && {
+        cat $CONFIG_PATH_NEW >$CONFIG_PATH
+        systemctl restart clash
+        echo 'clash: 配置更新成功，已重启生效'
+    } || echo '错误：下载失败或配置无效！'
 }
