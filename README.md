@@ -19,11 +19,6 @@
 
 ## 快速开始
 
-不懂什么是订阅链接的小白可参考：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1)
-
-没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
-
-
 ### 一键安装脚本
 
 ```bash
@@ -31,7 +26,9 @@ git clone https://github.com/nelvko/clash-for-linux-install.git && cd clash-for-
 ```
 普通用户请使用`sudo ./install.sh`
 
-> [代理加速下载](https://mirror.ghproxy.com)
+不懂什么是订阅链接的小白可参考：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1)
+
+没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
 
 ### Command
 以下命令已集成到`bashrc`中，可直接在终端执行。
@@ -49,7 +46,7 @@ clashui
 clashupdate <url>
 ```
 
-- 使用 `systemctl` 控制启停时，当前登陆的 shell 环境还需要再修改下代理变量，可能会正常使用
+- 使用 `systemctl` 控制启停后，还需要再修改下代理变量（http_proxy 等），否则会影响正常使用：例`curl`命令无代理环境时走代理发送请求，有代理环境时不走代理。
 - 以上命令（函数）集成了上述流程。
 - 普通用户每次执行后都需要验证用户密码，推荐使用`sudo`
 
