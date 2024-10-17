@@ -21,9 +21,10 @@ function clashui() {
     # ifconfig.me
     # cip.cc
     ip=$(curl -s --noproxy "*" ifconfig.me)
+    port=`awk '/external-controller/{print $NF}' /etc/clash/config.yaml | awk -F: '/.*:\d*/{print $NF}'`
     cat << EOF
 clash: Web面板:
-    ● 开放9090端口后使用
+    ● 请注意放行 '$port 端口
     ● 地址1：http://$ip:9090/ui
     ● 地址2：https://clash.razord.top
 EOF
