@@ -1,26 +1,12 @@
 #!/bin/bash
 # define
-CONFIG_PATH='./resource/config.yaml'
+# shellcheck disable=SC1091
+source ./sh/clashctl.sh
+CURRENT_CONFIG_PATH='./resource/config.yaml'
 CLASH_PATH='./resource/clash-linux-amd64-v3-2023.08.17.gz'
 UI_PATH='./resource/yacd.tar.xz'
-function quit() {
-    echo $0 | grep -qs install.sh && exit 1
-}
-function is_valid() {
-    grep -qs 'port' $CONFIG_PATH
-}
-function download_config() {
-    agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
-    wget --timeout=3 --tries=1 --no-check-certificate --user-agent="$agent" -O $CONFIG_PATH "$1"
-    is_valid || \
-    curl --connect-timeout 3 \
-         --retry 1 \
-         --user-agent "$agent" \
-         -k -o $CONFIG_PATH $1
-}
-
 # begin
-[ $(whoami) != root ] && {
+[ "$(whoami)" != root ] && {
     echo "警告: 需要root权限!" && quit || return 1
 }
 
@@ -28,10 +14,11 @@ function download_config() {
     echo "clash: 已安装，如需重新安装请先执行卸载脚本" && quit || return 1
 }
 
-is_valid && echo '配置可用√' || {
-    read -p '输入订阅链接：' url
-    download_config $url
-    is_valid || echo "错误：下载失败或配置无效: 自行粘贴配置内容到 ${CONFIG_PATH} 并重新运行" && quit || return 1
+# shellcheck disable=SC2015
+is_valid "$CURRENT_CONFIG_PATH"  && echo '配置可用√' || {
+    read -r -p '输入订阅链接：' url
+    download_config "$url" "$CURRENT_CONFIG_PATH"
+    is_valid || (echo "错误：下载失败或配置无效: 自行粘贴配置内容到 ${CONFIG_PATH} 并重新运行" && quit || return 1)
 }
 echo -------------------------
 
@@ -41,14 +28,15 @@ gzip -dc $CLASH_PATH >./clash && chmod +x ./clash
 # clash配置目录
 mkdir -p /etc/clash
 tar -xf $UI_PATH -C /etc/clash/
-/bin/cp -f $CONFIG_PATH /etc/clash/
+/bin/cp -f "$CURRENT_CONFIG_PATH" /etc/clash/
 /bin/cp -f ./resource/Country.mmdb /etc/clash/
 /bin/cp -f ./sh/clashctl.sh /etc/clash/
 
 echo 'source /etc/clash/clashctl.sh' >>/etc/bashrc
-source /etc/clash/clashctl.sh
 # 定时任务：更新配置
-echo '0 0 */2 * * . /etc/bashrc;clashupdate url' >>/var/spool/cron/root
+# Deprecated 改为手动配置
+# echo '0 0 */2 * * . /etc/bashrc;clashupdate url' >>/var/spool/cron/root
+
 # 服务配置文件
 cat <<EOF >/etc/systemd/system/clash.service
 [Unit]
@@ -68,4 +56,3 @@ systemctl daemon-reload
 systemctl enable clash >/dev/null 2>&1 && echo "clash: 设置自启成功!" || echo "clash: 设置自启失败!"
 
 clashui && clashon
-bash

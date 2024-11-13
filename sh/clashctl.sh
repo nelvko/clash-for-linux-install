@@ -1,3 +1,28 @@
+#!/bin/bash
+CONFIG_PATH='/etc/clash/config.yaml'
+CONFIG_PATH_BAK="${CONFIG_PATH}.bak"
+CRONTAB_PATH_1='/var/spool/cron/root'
+CRONTAB_PATH_2='/var/spool/cron/crontabs/root'
+[ -e $CRONTAB_PATH_1 ] && TARGET_PATH=$CRONTAB_PATH_1
+[ -e $CRONTAB_PATH_2 ] && TARGET_PATH=$CRONTAB_PATH_2
+
+function is_valid() {
+    grep -qs 'port' "$1"
+}
+# 1url 2output
+function download_config() {
+    agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
+    wget --timeout=3 --tries=1 --no-check-certificate --user-agent="$agent" -O "$2" "$1"
+    is_valid ||
+        curl --connect-timeout 3 \
+            --retry 1 \
+            --user-agent "$agent" \
+            -k -o "$CONFIG_PATH" "$1"
+}
+
+function quit() {
+    echo "$0" | grep -qs install.sh && exit 1
+}
 # clash快捷指令
 function clashon() {
     addr=http://127.0.0.1:7890
@@ -21,9 +46,7 @@ function clashui() {
     # ifconfig.me
     # cip.cc
     ip=$(curl -s --noproxy "*" ifconfig.me)
-    # TODO
-    # port=`awk '/external-controller/{print $NF}' /etc/clash/config.yaml | awk -F: '/.*:\d*/{print $NF}'`
-    cat << EOF
+    cat <<EOF
 clash: Web面板:
     ● 请注意放行 9090 端口
     ● 地址1：http://$ip:9090/ui
@@ -31,31 +54,28 @@ clash: Web面板:
 EOF
 }
 
-function _is_valid() {
-    grep -qs 'port' $CONFIG_PATH_NEW
-}
-function _download_config() {
-    agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
-    wget --timeout=3 --tries=1 --no-check-certificate --user-agent="$agent" -O $CONFIG_PATH_NEW "$1"
-    _is_valid || \
-    curl --connect-timeout 3 \
-    --retry 1 \
-    --user-agent "$agent" \
-    -k -o $CONFIG_PATH_NEW $1
-}
-
-
 function clashupdate() {
-    [ "$1" == "url" ] || [ "$1" == "" ] && {
-        echo "错误：订阅链接必填"
-        return 1
+    IS_AUTO=false
+    URL=""
+    for arg in "$@"; do
+        [ "$arg" = "--auto" ] && IS_AUTO=true
+        [ "${arg:0:4}" = 'http' ] && URL=$arg
+    done
+
+    [ "$URL" = "" ] && echo '错误：请正确填写订阅链接！' && return 1
+    [ "$IS_AUTO" = true ] && {
+        grep -qs clashupdate "$TARGET_PATH" || xargs -I {} echo '0 0 */2 * * . /etc/bashrc;clashupdate {}' >>"$TARGET_PATH" <<<"$URL"
+        echo "clash: 定时任务设置成功!" && return 0
     }
-    CONFIG_PATH='/etc/clash/config.yaml'
-    CONFIG_PATH_NEW="${CONFIG_PATH}.clashupdate"
-    _download_config $1
-    _is_valid && {
-        cat $CONFIG_PATH_NEW >$CONFIG_PATH
+
+    cat "$CONFIG_PATH" >"$CONFIG_PATH_BAK"
+    download_config "$URL" "$CONFIG_PATH"
+    # shellcheck disable=SC2015
+    is_valid "$CONFIG_PATH" && {
         systemctl restart clash
         echo 'clash: 配置更新成功，已重启生效'
-    } || echo '错误：下载失败或配置无效！'
+    } || {
+        cat "$CONFIG_PATH_BAK" >"$CONFIG_PATH"
+        echo '错误：下载失败或配置无效！'
+    }
 }
