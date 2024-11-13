@@ -13,11 +13,11 @@ function is_valid() {
 function download_config() {
     agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
     wget --timeout=3 --tries=1 --no-check-certificate --user-agent="$agent" -O "$2" "$1"
-    is_valid ||
+    is_valid "$2" ||
         curl --connect-timeout 3 \
             --retry 1 \
             --user-agent "$agent" \
-            -k -o "$CONFIG_PATH" "$1"
+            -k -o "$2" "$1"
 }
 
 function quit() {
@@ -72,8 +72,8 @@ function clashupdate() {
     download_config "$URL" "$CONFIG_PATH"
     # shellcheck disable=SC2015
     is_valid "$CONFIG_PATH" && {
-        systemctl restart clash
-        echo 'clash: 配置更新成功，已重启生效'
+        clashoff && clashon
+        echo 'clash: 配置更新成功，已重启生效！'
     } || {
         cat "$CONFIG_PATH_BAK" >"$CONFIG_PATH"
         echo '错误：下载失败或配置无效！'
