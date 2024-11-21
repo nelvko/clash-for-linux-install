@@ -7,7 +7,14 @@ assignees: ''
 
 ---
 
-**系统 & 版本号：**
+> 请先提供以下信息
+```shell
+# 系统版本信息
+hostnamectl
+
+# 当前所用 shell
+echo $0
+```
 
 **描述 & 复现：**
 
