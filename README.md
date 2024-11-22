@@ -6,9 +6,11 @@
 
 文末[引用](#ref)中收集了各种内核和 `GUI` 客户端版本的下载地址。
 
+![preview](preview.png)
+
 ## 环境要求
 
-- 需要 `root` 权限（普通用户使用 `sudo`）
+- 需要 `root`或 `sudo` 权限
 - 具备 `bash` 和 `systemd` 的系统环境
 
 ## 快速开始
@@ -16,10 +18,10 @@
 ### 一键安装脚本
 
 ```bash
-git clone https://ghp.ci/https://github.com/nelvko/clash-for-linux-install.git && cd clash-for-linux-install && . install.sh
+git clone https://ghp.ci/https://github.com/nelvko/clash-for-linux-install.git && cd clash-for-linux-install && sudo bash -c '. install.sh; exec bash'
 ```
 
-- 以上脚本已使用[代理加速下载](https://ghp.ci/)，如失效请自行更换
+- 上述脚本已使用[代理加速下载](https://ghp.ci/)，如失效请自行更换
 
 - ~~不懂什么是订阅链接的小白可参考~~：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1)
 
@@ -27,20 +29,20 @@ git clone https://ghp.ci/https://github.com/nelvko/clash-for-linux-install.git &
 
 ### Command
 
-以下命令已集成到 `bashrc` 中，可直接在终端执行。
+以下命令已集成到 `/etc/bashrc` 中，可直接在终端执行。
 
 ```bash
 # 关闭代理环境
-clashoff
+$ clashoff
 
 # 启动代理环境
-clashon
+$ clashon
 
 # 打印 ui 地址
-clashui
+$ clashui
 
-# 手动更新配置
-clashupdate <url>
+# 手动更新订阅
+$ clashupdate <url>
 ```
 
 - 使用 `systemctl` 控制 `clash` 启停后，还需调整代理环境变量的值（http_proxy 等），因为`wget`、`curl` 等命令会读取代理变量发送请求。以上命令集成了上述流程
@@ -49,7 +51,7 @@ clashupdate <url>
 ### 自动更新配置
 
 ```bash
-clashupdate --auto url
+clashupdate --auto <url>
 ```
 
 - 将命令末尾的 `url` 替换为你的订阅链接，执行一次即可。会新建定时任务，每两天自动下载配置文件（会覆盖）
@@ -64,7 +66,7 @@ clashupdate --auto url
 恢复如初。
 
 ```bash
-. uninstall.sh
+sudo bash -c '. uninstall.sh; exec bash'
 ```
 
 ## Tips
@@ -75,24 +77,25 @@ clashupdate --auto url
 
 ```bash
 # 需要有可执行权限
-./install.sh
+$ ./install.sh
 
 # 不需要可执行权限，需要读权限
-bash ./install.sh
+$ bash ./install.sh
 ```
 
-- 当前 `shell` 开启一个子 `shell` 来执行脚本，对环境的修改仅影响该子 `shell` ，当前 `shell` 不会生效
-- 使当前终端生效需要配置代理环境变量，或执行一次 `bash`
+- 当前 `shell` 开启一个子 `shell` 来执行脚本，对环境的修改仅影响该子 `shell`，当前 `shell` 不具备 `clashon` 等命令
+- 使当前终端命令可用：执行 `bash` 或 `. /etc/bashrc`
 
 **shell 内建命令运行**
 
 ```bash
 # 不需要可执行权限，需要读权限
-. install.sh
-source install.sh
+$ . install.sh
+$ source uninstall.sh
 ```
 
 - 脚本在当前 `shell` 环境中执行，变量和函数的定义对当前 `shell` 有效
+- `root` 用户可直接如此使用
 
 ## 引用
 
@@ -112,6 +115,6 @@ source install.sh
 
 ## 特别声明
 
-1. 编写本项目主要目的为学习和研究`Shell`编程，不得将本项目中任何内容用于违反国家/地区/组织等的法律法规或相关规定的其他用途。
+1. 编写本项目主要目的为学习和研究 `Shell` 编程，不得将本项目中任何内容用于违反国家/地区/组织等的法律法规或相关规定的其他用途。
 
 2. 本项目保留随时对免责声明进行补充或更改的权利，直接或间接使用本项目内容的个人或组织，视为接受本项目的特别声明。
