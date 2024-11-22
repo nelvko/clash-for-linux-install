@@ -1,5 +1,6 @@
 #!/bin/bash
-CONFIG_PATH='/etc/clash/config.yaml'
+CLASH_PATH='/etc/clash'
+CONFIG_PATH="$CLASH_PATH/config.yaml"
 CONFIG_PATH_BAK="${CONFIG_PATH}.bak"
 CRONTAB_PATH_1='/var/spool/cron/root'
 CRONTAB_PATH_2='/var/spool/cron/crontabs/root'

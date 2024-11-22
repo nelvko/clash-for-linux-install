@@ -1,9 +1,9 @@
 #!/bin/bash
 # shellcheck disable=SC1091
-source ./sh/clashctl.sh
+source clashctl.sh
 # shellcheck disable=SC2034
 FIRST_CONFIG_PATH='./resource/config.yaml'
-CLASH_PATH='./resource/clash-linux-amd64-v3-2023.08.17.gz'
+CLASH_GZ_PATH='./resource/clash-linux-amd64-v3-2023.08.17.gz'
 UI_PATH='./resource/yacd.tar.xz'
 
 # begin
@@ -23,17 +23,17 @@ is_valid "$FIRST_CONFIG_PATH" && echo '配置可用√' || {
 }
 echo -------------------------
 
-gzip -dc "$CLASH_PATH" >./clash && chmod +x ./clash
+gzip -dc "$CLASH_GZ_PATH" >./clash && chmod +x ./clash
 /usr/bin/mv -f ./clash /usr/local/bin/clash
 
 # clash配置目录
 mkdir -p /etc/clash
-tar -xf "$UI_PATH" -C /etc/clash/
-/bin/cp -f "$FIRST_CONFIG_PATH" /etc/clash/
-/bin/cp -f ./resource/Country.mmdb /etc/clash/
-/bin/cp -f ./sh/clashctl.sh /etc/clash/
+tar -xf "$UI_PATH" -C $CLASH_PATH
+/bin/cp -f "$FIRST_CONFIG_PATH" $CLASH_PATH
+/bin/cp -f ./resource/Country.mmdb $CLASH_PATH
+/bin/cp -f clashctl.sh $CLASH_PATH
 
-echo 'source /etc/clash/clashctl.sh' >>/etc/bashrc
+echo "source $CLASH_PATH/clashctl.sh" >>/etc/bashrc
 # 定时任务：更新配置
 # Deprecated 改为手动配置
 # echo '0 0 */2 * * . /etc/bashrc;clashupdate url' >>/var/spool/cron/root
@@ -56,4 +56,4 @@ systemctl daemon-reload
 
 systemctl enable clash >/dev/null 2>&1 && echo "clash: 设置自启成功!" || echo "clash: 设置自启失败!"
 
-clashui && clashon
+clashon && clashui
