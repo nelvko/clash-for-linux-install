@@ -18,5 +18,5 @@ systemctl daemon-reload
 
 rm -rf "$CLASH_BASE_PATH"
 sed -i '/clashctl.sh/d' /etc/bashrc
-sed -i '/clashupdate/d' "$TARGET_PATH"
+sed -i '/clashupdate/d' "$CLASH_CRONTAB_TARGET_PATH"
 echo 'clash: 已卸载，相关配置已清除！'

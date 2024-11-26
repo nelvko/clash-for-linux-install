@@ -22,7 +22,7 @@ mkdir -p "$CLASH_BASE_PATH"
 gzip -dc "$TEMP_CLASH_PATH" >"$CLASH_BASE_PATH/clash" && chmod +x "$CLASH_BASE_PATH/clash"
 tar -xf "$TEMP_UI_PATH" -C "$CLASH_BASE_PATH"
 /bin/cp -f "$TEMP_CONFIG_PATH" ./resource/Country.mmdb ./script/* "$CLASH_BASE_PATH"
-echo "source $CLASH_BASE_PATH/common.sh && source $CLASH_BASE_PATH/common.sh" >>/etc/bashrc
+echo "source $CLASH_BASE_PATH/common.sh && source $CLASH_BASE_PATH/clashctl.sh" >>/etc/bashrc
 # 定时任务：更新配置
 # Deprecated 改为手动配置
 # echo '0 0 */2 * * . /etc/bashrc;clashupdate URL' >>/var/spool/cron/root
