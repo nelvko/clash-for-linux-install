@@ -1,5 +1,5 @@
 #!/bin/bash
-source ./script/clashctl.sh
+source "$(pwd)/script/clashctl.sh"
 TEMP_CONFIG_PATH='./resource/config.yaml'
 TEMP_CLASH_PATH='./resource/clash-linux-amd64-v3-2023.08.17.gz'
 TEMP_UI_PATH='./resource/yacd.tar.xz'
