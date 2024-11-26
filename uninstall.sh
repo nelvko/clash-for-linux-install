@@ -1,32 +1,21 @@
 #!/bin/bash
-source clashctl.sh
+source ./script/clashctl.sh
 
-[ "$(whoami)" != root ] && {
-    echo "警告: 需要root权限运行!" && quit || return 1
-}
+_valid_root
 
-[ ! -d /etc/clash ] && {
+[ ! -d "$CLASH_BASE_PATH" ] && {
     echo "clash: has already been uninstalled"
-    read -r -p "按 Enter 键退出，按其它键重新清除代理环境：" answer
-    [ "$answer" == "" ] && {
-        echo "已退出"
-        [ "$0" == ./uninstall.sh ] && exit 1 || return 1
-    } || echo "清除中..."
+    read -r -p "按 Enter 键退出，按其它键重新清除代理环境：" ANSWER
+    [ "$ANSWER" = "" ] && _quit || echo "清除中..."
 }
 
 clashoff
-unset clashon
-unset clashoff
-unset clashui
-
 # 重载daemon
-systemctl stop clash >/dev/null 2>&1
 systemctl disable clash >/dev/null 2>&1
 rm -f /etc/systemd/system/clash.service
 systemctl daemon-reload
 
-rm -rf "$CLASH_PATH"
-rm -f /usr/local/bin/clash
+rm -rf "$CLASH_BASE_PATH"
 sed -i '/clashctl.sh/d' /etc/bashrc
 sed -i '/clashupdate/d' "$TARGET_PATH"
 echo 'clash: 已卸载，相关配置已清除！'
