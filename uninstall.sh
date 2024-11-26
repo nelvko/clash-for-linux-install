@@ -1,4 +1,5 @@
 #!/bin/bash
+source ./script/common.sh
 source ./script/clashctl.sh
 
 _valid_root

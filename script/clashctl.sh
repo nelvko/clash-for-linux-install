@@ -1,5 +1,4 @@
 #!/bin/bash
-source "$(pwd)/common.sh"
 # clash快捷指令
 function clashon() {
     systemctl start clash && echo 'clash: 已开启代理环境！' \
