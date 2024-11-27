@@ -1,3 +1,4 @@
+#!/bin/bash
 # shellcheck disable=SC2034
 CLASH_BASE_PATH='/etc/clash'
 CLASH_CONFIG_PATH="${CLASH_BASE_PATH}/config.yaml"
@@ -14,8 +15,14 @@ function _quit() {
 }
 
 function _valid_root() {
-    [ "$(whoami)" != root ] && {
-        echo "警告: 需要root或sudo权限执行!" && _quit
+    [ "$(whoami)" != "root" ] && {
+        echo "❌ 需要 root 或 sudo 权限执行!" && _quit
+    }
+    [ "$(ps -p $$ -o comm=)" != "bash" ] && {
+        echo "❌ 当前终端不是 bash" && _quit
+    }
+    [ "$(ps -p 1 -o comm=)" != "systemd" ] && {
+        echo "❌ 系统不具备 systemd" && _quit
     }
 }
 

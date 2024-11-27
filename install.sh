@@ -7,14 +7,14 @@ TEMP_UI_PATH='./resource/yacd.tar.xz'
 
 _valid_root
 [ -d "$CLASH_BASE_PATH" ] && {
-    echo "clash: 已安装，如需重新安装请先执行卸载脚本" && _quit
+    echo "😼 已安装，如需重新安装请先执行卸载脚本" && _quit
 }
 
 # shellcheck disable=SC2015
 _valid_config "$TEMP_CONFIG_PATH" && echo '✅ 配置可用' || {
     read -r -p '输入订阅链接：' URL
     _download_config "$URL" "$TEMP_CONFIG_PATH"
-    _valid_config "$TEMP_CONFIG_PATH" || (echo "❌ 错误：下载失败或配置无效: 请自行粘贴配置内容到 ${TEMP_CONFIG_PATH} 后再执行安装脚本" && _quit)
+    _valid_config "$TEMP_CONFIG_PATH" || (echo "❌ 下载失败或配置无效: 请自行粘贴配置内容到 ${TEMP_CONFIG_PATH} 后再执行安装脚本" && _quit)
 }
 echo -------------------------
 
@@ -42,5 +42,5 @@ ExecStart=${CLASH_BASE_PATH}/clash -d ${CLASH_BASE_PATH} -ext-ui public -ext-ctl
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable clash >/dev/null 2>&1 && echo "clash: 设置自启成功!" || echo "clash: 设置自启失败!"
+systemctl enable clash >/dev/null 2>&1 && echo "😼 设置自启成功!" || echo "😾 设置自启失败!"
 clashon && clashui

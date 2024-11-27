@@ -1,8 +1,8 @@
 #!/bin/bash
 # clash快捷指令
 function clashon() {
-    systemctl start clash && echo 'clash: 已开启代理环境！' \
-    || echo 'clash: 启动失败: 执行 "systemctl status clash" 查看日志' || return 1
+    systemctl start clash && echo '😼 已开启代理环境！' \
+    || echo '😾 启动失败: 执行 "systemctl status clash" 查看日志' || return 1
     addr=http://127.0.0.1:7890
     export http_proxy=$addr
     export https_proxy=$addr
@@ -11,8 +11,8 @@ function clashon() {
 }
 
 function clashoff() {
-    systemctl stop clash && echo 'clash: 已关闭代理环境!' \
-    || echo 'clash: 关闭失败: 执行 "systemctl status clash" 查看日志' || return 1
+    systemctl stop clash && echo '😼 已关闭代理环境!' \
+    || echo '😾 关闭失败: 执行 "systemctl status clash" 查看日志' || return 1
     unset http_proxy
     unset https_proxy
     unset HTTP_PROXY
@@ -27,7 +27,7 @@ function clashui() {
     LOCAL_IP="http://$(ifconfig eth0 | awk 'NR==2{print $2}'):9090/ui"
     printf "\n"
     printf "╔═══════════════════════════════════════════════╗\n"
-    printf "║             😼 Clash Web 面板地址             ║\n"
+    printf "║                😼 Web 面板地址                ║\n"
     printf "║═══════════════════════════════════════════════║\n"
     printf "║                                               ║\n"
     printf "║      🔓 请注意放行 9090 端口                  ║\n"
@@ -47,10 +47,10 @@ function clashupdate() {
         [ "${ARG:0:4}" = 'http' ] && URL=$ARG
     done
 
-    [ "$URL" = "" ] && echo '错误：请正确填写订阅链接！' && return 1
+    [ "$URL" = "" ] && echo '❌ 请正确填写订阅链接！' && return 1
     [ "$IS_AUTO" = true ] && {
         grep -qs 'clashupdate' "$CRONTAB_TARGET_PATH" || xARGs -I {} echo '0 0 */2 * * . /etc/bashrc;clashupdate {}' >>"$CRONTAB_TARGET_PATH" <<<"$URL"
-        echo "clash: 定时任务设置成功!" && return 0
+        echo "😼 定时任务设置成功!" && return 0
     }
 
     cat "$CLASH_CONFIG_PATH" >"$CLASH_CONFIG_BAK_PATH"
@@ -58,9 +58,9 @@ function clashupdate() {
     # shellcheck disable=SC2015
     _valid_config "$CLASH_CONFIG_PATH" && {
         clashoff && clashon
-        echo 'clash: 配置更新成功，已重启生效！'
+        echo '😼 配置更新成功，已重启生效！'
     } || {
         cat "$CLASH_CONFIG_BAK_PATH" >"$CLASH_CONFIG_PATH"
-        echo '错误：下载失败或配置无效！'
+        echo '❌ 下载失败或配置无效！'
     }
 }
