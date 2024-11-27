@@ -10,7 +10,7 @@ _valid_env
 
 # shellcheck disable=SC2015
 _valid_config "$TEMP_CONFIG_PATH" && echo '✅ 配置可用' || {
-    read -r -p '输入订阅链接：' URL
+    read -r -p '😼 输入订阅链接：' URL
     _download_config "$URL" "$TEMP_CONFIG_PATH"
     _valid_config "$TEMP_CONFIG_PATH" || _error_quit "下载失败或配置无效: 请自行粘贴配置内容到 ${TEMP_CONFIG_PATH} 后再执行安装脚本"
 }
