@@ -14,16 +14,17 @@ function _quit() {
     echo "$0" | grep -qs 'bash' && exec bash || exit 1
 }
 
-function _valid_root() {
-    [ "$(whoami)" != "root" ] && {
-        echo "❌ 需要 root 或 sudo 权限执行!" && _quit
-    }
-    [ "$(ps -p $$ -o comm=)" != "bash" ] && {
-        echo "❌ 当前终端不是 bash" && _quit
-    }
-    [ "$(ps -p 1 -o comm=)" != "systemd" ] && {
-        echo "❌ 系统不具备 systemd" && _quit
-    }
+function _error_quit() {
+  RED='\033[0;31m'
+  NC='\033[0m' # 无色
+  echo -e "${RED}❌ $1${NC}"
+  _quit
+}
+
+function _valid_env() {
+    [ "$(whoami)" != "root" ] &&  _error_quit "需要 root 或 sudo 权限执行"
+    [ "$(ps -p $$ -o comm=)" != "bash" ] && _error_quit "当前终端不是 bash"
+    [ "$(ps -p 1 -o comm=)" != "systemd" ] && _error_quit "系统不具备 systemd"
 }
 
 function _valid_config() {

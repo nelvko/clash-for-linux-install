@@ -49,7 +49,7 @@ function clashupdate() {
 
     [ "$URL" = "" ] && echo '❌ 请正确填写订阅链接！' && return 1
     [ "$IS_AUTO" = true ] && {
-        grep -qs 'clashupdate' "$CRONTAB_TARGET_PATH" || xARGs -I {} echo '0 0 */2 * * . /etc/bashrc;clashupdate {}' >>"$CRONTAB_TARGET_PATH" <<<"$URL"
+        grep -qs 'clashupdate' "$CLASH_CRONTAB_TARGET_PATH" || xargs -I {} echo '0 0 */2 * * . /etc/bashrc;clashupdate {}' >>"$CLASH_CRONTAB_TARGET_PATH" <<<"$URL"
         echo "😼 定时任务设置成功!" && return 0
     }
 
