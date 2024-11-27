@@ -38,6 +38,7 @@ ExecStart=${CLASH_BASE_PATH}/clash -d ${CLASH_BASE_PATH} -ext-ui public -ext-ctl
 [Install]
 WantedBy=multi-user.target
 EOF
+
 systemctl daemon-reload
-systemctl enable clash >/dev/null 2>&1 && echo "😼 设置自启成功!" || echo "😾 设置自启失败!"
+systemctl enable clash >/dev/null 2>&1 && echo "😼 已设置开机自启" || echo "😾 设置自启失败"
 clashon && clashui

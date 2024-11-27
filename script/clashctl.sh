@@ -1,17 +1,17 @@
 #!/bin/bash
 # clash快捷指令
 function clashon() {
-    systemctl start clash && echo '😼 已开启代理环境！' \
+    systemctl start clash && echo '😼 已开启代理环境' \
     || echo '😾 启动失败: 执行 "systemctl status clash" 查看日志' || return 1
-    addr=http://127.0.0.1:7890
-    export http_proxy=$addr
-    export https_proxy=$addr
-    export HTTP_PROXY=$addr
-    export HTTPS_PROXY=$addr
+    PROXY_ADDR=http://127.0.0.1:7890
+    export http_proxy=$PROXY_ADDR
+    export https_proxy=$PROXY_ADDR
+    export HTTP_PROXY=$PROXY_ADDR
+    export HTTPS_PROXY=$PROXY_ADDR
 }
 
 function clashoff() {
-    systemctl stop clash && echo '😼 已关闭代理环境!' \
+    systemctl stop clash && echo '😼 已关闭代理环境' \
     || echo '😾 关闭失败: 执行 "systemctl status clash" 查看日志' || return 1
     unset http_proxy
     unset https_proxy
@@ -47,7 +47,7 @@ function clashupdate() {
         [ "${ARG:0:4}" = 'http' ] && URL=$ARG
     done
 
-    [ "$URL" = "" ] && echo '❌ 请正确填写订阅链接！' && return 1
+    [ "$URL" = "" ] && _error_quit '请正确填写订阅链接'
     [ "$IS_AUTO" = true ] && {
         grep -qs 'clashupdate' "$CLASH_CRONTAB_TARGET_PATH" || xargs -I {} echo '0 0 */2 * * . /etc/bashrc;clashupdate {}' >>"$CLASH_CRONTAB_TARGET_PATH" <<<"$URL"
         echo "😼 定时任务设置成功!" && return 0
@@ -58,9 +58,9 @@ function clashupdate() {
     # shellcheck disable=SC2015
     _valid_config "$CLASH_CONFIG_PATH" && {
         clashoff && clashon
-        echo '😼 配置更新成功，已重启生效！'
+        echo '😼 配置更新成功，已重启生效'
     } || {
         cat "$CLASH_CONFIG_BAK_PATH" >"$CLASH_CONFIG_PATH"
-        echo '❌ 下载失败或配置无效！'
+        _error_quit '下载失败或配置无效'
     }
 }
