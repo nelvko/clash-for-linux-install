@@ -1,4 +1,4 @@
-# Linux 一键部署 Clash
+# Linux 一键安装 Clash
 
 因为有在服务器上使用代理的需求，试过大部分的开源脚本，总是遇到各种问题。于是自己动手，丰衣足食。对安装过程及后续使用进行了友好封装，部署使用起来优雅、简单、明确。
 
@@ -6,7 +6,7 @@
 
 文末[引用](#ref)中收集了各种内核和 `GUI` 客户端版本的下载地址。
 
-![preview](preview.png)
+![preview](resource/preview.png)
 
 ## 环境要求
 
@@ -29,13 +29,13 @@ git clone https://ghp.ci/https://github.com/nelvko/clash-for-linux-install.git &
 
 ### Command
 
-以下命令已集成到 `/etc/bashrc` 中，可直接在终端执行。
+以下命令已集成到 `/etc/bashrc` 中，可直接在终端执行
 
 ```bash
 # 关闭代理环境
 $ clashoff
 
-# 启动代理环境
+# 开启代理环境
 $ clashon
 
 # 打印 ui 地址
@@ -51,7 +51,7 @@ $ clashupdate <url>
 ### 自动更新配置
 
 ```bash
-clashupdate --auto <url>
+$ clashupdate --auto <url>
 ```
 
 - 将命令末尾的 `url` 替换为你的订阅链接，执行一次即可。会新建定时任务，每两天自动下载配置文件（会覆盖）
@@ -63,8 +63,6 @@ clashupdate --auto <url>
 
 ### 卸载
 
-恢复如初。
-
 ```bash
 sudo bash -c '. uninstall.sh; exec bash'
 ```
@@ -73,7 +71,7 @@ sudo bash -c '. uninstall.sh; exec bash'
 
 ### 几种运行方式的区别
 
-**bash 命令运行**
+#### bash 命令运行
 
 ```bash
 # 需要有可执行权限
@@ -86,7 +84,7 @@ $ bash ./install.sh
 - 当前 `shell` 开启一个子 `shell` 来执行脚本，对环境的修改仅影响该子 `shell`，当前 `shell` 不具备 `clashon` 等命令
 - 使当前终端命令可用：执行 `bash` 或 `. /etc/bashrc`
 
-**shell 内建命令运行**
+#### shell 内建命令运行
 
 ```bash
 # 不需要可执行权限，需要读权限
@@ -107,6 +105,7 @@ $ source uninstall.sh
 ## Todo
 
 - [x] 定时更新配置
+- [x] 😼
 - [ ] [bug / 需求](https://github.com/nelvko/clash-for-linux-install/issues)
 
 ## Thanks
