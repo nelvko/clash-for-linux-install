@@ -8,6 +8,7 @@ TEMP_UI_PATH='./resource/yacd.tar.xz'
 _valid_env
 [ -d "$CLASH_BASE_PATH" ] && _error_quit "已安装，如需重新安装请先执行卸载脚本"
 
+gzip -dc "$TEMP_CLASH_PATH" >./resource/clash && chmod +x ./resource/clash
 # shellcheck disable=SC2015
 _valid_config "$TEMP_CONFIG_PATH" && echo '✅ 配置可用' || {
     read -r -p '😼 输入订阅链接：' URL
@@ -16,9 +17,9 @@ _valid_config "$TEMP_CONFIG_PATH" && echo '✅ 配置可用' || {
 }
 
 mkdir -p "$CLASH_BASE_PATH"
-gzip -dc "$TEMP_CLASH_PATH" >"$CLASH_BASE_PATH/clash" && chmod +x "$CLASH_BASE_PATH/clash"
-tar -xf "$TEMP_UI_PATH" -C "$CLASH_BASE_PATH"
+/bin/mv -f ./resource/clash "$CLASH_BASE_PATH/clash"
 /bin/cp -f "$TEMP_CONFIG_PATH" ./resource/Country.mmdb ./script/* "$CLASH_BASE_PATH"
+tar -xf "$TEMP_UI_PATH" -C "$CLASH_BASE_PATH"
 echo "source $CLASH_BASE_PATH/common.sh && source $CLASH_BASE_PATH/clashctl.sh" >>/etc/bashrc
 # 定时任务：更新配置
 # Deprecated 改为手动配置
