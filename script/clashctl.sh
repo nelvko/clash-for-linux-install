@@ -57,7 +57,7 @@ function clashupdate() {
     _download_config "$URL" "$CLASH_CONFIG_PATH"
     # shellcheck disable=SC2015
     _valid_config "$CLASH_CONFIG_PATH" && {
-        clashoff && clashon
+        { clashoff && clashon; } > /dev/null 2>&1
         echo '😼 配置更新成功，已重启生效'
     } || {
         cat "$CLASH_CONFIG_BAK_PATH" >"$CLASH_CONFIG_PATH"
