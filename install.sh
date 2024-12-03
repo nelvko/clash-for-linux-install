@@ -34,7 +34,7 @@ After=network-online.target
 [Service]
 Type=simple
 Restart=always
-ExecStart=${CLASH_BASE_PATH}/clash -d ${CLASH_BASE_PATH} -ext-ui public -ext-ctl 0.0.0.0:9090
+ExecStart=${CLASH_BASE_PATH}/clash -d ${CLASH_BASE_PATH} -ext-ui public -ext-ctl 0.0.0.0:9090 -secret ''
 
 [Install]
 WantedBy=multi-user.target

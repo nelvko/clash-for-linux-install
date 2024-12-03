@@ -4,7 +4,7 @@
 
 基于 `Clash` 项目作者删库前最新的 `Premium` 版本，如有需求可自行更换版本。
 
-文末[引用](#ref)中收集了各种内核和 `GUI` 客户端版本的下载地址。
+文末[引用](#引用)中收集了各种内核和 `GUI` 客户端版本的下载地址。
 
 ![preview](resource/preview.png)
 
@@ -21,6 +21,8 @@
 git clone https://ghp.ci/https://github.com/nelvko/clash-for-linux-install.git && cd clash-for-linux-install && sudo bash -c '. install.sh; exec bash'
 ```
 
+> `bash` 执行脚本注意事项：[几种运行方式的区别](#几种运行方式的区别)
+
 - 上述脚本已使用[代理加速下载](https://ghp.ci/)，如失效请自行更换
 
 - ~~不懂什么是订阅链接的小白可参考~~：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1)
@@ -32,17 +34,20 @@ git clone https://ghp.ci/https://github.com/nelvko/clash-for-linux-install.git &
 以下命令已集成到 `/etc/bashrc` 中，可直接在终端执行
 
 ```bash
-# 关闭代理环境
 $ clashoff
+😼 已关闭代理环境
 
-# 开启代理环境
 $ clashon
+😼 已开启代理环境
 
-# 打印 ui 地址
 $ clashui
+😼 Web 面板地址...
 
-# 手动更新订阅
 $ clashupdate <url>
+😼 配置更新成功，已重启生效
+
+$ clashsecret
+😼 当前密钥：''
 ```
 
 - 使用 `systemctl` 控制 `clash` 启停后，还需调整代理环境变量的值（http_proxy 等），因为`wget`、`curl` 等命令会读取代理变量发送请求。以上命令集成了上述流程
@@ -52,14 +57,21 @@ $ clashupdate <url>
 
 ```bash
 $ clashupdate --auto <url>
+😼 定时任务设置成功
 ```
 
-- 将命令末尾的 `url` 替换为你的订阅链接，执行一次即可。会新建定时任务，每两天自动下载配置文件（会覆盖）
-- 可通过 `crontab -e`  来修改更新频率及订阅链接
+- 将命令末尾的 `url` 替换为你的订阅链接，执行一次即可。会新建定时任务，每两天自动下载更新并覆盖订阅配置
+- 可通过 `crontab -e` 来修改更新频率及订阅链接
 
 ### Web 控制台设置密钥（推荐）
 
-步骤参考：[issue#7](https://github.com/nelvko/clash-for-linux-install/issues/7)
+```bash
+$ clashsecret <secret>
+😼 密钥更新成功，已重启生效
+```
+
+- 启动时指定，优先级大于配置文件，更新订阅后不会丢失
+- 可修改文件 `/etc/systemd/system/clash.service` 来指定其他启动参数
 
 ### 卸载
 
@@ -71,7 +83,7 @@ sudo bash -c '. uninstall.sh; exec bash'
 
 ### 几种运行方式的区别
 
-#### bash 命令运行
+**`bash` 命令运行**
 
 ```bash
 # 需要有可执行权限
@@ -84,7 +96,7 @@ $ bash ./install.sh
 - 当前 `shell` 开启一个子 `shell` 来执行脚本，对环境的修改仅影响该子 `shell`，当前 `shell` 不具备 `clashon` 等命令
 - 使当前终端命令可用：执行 `bash` 或 `. /etc/bashrc`
 
-#### shell 内建命令运行
+**`shell` 内建命令运行**
 
 ```bash
 # 不需要可执行权限，需要读权限
@@ -99,7 +111,7 @@ $ source uninstall.sh
 
 - [clash-linux-amd64-v3-2023.08.17.gz](https://downloads.clash.wiki/ClashPremium/)
 - [Clash Web Dashboard](https://github.com/haishanh/yacd/releases/tag/v0.3.8)
-- <a id="ref">[Clash 全家桶下载](https://www.clash.la/releases/)</a>
+- [Clash 全家桶下载](https://www.clash.la/releases/)
 - [Clash 知识库](https://clash.wiki/)
 
 ## Todo
