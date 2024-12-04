@@ -7,15 +7,19 @@ assignees: ''
 
 ---
 
+> [!CAUTION]
+>
 > 请先提供以下信息
+
 ```shell
 # 系统版本信息
 hostnamectl
 
 # 当前所用 shell
 echo $0
+
 ```
 
 **描述 & 复现：**
 
-**截图：**
+**截图（勿泄露订阅）：**
