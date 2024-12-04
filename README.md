@@ -17,11 +17,13 @@
 
 ### 一键安装脚本
 
+> [!NOTE]
+>
+> [常见问题](#常见问题)
+
 ```bash
 git clone https://ghp.ci/https://github.com/nelvko/clash-for-linux-install.git && cd clash-for-linux-install && sudo bash -c '. install.sh; exec bash'
 ```
-
-> `bash` 执行脚本注意事项：[几种运行方式的区别](#几种运行方式的区别)
 
 - 上述脚本已使用[代理加速下载](https://ghp.ci/)，如失效请自行更换
 
@@ -79,33 +81,42 @@ $ clashsecret <secret>
 sudo bash -c '. uninstall.sh; exec bash'
 ```
 
-## Tips
+## 常见问题
 
-### 几种运行方式的区别
+### 下载失败或配置无效
 
-**`bash` 命令运行**
+- 下载失败：脚本内使用了 `wget`、`curl` 命令多次[重试](https://github.com/nelvko/clash-for-linux-install/blob/035c85ac92166e95b7503b2a678a6b535fbd4449/script/common.sh#L32-L46)下载，如果还是失败可能是机场限制，请自行粘贴到配置文件 [issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1#issuecomment-2066334716)
 
-```bash
-# 需要有可执行权限
-$ ./install.sh
+- 订阅配置无效：[issue#14](https://github.com/nelvko/clash-for-linux-install/issues/14#issuecomment-2513303276)
 
-# 不需要可执行权限，需要读权限
-$ bash ./install.sh
-```
+### bash: clashon: command not found
 
-- 当前 `shell` 开启一个子 `shell` 来执行脚本，对环境的修改仅影响该子 `shell`，当前 `shell` 不具备 `clashon` 等命令
-- 使当前终端命令可用：执行 `bash` 或 `. /etc/bashrc`
+- 原因：使用 `bash install.sh` 执行脚本不会对当前 `shell` 生效
 
-**`shell` 内建命令运行**
+- 解决：当前 `shell` 执行下 `bash` 或 `source /etc/bashrc`
 
-```bash
-# 不需要可执行权限，需要读权限
-$ . install.sh
-$ source uninstall.sh
-```
+- 几种运行方式的区别：
+  - **`bash` 命令运行**：当前 `shell` 开启一个子 `shell` 来执行脚本，对环境的修改仅影响该子 `shell`，当前 `shell` 不具备 `clashon` 等命令
 
-- 脚本在当前 `shell` 环境中执行，变量和函数的定义对当前 `shell` 有效
-- `root` 用户可直接如此使用
+    ```bash
+    # 需要有可执行权限
+    $ ./install.sh
+    # 不需要可执行权限，需要读权限
+    $ bash ./install.sh
+    ```
+
+  - **`shell` 内建命令运行**：脚本在当前 `shell` 环境中执行，变量和函数的定义对当前 `shell` 有效，`root` 用户推荐此类使用
+  
+    ```bash
+    # 不需要可执行权限，需要读权限
+    $ . install.sh
+    $ source uninstall.sh
+    ```
+
+### 服务启动失败/未启动
+
+- [端口占用](https://github.com/nelvko/clash-for-linux-install/issues/15#issuecomment-2507341281)
+- [系统为 WSL 环境或不具备 systemd](https://github.com/nelvko/clash-for-linux-install/issues/11#issuecomment-2469817217)
 
 ## 引用
 
