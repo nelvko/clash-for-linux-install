@@ -25,7 +25,7 @@ function _valid_env() {
 
 function _valid_config() {
     [ -e "$1" ] &&
-        clash -d "$(dirname "$1")" -t >&/dev/null
+        "$(dirname "$1")/clash" -d "$(dirname "$1")" -t >&/dev/null
 }
 
 # 1url 2output
