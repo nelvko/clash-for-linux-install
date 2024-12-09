@@ -23,16 +23,20 @@ function clashui() {
     # 查询公网ip
     # ifconfig.me
     # cip.cc
-    PUBLIC_IP="http://$(curl -s --noproxy "*" ifconfig.me):9090/ui"
-    LOCAL_IP="http://$(ifconfig eth0 | awk 'NR==2{print $2}'):9090/ui"
+    PUBLIC_IP=$(curl -s --noproxy "*" ifconfig.me)
+    PUBLIC_ADDRESS="http://${PUBLIC_IP}:9090/ui"
+    # 内网ip
+    # ip route get 1.1.1.1 | grep -oP 'src \K\S+'
+    LOCAL_IP=$(hostname -I | awk '{print $1}')
+    LOCAL_ADDRESS="http://${LOCAL_IP}:9090/ui"
     printf "\n"
     printf "╔═══════════════════════════════════════════════╗\n"
     printf "║                😼 Web 面板地址                ║\n"
     printf "║═══════════════════════════════════════════════║\n"
     printf "║                                               ║\n"
     printf "║      🔓 请注意放行 9090 端口                  ║\n"
-    printf "║      🏠 内网：%-30s  ║\n" "$LOCAL_IP"
-    printf "║      🌍 公网：%-30s  ║\n" "$PUBLIC_IP"
+    printf "║      🏠 内网：%-30s  ║\n" "$LOCAL_ADDRESS"
+    printf "║      🌍 公网：%-30s  ║\n" "$PUBLIC_ADDRESS"
     printf "║      ☁️  公共：https://clash.razord.top        ║\n"
     printf "║                                               ║\n"
     printf "╚═══════════════════════════════════════════════╝\n"
