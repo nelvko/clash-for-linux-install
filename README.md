@@ -10,8 +10,8 @@
 
 ## 环境要求
 
-- 需要 `root`或 `sudo` 权限
-- 具备 `bash` 和 `systemd` 的系统环境
+- 需要 `root`或 `sudo` 权限。
+- 具备 `bash` 和 `systemd` 的系统环境。
 
 ## 快速开始
 
@@ -25,7 +25,7 @@
 git clone https://ghp.ci/https://github.com/nelvko/clash-for-linux-install.git && cd clash-for-linux-install && sudo bash -c '. install.sh; exec bash'
 ```
 
-- 上述脚本已使用[代理加速下载](https://ghp.ci/)，如失效请自行更换
+- 上述脚本已使用[代理加速下载](https://ghp.ci/)，如失效请自行更换。
 
 - ~~不懂什么是订阅链接的小白可参考~~：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1)
 
@@ -33,7 +33,7 @@ git clone https://ghp.ci/https://github.com/nelvko/clash-for-linux-install.git &
 
 ### Command
 
-以下命令已集成到 `/etc/bashrc` 中，可直接在终端执行
+以下命令已集成到 `/etc/bashrc` 中，可直接在终端执行。
 
 ```bash
 $ clashoff
@@ -52,7 +52,7 @@ $ clashsecret
 😼 当前密钥：''
 ```
 
-- 使用 `systemctl` 控制 `clash` 启停后，还需调整代理环境变量的值（http_proxy 等），因为`wget`、`curl` 等命令会读取代理变量发送请求。以上命令集成了上述流程
+- 使用 `systemctl` 控制 `clash` 启停后，还需调整代理环境变量的值（http_proxy 等），因为`wget`、`curl` 等命令会读取代理变量发送请求。以上命令集成了上述流程。
 - 普通用户每次执行都需要验证密码，推荐使用 `sudo`
 
 ### 自动更新配置
@@ -62,8 +62,8 @@ $ clashupdate --auto <url>
 😼 定时任务设置成功
 ```
 
-- 将命令末尾的 `url` 替换为你的订阅链接，执行一次即可。会新建定时任务，每两天自动下载更新并覆盖订阅配置
-- 可通过 `crontab -e` 来修改更新频率及订阅链接
+- 将命令末尾的 `url` 替换为你的订阅链接，执行一次即可。会新建定时任务，每两天自动下载更新并覆盖订阅配置。
+- 可通过 `crontab -e` 来修改更新频率及订阅链接。
 
 ### Web 控制台设置密钥（推荐）
 
@@ -72,8 +72,8 @@ $ clashsecret <secret>
 😼 密钥更新成功，已重启生效
 ```
 
-- 启动时指定，优先级大于配置文件，更新订阅后不会丢失
-- 可修改文件 `/etc/systemd/system/clash.service` 来指定其他启动参数
+- 启动时指定，优先级大于配置文件，更新订阅后不会丢失。
+- 可修改文件 `/etc/systemd/system/clash.service` 来指定其他启动参数。
 
 ### 卸载
 
@@ -85,18 +85,18 @@ sudo bash -c '. uninstall.sh; exec bash'
 
 ### 下载失败或配置无效
 
-- 下载失败：脚本内使用了 `wget`、`curl` 命令多次[重试](https://github.com/nelvko/clash-for-linux-install/blob/035c85ac92166e95b7503b2a678a6b535fbd4449/script/common.sh#L32-L46)下载，如果还是失败可能是机场限制，请自行粘贴到配置文件 [issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1#issuecomment-2066334716)
+- 下载失败：脚本内使用了 `wget`、`curl` 命令多次[重试](https://github.com/nelvko/clash-for-linux-install/blob/035c85ac92166e95b7503b2a678a6b535fbd4449/script/common.sh#L32-L46)下载，如果还是失败可能是机场限制，请自行粘贴到配置文件：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1#issuecomment-2066334716)
 
 - 订阅配置无效：[issue#14](https://github.com/nelvko/clash-for-linux-install/issues/14#issuecomment-2513303276)
 
 ### bash: clashon: command not found
 
-- 原因：使用 `bash install.sh` 执行脚本不会对当前 `shell` 生效
+- 原因：使用 `bash install.sh` 执行脚本不会对当前 `shell` 生效。
 
 - 解决：当前 `shell` 执行下 `bash` 或 `source /etc/bashrc`
 
 - 几种运行方式的区别：
-  - **`bash` 命令运行**：当前 `shell` 开启一个子 `shell` 来执行脚本，对环境的修改仅影响该子 `shell`，当前 `shell` 不具备 `clashon` 等命令
+  - **`bash` 命令运行**：当前 `shell` 开启一个子 `shell` 来执行脚本，对环境的修改仅影响该子 `shell`，当前 `shell` 不具备 `clashon` 等命令。
 
     ```bash
     # 需要有可执行权限
@@ -105,7 +105,7 @@ sudo bash -c '. uninstall.sh; exec bash'
     $ bash ./install.sh
     ```
 
-  - **`shell` 内建命令运行**：脚本在当前 `shell` 环境中执行，变量和函数的定义对当前 `shell` 有效，`root` 用户推荐此类使用
+  - **`shell` 内建命令运行**：脚本在当前 `shell` 环境中执行，变量和函数的定义对当前 `shell` 有效，`root` 用户推荐此类使用。
   
     ```bash
     # 不需要可执行权限，需要读权限
@@ -129,6 +129,7 @@ sudo bash -c '. uninstall.sh; exec bash'
 
 - [x] 定时更新配置
 - [x] 😼
+- [ ] 配置更新日志
 - [ ] [bug / 需求](https://github.com/nelvko/clash-for-linux-install/issues)
 
 ## Thanks
