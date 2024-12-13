@@ -1,13 +1,20 @@
 #!/bin/bash
 # shellcheck disable=SC2034
-CLASH_BASE_PATH='/etc/clash'
+CLASH_BASE_PATH='/opt/clash'
 CLASH_CONFIG_PATH="${CLASH_BASE_PATH}/config.yaml"
 CLASH_CONFIG_BAK_PATH="${CLASH_CONFIG_PATH}.bak"
-CLASH_CRONTAB_CENTOS_PATH='/var/spool/cron/root'
-CLASH_CRONTAB_UBUNTU_PATH='/var/spool/cron/crontabs/root'
-[ -e $CLASH_CRONTAB_CENTOS_PATH ] && CLASH_CRONTAB_TARGET_PATH=$CLASH_CRONTAB_CENTOS_PATH
-[ -e $CLASH_CRONTAB_UBUNTU_PATH ] && CLASH_CRONTAB_TARGET_PATH=$CLASH_CRONTAB_UBUNTU_PATH
 
+_get_os() {
+    lsb_release -a | grep -iqs "centos" && {
+        CLASH_CRON_PATH='/var/spool/cron/root'
+        BASHRC_PATH='/etc/bashrc'
+    }
+    lsb_release -a | grep -iqsE "debian|ubuntu" && {
+        CLASH_CRON_PATH='/var/spool/cron/crontabs/root'
+        BASHRC_PATH='/etc/bash.bashrc'
+    }
+}
+_get_os
 # bash执行   $0为脚本执行路径
 # source执行 $0为bash
 function _error_quit() {
