@@ -1,9 +1,6 @@
 #!/bin/bash
 . script/common.sh
 . script/clashctl.sh
-TEMP_CONFIG_PATH='./resource/config.yaml'
-TEMP_CLASH_PATH='./resource/clash-linux-amd64-v3-2023.08.17.gz'
-TEMP_UI_PATH='./resource/yacd.tar.xz'
 
 _valid_env
 [ -d "$CLASH_BASE_PATH" ] && _error_quit "已安装，如需重新安装请先执行卸载脚本"
@@ -11,9 +8,9 @@ _valid_env
 gzip -dc "$TEMP_CLASH_PATH" >./resource/clash && chmod +x ./resource/clash
 # shellcheck disable=SC2015
 _valid_config "$TEMP_CONFIG_PATH" && echo '✅ 配置可用' || {
-    read -r -p '😼 输入订阅链接：' URL
-    _download_config "$URL" "$TEMP_CONFIG_PATH"
-    _valid_config "$TEMP_CONFIG_PATH" || _error_quit "下载失败或配置无效: 请自行粘贴配置内容到 ${TEMP_CONFIG_PATH} 后再执行安装脚本"
+    read -r -p '😼 输入订阅链接：' url
+    _download_config "$url" "$TEMP_CONFIG_PATH" || _error_quit "下载失败: 请自行粘贴配置内容到 ${TEMP_CONFIG_PATH} 后再执行安装脚本"
+    _valid_config "$TEMP_CONFIG_PATH" || _error_quit "配置无效：请检查配置内容"
 }
 
 mkdir -p "$CLASH_BASE_PATH"
