@@ -40,7 +40,8 @@ function _valid_env() {
 
 # 配置文件和clash在同一目录
 function _valid_config() {
-    "$(dirname "$1")/clash" -d "$(dirname "$1")" -t >&/dev/null
+    [ -e "$1" ] && [ "$(wc -l < "$1")" -gt 1 ] \
+        && "$(dirname "$1")/clash" -d "$(dirname "$1")" -t
 }
 
 function _download_config() {
