@@ -12,7 +12,7 @@
 
 - 需要 `root` 或 `sudo` 权限。
 - 具备 `bash` 和 `systemd` 的系统环境。
-- 已适配：`CentOS 7.x`、`Debian 12.x`、`Ubuntu 24.x`
+- 已适配：`CentOS 7.x`、`Debian 12.x`、`Ubuntu 24.x`。
 
 ## 快速开始
 
@@ -45,39 +45,70 @@ $ clashon
 
 $ clashui
 😼 Web 面板地址...
-
-$ clashsecret
-😼 当前密钥：''
-
-$ clashupdate <url>
-😼 配置更新成功，已重启生效
-
-$ clashupdate log
-2024-12-13 23:38:56 配置更新成功✅
 ```
 
-- 使用 `systemctl` 控制 `clash` 启停后，还需调整代理环境变量的值（http_proxy 等），因为`wget`、`curl` 等命令会读取代理变量发送请求。
+- 使用 `systemctl` 控制 `clash` 启停后，还需调整代理环境变量的值（http_proxy 等）。因为应用程序在发起网络请求时，会通过其指定的代理转发流量。
 - 以上命令集成了上述流程。
 
 ### 定时更新配置
 
 ```bash
-$ clashupdate --auto <url>
+# todo 安装时存到文件，后续命令直接用
+$ clashctl update [url]
+😼 配置更新成功，已重启生效
+
+$ clashctl update --auto [url]
 😼 定时任务设置成功
+
+$ clashctl update log
+✅ 2024-12-13 23:38:56 配置更新成功 auto
 ```
 
-- 将命令末尾的 `url` 替换为你的订阅链接，执行一次即可。会新建定时任务，每两天自动下载并覆盖配置文件。
-- 可通过 `crontab -e` 来修改更新频率及订阅链接。
+- 不指定 `url` 默认使用安装时的订阅。
+- 执行一次即可，会新建定时任务，每两天自动下载并覆盖原配置文件。
+- 可通过 `crontab -e` 修改更新频率及订阅链接。
 
 ### Web 控制台设置密钥（推荐）
 
 ```bash
-$ clashsecret <secret>
+$ clashctl secret xxx
 😼 密钥更新成功，已重启生效
+
+$ clashctl secret 
+😼 当前密钥：xxx
 ```
 
 - 启动时指定，优先级大于配置文件，更新订阅后不会丢失。
-- 可修改文件 `/etc/systemd/system/clash.service` 来指定其他启动参数。
+- 可修改文件 `/etc/systemd/system/clash.service` 指定其他启动参数。
+
+### `Tun` 模式
+
+```bash
+$ clashctl tun [on|off]
+😼 tun 已开启／关闭
+```
+
+- 作用：接管所有流量、可以 `ping` 外网、
+- https://www.clashverge.dev/guide/term.html#tun
+- https://clash.wiki/premium/tun-device.html
+
+- 拦截和处理所有流量重定向到本地的代理程序，无需配置代理地址。
+
+### `Mixin` 配置
+
+```bash
+$ clashctl mixin
+😼 查看 mixin 配置
+
+$ clashctl mixin -e
+😼 编辑 mixin 配置
+```
+
+思路：
+
+- 混入配置：mixin.yaml （mixin.d 目录，多个配置）
+- 循环遍历混入配置，通过 sed 去掉主配置中对应的配置项
+- `cat config.yaml mixin.yaml`
 
 ### 卸载
 
@@ -87,7 +118,7 @@ sudo bash -c '. uninstall.sh; exec bash'
 
 ## 常见问题
 
-### 下载失败或配置无效
+### 下载失败、配置无效
 
 - 下载失败：脚本使用 `wget`、`curl`
   命令进行了多次[重试](https://github.com/nelvko/clash-for-linux-install/blob/035c85ac92166e95b7503b2a678a6b535fbd4449/script/common.sh#L32-L46)

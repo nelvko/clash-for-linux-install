@@ -90,3 +90,14 @@ function clashsecret() {
     [ $# -ge 2 ] &&
         echo "😾 密钥不要包含空格或使用引号包围"
 }
+
+function clashctl() {
+    echo usage
+    case $1 in
+    tun)
+
+      ;;
+    esac
+}
+
+
