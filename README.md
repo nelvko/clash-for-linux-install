@@ -89,7 +89,9 @@ sudo bash -c '. uninstall.sh; exec bash'
 
 ### 下载失败或配置无效
 
-- 下载失败：脚本内使用了 `wget`、`curl` 命令多次[重试](https://github.com/nelvko/clash-for-linux-install/blob/035c85ac92166e95b7503b2a678a6b535fbd4449/script/common.sh#L32-L46)下载，如果还是失败可能是机场限制，请自行粘贴内容到配置文件：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1#issuecomment-2066334716)
+- 下载失败：脚本使用 `wget`、`curl`
+  命令进行了多次[重试](https://github.com/nelvko/clash-for-linux-install/blob/035c85ac92166e95b7503b2a678a6b535fbd4449/script/common.sh#L32-L46)
+  下载，如果还是失败可能是机场限制，请自行粘贴内容到配置文件：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1#issuecomment-2066334716)
 
 - 订阅配置无效：[issue#14](https://github.com/nelvko/clash-for-linux-install/issues/14#issuecomment-2513303276)
 
@@ -99,23 +101,29 @@ sudo bash -c '. uninstall.sh; exec bash'
 
 - 解决：当前 `shell` 执行下 `bash`。
 
-- 几种运行方式的区别：
-  - **`bash` 命令运行**：当前 `shell` 开启一个子 `shell` 来执行脚本，对环境的修改仅影响该子 `shell`，当前 `shell` 不具备 `clashon` 等命令。
+- <details>
 
-    ```bash
-    # 需要有可执行权限
-    $ ./install.sh
-    # 不需要可执行权限，需要读权限
-    $ bash ./install.sh
-    ```
+  <summary>几种运行方式的区别：</summary>
 
-  - **`shell` 内建命令运行**：脚本在当前 `shell` 环境中执行，变量和函数的定义对当前 `shell` 有效，`root` 用户推荐此类使用。
-  
-    ```bash
-    # 不需要可执行权限，需要读权限
-    $ . install.sh
-    $ source uninstall.sh
-    ```
+    - `bash` 命令运行：当前 `shell` 开启一个子 `shell` 执行脚本，对环境的修改不会作用到当前 `shell`，因此不具备 `clashon`
+      等命令。
+
+      ```bash
+      # 需要有可执行权限
+      $ ./install.sh
+      # 不需要可执行权限，需要读权限
+      $ bash ./install.sh
+      ```
+
+    - `shell` 内建命令运行：脚本在当前 `shell` 环境中执行，变量和函数的定义对当前 `shell` 有效，`root` 用户推荐这种方式执行脚本。
+
+      ```bash
+      # 不需要可执行权限，需要读权限
+      $ . install.sh
+      $ source uninstall.sh
+      ```
+
+  </details>
 
 ### 服务启动失败/未启动
 
@@ -135,6 +143,8 @@ sudo bash -c '. uninstall.sh; exec bash'
 - [x] 😼
 - [x] 适配其他发行版
 - [x] 配置更新日志
+- [ ] Tun 模式
+- [ ] mixin 配置
 - [ ] [bug / 需求](https://github.com/nelvko/clash-for-linux-install/issues)
 
 ## Thanks
