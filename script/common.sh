@@ -5,8 +5,11 @@ TEMP_CLASH_PATH='./resource/clash-linux-amd64-v3-2023.08.17.gz'
 TEMP_UI_PATH='./resource/yacd.tar.xz'
 
 CLASH_BASE_PATH='/opt/clash'
-CLASH_CONFIG_PATH="${CLASH_BASE_PATH}/config.yaml"
-CLASH_CONFIG_BAK_PATH="${CLASH_CONFIG_PATH}.bak"
+CLASH_CONFIG_RAW_PATH="${CLASH_BASE_PATH}/config.yaml"
+CLASH_CONFIG_MIXIN_PATH="${CLASH_BASE_PATH}/config-mixin.yaml"
+CLASH_CONFIG_BAK_PATH="${CLASH_CONFIG_RAW_PATH}.bak"
+CLASH_MIXIN_PATH="${CLASH_BASE_PATH}/mixin.d"
+CLASH_MIXIN_TUN_PATH="${CLASH_MIXIN_PATH}/tun.yaml"
 CLASH_UPDATE_LOG_PATH="${CLASH_BASE_PATH}/clashupdate.log"
 
 function _get_os() {
@@ -22,6 +25,14 @@ function _get_os() {
     }
 }
 _get_os
+
+function _okcat() {
+    echo "😼 $1"
+}
+
+function _failcat() {
+    echo "😾 $1"
+}
 
 # bash执行   $0为脚本执行路径
 # source执行 $0为bash
@@ -40,8 +51,8 @@ function _valid_env() {
 
 # 配置文件和clash在同一目录
 function _valid_config() {
-    [ -e "$1" ] && [ "$(wc -l < "$1")" -gt 1 ] \
-        && "$(dirname "$1")/clash" -d "$(dirname "$1")" -t
+    [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] &&
+        "$(dirname "$1")/clash" -d "$(dirname "$1")" -t
 }
 
 function _download_config() {
