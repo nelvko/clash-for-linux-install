@@ -1,37 +1,37 @@
 #!/bin/bash
 # shellcheck disable=SC2034
-TEMP_CONFIG_PATH='./resource/config.yaml'
-TEMP_CLASH_PATH='./resource/clash-linux-amd64-v3-2023.08.17.gz'
-TEMP_UI_PATH='./resource/yacd.tar.xz'
+TEMP_CONFIG='./resource/config.yaml'
+TEMP_CLASH_RAR='./resource/clash-linux-amd64-v3-2023.08.17.gz'
+TEMP_UI_RAR='./resource/yacd.tar.xz'
 
-CLASH_BASE_PATH='/opt/clash'
-CLASH_CONFIG_RAW_PATH="${CLASH_BASE_PATH}/config.yaml"
-CLASH_CONFIG_MIXIN_PATH="${CLASH_BASE_PATH}/config-mixin.yaml"
-CLASH_CONFIG_BAK_PATH="${CLASH_CONFIG_RAW_PATH}.bak"
-CLASH_MIXIN_PATH="${CLASH_BASE_PATH}/mixin.d"
-CLASH_MIXIN_TUN_PATH="${CLASH_MIXIN_PATH}/tun.yaml"
-CLASH_UPDATE_LOG_PATH="${CLASH_BASE_PATH}/clashupdate.log"
+CLASH_BASE_DIR='/opt/clash'
+CLASH_CONFIG_URL="${CLASH_BASE_DIR}/url"
+CLASH_CONFIG_RAW="${CLASH_BASE_DIR}/config.yaml"
+CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/config-mixin.yaml"
+CLASH_MIXIN_BASE_DIR="${CLASH_BASE_DIR}/mixin.d"
+CLASH_MIXIN_TUN="${CLASH_MIXIN_BASE_DIR}/tun.yaml"
+CLASH_UPDATE_LOG="${CLASH_BASE_DIR}/clashupdate.log"
 
 function _get_os() {
     local os_info
     os_info=$(cat /etc/os-release)
     echo "$os_info" | grep -iqs "centos" && {
-        CLASH_CRON_PATH='/var/spool/cron/root'
-        BASHRC_PATH='/etc/bashrc'
+        CLASH_CRON_TAB='/var/spool/cron/root'
+        BASHRC='/etc/bashrc'
     }
     echo "$os_info" | grep -iqsE "debian|ubuntu" && {
-        CLASH_CRON_PATH='/var/spool/cron/crontabs/root'
-        BASHRC_PATH='/etc/bash.bashrc'
+        CLASH_CRON_TAB='/var/spool/cron/crontabs/root'
+        BASHRC='/etc/bash.bashrc'
     }
 }
 _get_os
 
 function _okcat() {
-    echo "😼 $1"
+    echo "😼 $1" && return 0
 }
 
 function _failcat() {
-    echo "😾 $1"
+    echo "😾 $1" >&2 && return 1
 }
 
 # bash执行   $0为脚本执行路径

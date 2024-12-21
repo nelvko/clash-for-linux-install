@@ -47,40 +47,6 @@ function clashui() {
     clashon >&/dev/null
 }
 
-function clashupdate() {
-    local is_auto=false
-    local is_log=false
-    local url=""
-    for arg in "$@"; do
-        [ "$arg" = "log" ] && is_log=true
-        [ "$arg" = "--auto" ] && is_auto=true
-        [ "${arg:0:4}" = 'http' ] && url=$arg
-    done
-
-    [ "$is_log" = true ] && {
-        tail "${CLASH_UPDATE_LOG_PATH}"
-        return $?
-    }
-    [ "$url" = "" ] && _error_quit '请正确填写订阅链接'
-    [ "$is_auto" = true ] && {
-        grep -qs 'clashupdate' "$CLASH_CRON_PATH" || xargs -I {} echo "0 0 */2 * * . $BASHRC_PATH;clashupdate {}" >>"$CLASH_CRON_PATH" <<<"$url"
-        _okcat "定时任务设置成功" && return 0
-    }
-
-    cat "$CLASH_CONFIG_RAW_PATH" >"$CLASH_CONFIG_BAK_PATH"
-    _download_config "$url" "$CLASH_CONFIG_RAW_PATH"
-    # shellcheck disable=SC2015
-    _valid_config "$CLASH_CONFIG_RAW_PATH" && {
-        { clashoff && clashon; } >/dev/null 2>&1
-        _okcat '配置更新成功，已重启生效'
-        echo "$(date +"%Y-%m-%d %H:%M:%S") 配置更新成功✅" >>"${CLASH_UPDATE_LOG_PATH}"
-    } || {
-        cat "$CLASH_CONFIG_BAK_PATH" >"$CLASH_CONFIG_RAW_PATH"
-        echo "$(date +"%Y-%m-%d %H:%M:%S") 配置更新失败❌" >>"${CLASH_UPDATE_LOG_PATH}"
-        _error_quit '配置无效：请检查配置内容'
-    }
-}
-
 function clashsecret() {
     [ $# -eq 0 ] &&
         _okcat "当前密钥：$(sed -nE 's/.*secret\s(.*)/\1/p' /etc/systemd/system/clash.service)"
@@ -94,27 +60,30 @@ function clashsecret() {
         _failcat "密钥不要包含空格或使用引号包围"
 }
 
+_tunstatus() {
+    local status=$(grep -A 1 "^tun:" "${CLASH_CONFIG_MIXIN}" | grep -oP '(?<=enable: ).*')
+    [ "$status" = 'true' ] && _okcat 'Tun 状态：启用' || _failcat 'Tun 状态：关闭'
+}
+
 _tunoff() {
-    cat "$CLASH_CONFIG_RAW_PATH" >"${CLASH_CONFIG_MIXIN_PATH}"
+    _tunstatus >/dev/null || return 0
+    cat "$CLASH_CONFIG_RAW" >"${CLASH_CONFIG_MIXIN}"
     { clashoff && clashon; } >&/dev/null
-    _okcat "tun 模式已关闭"
+    _okcat "Tun 模式已关闭"
 }
 
 _tunon() {
-    grep 'tun:' "${CLASH_CONFIG_MIXIN_PATH}" && {
-        echo 已有
-        return
-    }
-    sed -i '$a\# tun-config-start' "${CLASH_CONFIG_MIXIN_PATH}"
-    cat "${CLASH_MIXIN_TUN_PATH}" >>"${CLASH_CONFIG_MIXIN_PATH}"
-    sed -i '$a\# tun-config-end\n' "${CLASH_CONFIG_MIXIN_PATH}"
+    _tunstatus 2>/dev/null && return 0
+    sed -i '$a\\n# tun-config-start' "${CLASH_CONFIG_MIXIN}"
+    cat "${CLASH_MIXIN_TUN}" >>"${CLASH_CONFIG_MIXIN}"
+    sed -i '$a\# tun-config-end\n' "${CLASH_CONFIG_MIXIN}"
     { clashoff && clashon; } >&/dev/null
 
     journalctl -u clash | grep -qs 'unsupported kernel version' && {
         _tunoff >&/dev/null
         _error_quit '当前系统内核版本不支持'
     }
-    _okcat "tun 模式已开启"
+    _okcat "Tun 模式已开启"
 }
 
 function clashtun() {
@@ -126,20 +95,84 @@ function clashtun() {
         _tunoff
         ;;
     *)
-        _okcat "usage: clashtun on|off"
+        _tunstatus
+        ;;
+    esac
+}
+
+function clashupdate() {
+    local url=$(cat "$CLASH_CONFIG_URL")
+    local is_auto=false
+    case "$1" in
+    --auto)
+        is_auto=true
+        ;;
+    log)
+        tail "${CLASH_UPDATE_LOG}"
+        return $?
+        ;;
+    *)
+        url=$2
+        ;;
+    esac
+    [ "${url:0:4}" != 'http' ] && _error_quit '请正确填写订阅链接'
+    [ "$is_auto" = true ] && {
+        grep -qs 'clashupdate' "$CLASH_CRON_TAB" ||
+            echo "0 0 */2 * * . $BASHRC;clashupdate $url" >>"$CLASH_CRON_TAB" &&
+            echo 666
+        _okcat "定时任务设置成功" && return 0
+    }
+
+    _download_config "$url" "$CLASH_CONFIG_RAW"
+    # shellcheck disable=SC2015
+    _valid_config "$CLASH_CONFIG_RAW" && {
+        clashtun >&/dev/null && local is_tun=true
+        { clashoff && clashon; } >/dev/null 2>&1
+        [ "$is_tun" = true ] && clashtun on
+        _okcat '配置更新成功，已重启生效'
+        echo "$url" >"$CLASH_CONFIG_URL"
+        echo "$(date +"%Y-%m-%d %H:%M:%S") 配置更新成功 ✅ $url" >>"${CLASH_UPDATE_LOG}"
+    } || {
+        echo "$(date +"%Y-%m-%d %H:%M:%S") 配置更新失败 ❌ $url" >>"${CLASH_UPDATE_LOG}"
+        _error_quit '配置无效：请检查配置内容'
+    }
+}
+
+_ls_mixin() {
+    /bin/ls "$CLASH_MIXIN_BASE_DIR" | grep -v status | awk '{print NR, $NF}'
+}
+
+function clashmixin() {
+    case "$1" in
+    '')
+        _ls_mixin
+        ;;
+    on)
+        target=$(_ls_mixin | grep "$2" | awk '{print $2}')
+        grep -qs "$target" "$CLASH_MIXIN_BASE_DIR/status" || echo "$target on" >>"$CLASH_MIXIN_BASE_DIR/status" &&
+            sed -i "/$target/s/off/on/" "$CLASH_MIXIN_BASE_DIR/status"
+        grep -s on "$CLASH_MIXIN_BASE_DIR/status" | awk '{print $1}'
+
+        # yq ea '. as $item ireduce ({}; . * $item )' "$CLASH_CONFIG_RAW" "$CLASH_MIXIN_BASE_DIR/*on.yaml"
+        ;;
+    off)
+        echo "off"
+        ;;
+    *)
+        echo "Usage"
         ;;
     esac
 
 }
 
 function clash() {
-    [ $# -eq 0 ] && cat <<EOF
+    cat <<EOF | column -t -s '：'
 Usage:
-    开启代理: clashon
-    关闭代理: clashoff
-    Web UI:  clashui
-    更新配置文件: clashupdate [--auto]
-    查看设置密钥:  clashsecret
-    设置 Tun 模式:  clashtun on|off
+    开启代理： clashon
+    关闭代理： clashoff
+    面板地址： clashui
+    Tun模式： clashtun [on|off]
+    更新订阅： clashupdate [--auto] [url]
+    设置密钥： clashsecret [secret]
 EOF
 }
