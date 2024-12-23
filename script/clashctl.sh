@@ -2,7 +2,7 @@
 # shellcheck disable=SC2155
 # clash快捷指令
 function clashon() {
-    systemctl start clash && echo '😼 已开启代理环境' ||
+    sudo systemctl start clash && echo '😼 已开启代理环境' ||
         echo '😾 启动失败: 执行 "systemctl status clash" 查看日志' || return 1
     local proxy_addr=http://127.0.0.1:7890
     export http_proxy=$proxy_addr
@@ -12,7 +12,7 @@ function clashon() {
 }
 
 function clashoff() {
-    systemctl stop clash && echo '😼 已关闭代理环境' ||
+    sudo systemctl stop clash && echo '😼 已关闭代理环境' ||
         echo '😾 关闭失败: 执行 "systemctl status clash" 查看日志' || return 1
     unset http_proxy
     unset https_proxy
@@ -60,11 +60,11 @@ function clashupdate() {
     }
     [ "$url" = "" ] && _error_quit '请正确填写订阅链接'
     [ "$is_auto" = true ] && {
-        grep -qs 'clashupdate' "$CLASH_CRON_PATH" || xargs -I {} echo "0 0 */2 * * . $BASHRC_PATH;clashupdate {}" >>"$CLASH_CRON_PATH" <<<"$url"
+        grep -qs 'clashupdate' "$CLASH_CRON_PATH" || echo "0 0 */2 * * . $BASHRC_PATH;clashupdate $url" | sudo tee -a "$CLASH_CRON_PATH" >&/dev/null
         echo "😼 定时任务设置成功" && return 0
     }
 
-    cat "$CLASH_CONFIG_PATH" >"$CLASH_CONFIG_BAK_PATH"
+    cat "$CLASH_CONFIG_PATH" | sudo tee -a "$CLASH_CONFIG_BAK_PATH"
     _download_config "$url" "$CLASH_CONFIG_PATH"
     # shellcheck disable=SC2015
     _valid_config "$CLASH_CONFIG_PATH" && {
@@ -82,8 +82,10 @@ function clashsecret() {
     [ $# -eq 0 ] &&
         echo "😼 当前密钥：$(sed -nE 's/.*secret\s(.*)/\1/p' /etc/systemd/system/clash.service)"
     [ $# -eq 1 ] && {
-        xargs -I {} sed -iE s/'secret\s.*'/'secret {}'/ /etc/systemd/system/clash.service <<<"$1"
-        systemctl daemon-reload
+        local secret=$1
+        [ -z "$secret" ] && secret=\'\'
+        sudo sed -iE s/"secret\s.*"/"secret $secret"/ /etc/systemd/system/clash.service
+        sudo systemctl daemon-reload
         { clashoff && clashon; } >/dev/null 2>&1
         echo "😼 密钥更新成功，已重启生效"
     }
