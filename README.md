@@ -23,10 +23,10 @@
 > [常见问题](#常见问题)
 
 ```bash
-git clone https://ghp.ci/https://github.com/nelvko/clash-for-linux-install.git && cd clash-for-linux-install && sudo bash -c '. install.sh; exec bash'
+git clone https://ghgo.xyz/https://github.com/nelvko/clash-for-linux-install.git && cd clash-for-linux-install && sudo bash -c '. install.sh; exec bash'
 ```
 
-- 上述脚本已使用[代理加速下载](https://ghp.ci/)，如失效请自行更换。
+- 上述脚本已使用[代理加速下载](https://ghproxy.link/)，如克隆失败请自行更换。
 
 - ~~不懂什么是订阅链接的小白可参考~~：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1)
 
