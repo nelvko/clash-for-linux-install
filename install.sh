@@ -18,8 +18,8 @@ echo "$url" >"$CLASH_CONFIG_URL"
 /bin/ls resource | grep -Ev 'gz|png|xz' | xargs -I {} /bin/cp -rf "resource/{}" "$CLASH_BASE_DIR"
 tar -xf "$TEMP_UI_RAR" -C "$CLASH_BASE_DIR"
 
-cat "${CLASH_CONFIG_RAW}" >"${CLASH_CONFIG_MIXIN}"
-sed -i -e '1i\# raw-config-start' -e '$a\# raw-config-end\n' "${CLASH_CONFIG_MIXIN}"
+cat "${CLASH_CONFIG_RAW}" >"${CLASH_CONFIG_RUNTIME}"
+sed -i -e '1i\# raw-config-start' -e '$a\# raw-config-end\n' "${CLASH_CONFIG_RUNTIME}"
 
 cat <<EOF >/etc/systemd/system/clash.service
 [Unit]
@@ -29,7 +29,7 @@ After=network-online.target
 [Service]
 Type=simple
 Restart=always
-ExecStart=${CLASH_BASE_DIR}/clash -d ${CLASH_BASE_DIR} -f ${CLASH_CONFIG_MIXIN} -ext-ui public -ext-ctl 0.0.0.0:9090 -secret ''
+ExecStart=${CLASH_BASE_DIR}/clash -d ${CLASH_BASE_DIR} -f ${CLASH_CONFIG_RUNTIME} -ext-ui public -ext-ctl 0.0.0.0:9090 -secret ''
 
 [Install]
 WantedBy=multi-user.target

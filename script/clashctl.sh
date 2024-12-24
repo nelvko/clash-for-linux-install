@@ -2,8 +2,8 @@
 # shellcheck disable=SC2155
 # clash快捷指令
 function clashon() {
-    systemctl start clash && _okcat '已开启代理环境' ||
-        _failcat '启动失败: 执行 "systemctl status clash" 查看日志' || return 1
+    sudo systemctl start clash && echo '😼 已开启代理环境' ||
+        echo '😾 启动失败: 执行 "systemctl status clash" 查看日志' || return 1
     local proxy_addr=http://127.0.0.1:7890
     export http_proxy=$proxy_addr
     export https_proxy=$proxy_addr
@@ -12,8 +12,8 @@ function clashon() {
 }
 
 function clashoff() {
-    systemctl stop clash && _okcat '已关闭代理环境' ||
-        _failcat '关闭失败: 执行 "systemctl status clash" 查看日志' || return 1
+    sudo systemctl stop clash && echo '😼 已关闭代理环境' ||
+        echo '😾 关闭失败: 执行 "systemctl status clash" 查看日志' || return 1
     unset http_proxy
     unset https_proxy
     unset HTTP_PROXY
@@ -48,38 +48,59 @@ function clashui() {
 }
 
 function clashsecret() {
-    [ $# -eq 0 ] &&
+    case "$#" in
+    0)
         _okcat "当前密钥：$(sed -nE 's/.*secret\s(.*)/\1/p' /etc/systemd/system/clash.service)"
-    [ $# -eq 1 ] && {
-        xargs -I {} sed -iE s/'secret\s.*'/'secret {}'/ /etc/systemd/system/clash.service <<<"$1"
-        systemctl daemon-reload
+        ;;
+    1)
+        local secret=$1
+        [ -z "$secret" ] && secret=\'\'
+        sudo sed -iE s/"secret\s.*"/"secret $secret"/ /etc/systemd/system/clash.service
+        sudo systemctl daemon-reload
         { clashoff && clashon; } >/dev/null 2>&1
         _okcat "密钥更新成功，已重启生效"
-    }
-    [ $# -ge 2 ] &&
+        ;;
+    *)
         _failcat "密钥不要包含空格或使用引号包围"
+        ;;
+    esac
+}
+
+_valid_yq() {
+    yq -V >&/dev/null && return 0
+    read -r -p '依赖 yq 命令，是否安装？[y/N]: ' flag
+    [ "$flag" = "y" ] && {
+        sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq &&
+            sudo chmod +x /usr/bin/yq
+        _okcat 'yq 安装成功'
+    } || _failcat '取消安装'
+
+}
+
+_concat_config() {
+    _valid_yq
+    yq -n "load(\"$CLASH_CONFIG_MIXIN\") * load(\"$CLASH_CONFIG_RAW\")" >"$CLASH_CONFIG_RUNTIME"
 }
 
 _tunstatus() {
-    local status=$(grep -A 1 "^tun:" "${CLASH_CONFIG_MIXIN}" | grep -oP '(?<=enable: ).*')
+    local status=$(yq '.tun.enable' "${CLASH_CONFIG_RUNTIME}")
     [ "$status" = 'true' ] && _okcat 'Tun 状态：启用' || _failcat 'Tun 状态：关闭'
 }
 
 _tunoff() {
     _tunstatus >/dev/null || return 0
-    cat "$CLASH_CONFIG_RAW" >"${CLASH_CONFIG_MIXIN}"
+    yq -i '.tun.enable = false' "$CLASH_CONFIG_MIXIN"
+    _concat_config
     { clashoff && clashon; } >&/dev/null
     _okcat "Tun 模式已关闭"
 }
 
 _tunon() {
     _tunstatus 2>/dev/null && return 0
-    sed -i '$a\\n# tun-config-start' "${CLASH_CONFIG_MIXIN}"
-    cat "${CLASH_MIXIN_TUN}" >>"${CLASH_CONFIG_MIXIN}"
-    sed -i '$a\# tun-config-end\n' "${CLASH_CONFIG_MIXIN}"
+    yq -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
+    _concat_config
     { clashoff && clashon; } >&/dev/null
-
-    journalctl -u clash | grep -qs 'unsupported kernel version' && {
+    systemctl status clash | grep -qs 'unsupported kernel version' && {
         _tunoff >&/dev/null
         _error_quit '当前系统内核版本不支持'
     }
@@ -87,6 +108,7 @@ _tunon() {
 }
 
 function clashtun() {
+    _valid_yq
     case "$1" in
     on)
         _tunon
@@ -126,9 +148,8 @@ function clashupdate() {
     _download_config "$url" "$CLASH_CONFIG_RAW"
     # shellcheck disable=SC2015
     _valid_config "$CLASH_CONFIG_RAW" && {
-        clashtun >&/dev/null && local is_tun=true
+        _concat_config
         { clashoff && clashon; } >/dev/null 2>&1
-        [ "$is_tun" = true ] && clashtun on
         _okcat '配置更新成功，已重启生效'
         echo "$url" >"$CLASH_CONFIG_URL"
         echo "$(date +"%Y-%m-%d %H:%M:%S") 配置更新成功 ✅ $url" >>"${CLASH_UPDATE_LOG}"
@@ -138,41 +159,27 @@ function clashupdate() {
     }
 }
 
-_ls_mixin() {
-    /bin/ls "$CLASH_MIXIN_BASE_DIR" | grep -v status | awk '{print NR, $NF}'
-}
-
 function clashmixin() {
     case "$1" in
-    '')
-        _ls_mixin
-        ;;
-    on)
-        target=$(_ls_mixin | grep "$2" | awk '{print $2}')
-        grep -qs "$target" "$CLASH_MIXIN_BASE_DIR/status" || echo "$target on" >>"$CLASH_MIXIN_BASE_DIR/status" &&
-            sed -i "/$target/s/off/on/" "$CLASH_MIXIN_BASE_DIR/status"
-        grep -s on "$CLASH_MIXIN_BASE_DIR/status" | awk '{print $1}'
-
-        # yq ea '. as $item ireduce ({}; . * $item )' "$CLASH_CONFIG_RAW" "$CLASH_MIXIN_BASE_DIR/*on.yaml"
-        ;;
-    off)
-        echo "off"
+    -e)
+        sudo vi "$CLASH_CONFIG_MIXIN"
         ;;
     *)
-        echo "Usage"
+        less "$CLASH_CONFIG_MIXIN"
+        _valid_config
+        clashon clashoff
         ;;
     esac
-
 }
 
 function clash() {
-    cat <<EOF | column -t -s '：'
+    cat << EOF | column -t -s '：'
 Usage:
-    开启代理： clashon
-    关闭代理： clashoff
-    面板地址： clashui
-    Tun模式： clashtun [on|off]
-    更新订阅： clashupdate [--auto] [url]
-    设置密钥： clashsecret [secret]
+    clashon                开启代理：
+    clashoff               关闭代理：
+    clashui                面板地址：
+    clashtun [on|off]      Tun模式：
+    clashupdate [auto|log] 更新订阅：
+    clashsecret [secret]   查看/设置密钥：
 EOF
 }

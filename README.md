@@ -41,6 +41,7 @@ Usage:
     更新订阅       clashupdate [--auto] [url]
     设置密钥       clashsecret [secret]
     Tun模式        clashtun [on|off]
+    Mixin配置      clashmixin
 ```
 
 ### 使用原理

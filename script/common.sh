@@ -7,9 +7,8 @@ TEMP_UI_RAR='./resource/yacd.tar.xz'
 CLASH_BASE_DIR='/opt/clash'
 CLASH_CONFIG_URL="${CLASH_BASE_DIR}/url"
 CLASH_CONFIG_RAW="${CLASH_BASE_DIR}/config.yaml"
-CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/config-mixin.yaml"
-CLASH_MIXIN_BASE_DIR="${CLASH_BASE_DIR}/mixin.d"
-CLASH_MIXIN_TUN="${CLASH_MIXIN_BASE_DIR}/tun.yaml"
+CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/mixin.yaml"
+CLASH_CONFIG_RUNTIME="${CLASH_BASE_DIR}/config-runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_BASE_DIR}/clashupdate.log"
 
 function _get_os() {
@@ -52,7 +51,7 @@ function _valid_env() {
 # 配置文件和clash在同一目录
 function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] &&
-        "$(dirname "$1")/clash" -d "$(dirname "$1")" -t
+        "$(dirname "$1")/clash" -d "$(dirname "$1")" -f "$(basename "$1")" -t
 }
 
 function _download_config() {
