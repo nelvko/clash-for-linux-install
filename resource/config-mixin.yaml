@@ -1,0 +1,13 @@
+# tun-config-start
+tun:
+  enable: true
+  stack: system # or gvisor
+  # dns-hijack:
+  #   - 8.8.8.8:53
+  #   - tcp://8.8.8.8:53
+  #   - any:53
+  #   - tcp://any:53
+  auto-route: true # manage $(ip route) and $(ip rules)
+  auto-redir: true # manage nftable REDIRECT
+  auto-detect-interface: true
+# tun-config-end
