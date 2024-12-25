@@ -1,3 +1,4 @@
+# tun-config-start
 tun:
   enable: true
   stack: system # or gvisor
@@ -8,4 +9,5 @@ tun:
   #   - tcp://any:53
   auto-route: true # manage $(ip route) and $(ip rules)
   auto-redir: true # manage nftable REDIRECT
-  auto-detect-interface: true # 与 $(interface-name) 冲突
+  auto-detect-interface: true
+# tun-config-end
