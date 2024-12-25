@@ -16,7 +16,7 @@
 
 ## 开始使用
 
-### 一键安装脚本
+### 一键安装
 
 > [!NOTE]
 >
@@ -34,17 +34,17 @@ git clone https://ghgo.xyz/https://github.com/nelvko/clash-for-linux-install.git
 
 ```bash
 $ clash
-Usage:   
-    开启代理       clashon
-    关闭代理       clashoff
-    面板地址       clashui
-    更新订阅       clashupdate [--auto] [url]
-    设置密钥       clashsecret [secret]
-    Tun模式        clashtun [on|off]
-    Mixin配置      clashmixin
+Usage:                                    
+    clashon                开启代理       
+    clashoff               关闭代理       
+    clashui                面板地址       
+    clashtun [on|off]      Tun模式        
+    clashsecret [secret]   查看/设置密钥  
+    clashmixin [-e|-r]     Mixin配置      
+    clashupdate [auto|log] 更新订阅
 ```
 
-### 使用原理
+### 基础使用
 
 ```bash
 $ clashoff
@@ -66,7 +66,7 @@ $ clashui
 $ clashupdate [url]
 😼 配置更新成功，已重启生效
 
-$ clashupdate --auto [url]
+$ clashupdate auto [url]
 😼 定时任务设置成功
 
 $ clashupdate log
@@ -74,8 +74,8 @@ $ clashupdate log
 ```
 
 - 不指定 `url` 默认使用安装时填的订阅。
-- 定时任务设置一次即可，会新建定时任务，每两天自动下载并覆盖原配置文件。
 - 可通过 `crontab -e` 修改更新频率及订阅链接。
+- 依赖 [`yq`](https://github.com/mikefarah/yq/releases) 命令实现 [`Mixin`](#mixin-配置)，如下载失败请自行安装到 `PATH` 路径内。
 
 ### Web 控制台设置密钥（推荐）
 
@@ -83,12 +83,9 @@ $ clashupdate log
 $ clashsecret xxx
 😼 密钥更新成功，已重启生效
 
-$ clashsecret 
+$ clashsecret
 😼 当前密钥：xxx
 ```
-
-- 启动时指定，优先级大于配置文件，更新订阅后不会丢失。
-- 可修改文件 `/etc/systemd/system/clash.service` 指定其他启动参数。
 
 ### `Tun` 模式
 
@@ -101,29 +98,23 @@ $ clashtun on
 ```
 
 - 作用：实现本机所有流量路由到 `clash` 代理、DNS 劫持等。
-- 原理：[clash-verge-rev](https://www.clashverge.dev/guide/term.html#tun)、 [clash.wiki](https://clash.wiki/premium/tun-device.html)
-- 配置路径： `/opt/clash/mixin.d/tun.yaml`
+- 原理：[clash-verge-rev](https://www.clashverge.dev/guide/term.html#tun)、 [clash.wiki](https://clash.wiki/premium/tun-device.html)。
 
 ### `Mixin` 配置
 
 ```bash
 $ clashmixin
-😼 查看 mixin 配置列表...
+😼 查看 mixin 配置
 
-$ clashmixin -e 1
-😼 查看 mixin 配置列表...
+$ clashmixin -e
+😼 编辑 mixin 配置
 
-$ clashmixin on 1
-😼 启用混入配置：1
+$ clashmixin -r
+😼 查看 运行时 配置
 ```
 
-思路：
-
-- 混入配置：mixin.yaml （mixin.d 目录，多个配置）
-- 混入配置优先级大于订阅配置。
-- yq
-- ~~循环遍历混入配置，通过 sed 去掉主配置中对应的配置项~~
-- `cat config.yaml mixin.yaml`
+- 运行时配置是订阅配置和 `Mixin` 配置的并集， `Mixin` 配置优先级大于订阅配置。
+- 作用：防止更新订阅后丢失自定义配置。
 
 ### 卸载
 
@@ -135,9 +126,7 @@ sudo bash -c '. uninstall.sh; exec bash'
 
 ### 下载失败、配置无效
 
-- 下载失败：脚本使用 `wget`、`curl`
-  命令进行了多次[重试](https://github.com/nelvko/clash-for-linux-install/blob/035c85ac92166e95b7503b2a678a6b535fbd4449/script/common.sh#L32-L46)
-  下载，如果还是失败可能是机场限制，请自行粘贴内容到配置文件：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1#issuecomment-2066334716)
+- 下载失败：脚本使用 `wget`、`curl` 命令进行了多次[重试](https://github.com/nelvko/clash-for-linux-install/blob/035c85ac92166e95b7503b2a678a6b535fbd4449/script/common.sh#L32-L46)下载，如果还是失败可能是机场限制，请自行粘贴订阅内容到配置文件：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1#issuecomment-2066334716)
 - 订阅配置无效：[issue#14](https://github.com/nelvko/clash-for-linux-install/issues/14#issuecomment-2513303276)
 
 ### bash: clashon: command not found
@@ -148,22 +137,22 @@ sudo bash -c '. uninstall.sh; exec bash'
 
   <summary>几种运行方式的区别：</summary>
 
-  - `bash` 命令运行：当前 `shell` 开启一个子 `shell` 执行脚本，对环境的修改不会作用到当前 `shell`，因此不具备 `clashon`
-    等命令。
+	- `bash` 命令运行：当前 `shell` 开启一个子 `shell` 执行脚本，对环境的修改不会作用到当前 `shell`，因此不具备 `clashon`
+	  等命令。
 
-    ```bash
-    # 需要有可执行权限
-    $ ./install.sh
-    # 不需要可执行权限，需要读权限
-    $ bash ./install.sh
-    ```
-  - `shell` 内建命令运行：脚本在当前 `shell` 环境中执行，变量和函数的定义对当前 `shell` 有效，`root` 用户推荐这种方式执行脚本。
+	  ```bash
+	  # 需要有可执行权限
+	  $ ./install.sh
+	  # 不需要可执行权限，需要读权限
+	  $ bash ./install.sh
+	  ```
+	- `shell` 内建命令运行：脚本在当前 `shell` 环境中执行，变量和函数的定义对当前 `shell` 有效，`root` 用户推荐这种方式执行脚本。
 
-    ```bash
-    # 不需要可执行权限，需要读权限
-    $ . install.sh
-    $ source uninstall.sh
-    ```
+	  ```bash
+	  # 不需要可执行权限，需要读权限
+	  $ . install.sh
+	  $ source uninstall.sh
+	  ```
 
   </details>
 
@@ -186,7 +175,7 @@ sudo bash -c '. uninstall.sh; exec bash'
 - [X] 适配其他发行版
 - [X] 配置更新日志
 - [X] Tun 模式
-- [ ] mixin 配置
+- [x] mixin 配置
 - [ ] [bug / 需求](https://github.com/nelvko/clash-for-linux-install/issues)
 
 ## Thanks
