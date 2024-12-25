@@ -1,3 +1,4 @@
 .idea
-config*.yaml
+.vscode
+config.yaml
 resource/clash
