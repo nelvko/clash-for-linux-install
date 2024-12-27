@@ -7,15 +7,15 @@ function _check_cpu_support() {
     local cpu_flags
     cpu_flags=$(grep "flags" /proc/cpuinfo | head -n1)
     
-    # 检查 v3 支持 (AVX2 + 其他必需指令集)
+    # 检查 v3 支持 (检测AVX2)
     if echo "$cpu_flags" | grep -q "avx2"; then
-        echo "检测到支持 GOAMD64=v3 架构 (支持 AVX2)"
+        echo "检测到支持AMD64-v3 架构 (支持 AVX2)"
         echo "amd64-v3"
         return
     fi
 
     # 基线版本 (v1)
-    echo "使用基线版本 GOAMD64=v1"
+    echo "使用v1版本"
     echo "amd64"
 }
 
