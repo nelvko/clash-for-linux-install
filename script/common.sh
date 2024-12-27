@@ -4,7 +4,7 @@
 GH_PROXY='https://ghgo.xyz'
 
 TEMP_CONFIG='./resource/config.yaml'
-TEMP_CLASH_RAR='./resource/clash-linux-amd64-v3-2023.08.17.gz'
+TEMP_CLASH_RAR='./resource/clash-linux-amd64-2023.08.17.gz'
 TEMP_UI_RAR='./resource/yacd.tar.xz'
 
 CLASH_BASE_DIR='/opt/clash'
