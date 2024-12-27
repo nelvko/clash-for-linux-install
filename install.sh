@@ -7,6 +7,12 @@
 _valid_env
 [ -d "$CLASH_BASE_DIR" ] && _error_quit "已安装，如需重新安装请先执行卸载脚本"
 
+# 下载对应版本的 Clash
+echo "正在检测 CPU 架构支持情况..."
+ARCH_CHECK_RESULT=$(_check_cpu_support)
+ARCH_VERSION=$(echo "$ARCH_CHECK_RESULT" | tail -n1)
+echo "将使用 ${ARCH_VERSION} 版本的 Clash"
+_download_clash "${ARCH_VERSION}" "${TEMP_CLASH_RAR}" || _error_quit "下载 Clash 失败"
 gzip -dc "$TEMP_CLASH_RAR" > ./resource/clash && chmod +x ./resource/clash
 # shellcheck disable=SC2015
 _valid_config "$TEMP_CONFIG" && echo '✅ 配置可用' || {
