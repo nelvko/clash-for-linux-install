@@ -3,8 +3,28 @@
 # shellcheck disable=SC2155
 GH_PROXY='https://ghgo.xyz'
 
+function _check_cpu_support() {
+    local cpu_flags
+    cpu_flags=$(grep "flags" /proc/cpuinfo | head -n1)
+    
+    # 检查 v3 支持 (AVX2 + 其他必需指令集)
+    if echo "$cpu_flags" | grep -q "avx2"; then
+        echo "检测到支持 GOAMD64=v3 架构 (支持 AVX2)"
+        echo "amd64-v3"
+        return
+    fi
+
+    # 基线版本 (v1)
+    echo "使用基线版本 GOAMD64=v1"
+    echo "amd64"
+}
+
+# 根据 CPU 架构选择合适的 Clash 版本
+ARCH_CHECK_RESULT=$(_check_cpu_support)
+ARCH_VERSION=$(echo "$ARCH_CHECK_RESULT" | tail -n1)
+CLASH_VERSION="2023.08.17"
 TEMP_CONFIG='./resource/config.yaml'
-TEMP_CLASH_RAR='./resource/clash-linux-amd64-2023.08.17.gz'
+TEMP_CLASH_RAR="./resource/clash-linux-${ARCH_VERSION}-2023.08.17.gz"
 TEMP_UI_RAR='./resource/yacd.tar.xz'
 
 CLASH_BASE_DIR='/opt/clash'
@@ -22,6 +42,9 @@ function _get_port() {
     EXT_PORT=${ext_ctl##*:}
     EXT_PORT=${EXT_PORT//\'/}
     MIXED_PORT=$(_get_value 'mixed-port')
+    # 如果没有获取到端口，使用默认端口
+    [ -z "$MIXED_PORT" ] && MIXED_PORT=7890
+    [ -z "$EXT_PORT" ] && EXT_PORT=9090
 }
 
 function _get_os() {
@@ -86,4 +109,34 @@ function _download_config() {
             --user-agent "$agent" \
             -k -o "$output" \
             "$url"
+}
+
+# 下载对应版本的 Clash
+function _download_clash() {
+    local version=$1
+    local output=$2
+    local clash_url
+
+    case "$version" in
+        "v3")
+            clash_url="${GH_PROXY}/https://github.com/Dreamacro/clash/releases/download/v1.18.0/clash-linux-amd64-v3-v1.18.0.gz"
+            ;;
+        "amd64")
+            clash_url="${GH_PROXY}/https://github.com/Dreamacro/clash/releases/download/v1.18.0/clash-linux-amd64-v1.18.0.gz"
+            ;;
+        *)
+            echo "未知的架构版本：$version"
+            return 1
+            ;;
+    esac
+    
+    wget --timeout=5 \
+        --tries=1 \
+        --no-check-certificate \
+        -O "$output" \
+        "$clash_url" \
+        || curl --connect-timeout 5 \
+            --retry 2 \
+            -k -o "$output" \
+            "$clash_url"
 }
