@@ -85,7 +85,7 @@ _valid_yq() {
 _concat_config_restart() {
     _valid_config "$CLASH_CONFIG_MIXIN" || _error_quit "Mixin 配置验证失败，请检查"
     _valid_yq || return 1
-    yq -n "load(\"$CLASH_CONFIG_RAW\") * load(\"$CLASH_CONFIG_MIXIN\")" > "$CLASH_CONFIG_RUNTIME" && clashrestart
+    sudo yq -n "load(\"$CLASH_CONFIG_RAW\") * load(\"$CLASH_CONFIG_MIXIN\")" | sudo tee "$CLASH_CONFIG_RUNTIME" >&/dev/null && clashrestart
 }
 
 _tunstatus() {
@@ -165,10 +165,10 @@ function clashupdate() {
     _valid_config "$CLASH_CONFIG_RAW" && {
         _mark_raw
         _concat_config_restart && _okcat '配置更新成功，已重启生效'
-        echo "$url" > "$CLASH_CONFIG_URL"
-        echo "$(date +"%Y-%m-%d %H:%M:%S") 配置更新成功 ✅ $url" >> "${CLASH_UPDATE_LOG}"
+        echo "$url" | sudo tee "$CLASH_CONFIG_URL" >&/dev/null
+        echo "$(date +"%Y-%m-%d %H:%M:%S") 配置更新成功 ✅ $url" | sudo tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
     } || {
-        echo "$(date +"%Y-%m-%d %H:%M:%S") 配置更新失败 ❌ $url" >> "${CLASH_UPDATE_LOG}"
+        echo "$(date +"%Y-%m-%d %H:%M:%S") 配置更新失败 ❌ $url" | sudo tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
         _error_quit '配置无效：请检查配置内容'
     }
 }

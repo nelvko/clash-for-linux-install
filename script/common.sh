@@ -39,7 +39,7 @@ function _get_os() {
 _get_os
 
 function _mark_raw() {
-    sed -i -e '1i\# raw-config-start' -e '$a\# raw-config-end\n' "${CLASH_CONFIG_RAW}"
+    sudo sed -i -e '1i\# raw-config-start' -e '$a\# raw-config-end\n' "${CLASH_CONFIG_RAW}"
 }
 
 function _okcat() {
@@ -75,13 +75,13 @@ function _download_config() {
     local url=$1
     local output=$2
     local agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
-    curl --connect-timeout 5 \
+    sudo curl --connect-timeout 5 \
         --retry 2 \
         --user-agent "$agent" \
         -k \
         -o "$output" \
         "$url" \
-        || wget --timeout=5 \
+        || sudo wget --timeout=5 \
             --tries=1 \
             --user-agent="$agent" \
             --no-check-certificate \
