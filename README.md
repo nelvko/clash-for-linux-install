@@ -74,6 +74,7 @@ $ clashupdate log
 ```
 
 - 不指定 `url` 默认使用安装时填的订阅。
+- 通过粘贴配置内容安装的，更新配置步骤：[pr#24](https://github.com/nelvko/clash-for-linux-install/pull/24#issuecomment-2565054701)
 - 可通过 `crontab -e` 修改更新频率及订阅链接。
 - 依赖 [`yq`](https://github.com/mikefarah/yq/releases) 命令实现 [`Mixin`](#mixin-配置)，如下载失败请自行安装到 `PATH` 路径内。
 

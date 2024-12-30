@@ -3,8 +3,8 @@
 # shellcheck disable=SC2155
 # clash快捷指令
 function clashon() {
-    sudo systemctl start clash && echo '😼 已开启代理环境' \
-        || echo '😾 启动失败: 执行 "systemctl status clash" 查看日志' || return 1
+    sudo systemctl start clash && _okcat '已开启代理环境' \
+        || _failcat '启动失败: 执行 "systemctl status clash" 查看日志' || return 1
     _get_port
     local proxy_addr=http://127.0.0.1:${MIXED_PORT}
     export http_proxy=$proxy_addr
@@ -14,8 +14,8 @@ function clashon() {
 }
 
 function clashoff() {
-    sudo systemctl stop clash && echo '😼 已关闭代理环境' \
-        || echo '😾 关闭失败: 执行 "systemctl status clash" 查看日志' || return 1
+    sudo systemctl stop clash && _okcat '已关闭代理环境' \
+        || _failcat '关闭失败: 执行 "systemctl status clash" 查看日志' || return 1
     unset http_proxy
     unset https_proxy
     unset HTTP_PROXY
@@ -141,21 +141,21 @@ function clashupdate() {
         return $?
         ;;
     *)
-        url=$1
+        [ -n "$1" ] && url=$1
         ;;
     esac
 
     # 如果没有提供有效的订阅链接（url为空或者不是http开头），则使用默认配置文件
-    if [ -z "$url" ] || [ "${url:0:4}" != 'http' ]; then
-        _okcat "没有提供有效的订阅链接，使用默认配置文件进行更新..."
-        url="file://$(realpath ./resource/config.yaml)"
-    fi
+    [ -z "$url" ] || [ "${url:0:4}" != "http" ] && {
+        _failcat "没有提供有效的订阅链接，使用${CLASH_CONFIG_RAW}进行更新..."
+        url="file://$CLASH_CONFIG_RAW"
+    }
 
     # 如果是自动更新模式，则设置定时任务
-    if [ "$is_auto" = true ]; then
+    [ "$is_auto" = true ] && {
         grep -qs 'clashupdate' "$CLASH_CRON_TAB" || echo "0 0 */2 * * . $BASHRC;clashupdate $url" >> "$CLASH_CRON_TAB"
         _okcat "定时任务设置成功" && return 0
-    fi
+    }
 
     # 下载配置文件
     _download_config "$url" "$CLASH_CONFIG_RAW"

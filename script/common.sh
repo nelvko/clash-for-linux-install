@@ -75,15 +75,16 @@ function _download_config() {
     local url=$1
     local output=$2
     local agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
-    wget --timeout=5 \
-        --tries=1 \
-        --no-check-certificate \
-        --user-agent="$agent" \
-        -O "$output" \
+    curl --connect-timeout 5 \
+        --retry 2 \
+        --user-agent "$agent" \
+        -k \
+        -o "$output" \
         "$url" \
-        || curl --connect-timeout 5 \
-            --retry 2 \
-            --user-agent "$agent" \
-            -k -o "$output" \
+        || wget --timeout=5 \
+            --tries=1 \
+            --user-agent="$agent" \
+            --no-check-certificate \
+            -O "$output" \
             "$url"
 }
