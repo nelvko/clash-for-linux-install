@@ -126,8 +126,11 @@ function clashtun() {
 }
 
 function clashupdate() {
+    # 获取默认的订阅链接（从配置文件读取）
     local url=$(cat "$CLASH_CONFIG_URL")
     local is_auto=false
+
+    # 判断是否提供了有效的链接
     case "$1" in
     auto)
         is_auto=true
@@ -141,14 +144,24 @@ function clashupdate() {
         url=$1
         ;;
     esac
-    [ "${url:0:4}" != 'http' ] && _error_quit '请正确填写订阅链接'
-    [ "$is_auto" = true ] && {
+
+    # 如果没有提供有效的订阅链接（url为空或者不是http开头），则使用默认配置文件
+    if [ -z "$url" ] || [ "${url:0:4}" != 'http' ]; then
+        _okcat "没有提供有效的订阅链接，使用默认配置文件进行更新..."
+        url="file://$(realpath ./resource/config.yaml)"
+    fi
+
+    # 如果是自动更新模式，则设置定时任务
+    if [ "$is_auto" = true ]; then
         grep -qs 'clashupdate' "$CLASH_CRON_TAB" || echo "0 0 */2 * * . $BASHRC;clashupdate $url" >> "$CLASH_CRON_TAB"
         _okcat "定时任务设置成功" && return 0
-    }
+    fi
 
+    # 下载配置文件
     _download_config "$url" "$CLASH_CONFIG_RAW"
     # shellcheck disable=SC2015
+
+    # 校验并更新配置
     _valid_config "$CLASH_CONFIG_RAW" && {
         _mark_raw
         _concat_config_restart && _okcat '配置更新成功，已重启生效'
