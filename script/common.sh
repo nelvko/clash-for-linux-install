@@ -1,7 +1,7 @@
 #!/bin/bash
 # shellcheck disable=SC2034
 # shellcheck disable=SC2155
-GH_PROXY='https://ghgo.xyz'
+GH_PROXY='https://ghgo.xyz/'
 
 TEMP_CONFIG='./resource/config.yaml'
 TEMP_CLASH_RAR='./resource/clash-linux-amd64-2023.08.17.gz'
@@ -14,20 +14,9 @@ CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/config-mixin.yaml"
 CLASH_CONFIG_RUNTIME="${CLASH_BASE_DIR}/config-runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_BASE_DIR}/clashupdate.log"
 
-function _get_value() {
-     sed -En "s/$1:\s(.*)/\1/p" $CLASH_CONFIG_RUNTIME
-}
-function _get_port() {
-    local ext_ctl=$(_get_value 'external-controller')
-    EXT_PORT=${ext_ctl##*:}
-    EXT_PORT=${EXT_PORT//\'/}
-    MIXED_PORT=$(_get_value 'mixed-port')
-}
-
 function _get_os() {
-    local os_info
-    os_info=$(cat /etc/os-release)
-    echo "$os_info" | grep -iqs "centos" && {
+    local os_info=$(cat /etc/os-release)
+    echo "$os_info" | grep -iqsE "rhel|centos" && {
         CLASH_CRON_TAB='/var/spool/cron/root'
         BASHRC='/etc/bashrc'
     }
@@ -37,6 +26,19 @@ function _get_os() {
     }
 }
 _get_os
+
+function _get_value() {
+     sed -En "s/$1:\s(.*)/\1/p" $CLASH_CONFIG_RUNTIME
+}
+function _get_port() {
+    local ext_ctl=$(_get_value 'external-controller')
+    EXT_PORT=${ext_ctl##*:}
+    EXT_PORT=${EXT_PORT//\'/}
+    MIXED_PORT=$(_get_value 'mixed-port')
+
+    [ -z "$MIXED_PORT" ] && MIXED_PORT=7890
+    [ -z "$EXT_PORT" ] && EXT_PORT=9090
+}
 
 function _mark_raw() {
     sudo sed -i -e '1i\# raw-config-start' -e '$a\# raw-config-end\n' "${CLASH_CONFIG_RAW}"
@@ -75,7 +77,7 @@ function _download_config() {
     local url=$1
     local output=$2
     local agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
-    sudo curl --connect-timeout 5 \
+    sudo curl --connect-timeout 3 \
         --retry 2 \
         --user-agent "$agent" \
         -k \

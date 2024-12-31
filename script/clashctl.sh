@@ -77,7 +77,7 @@ _valid_yq() {
     yq -V >&/dev/null && return 0
     read -r -p '依赖 yq 命令，是否安装？[y/N]: ' flag
     [ "$flag" = "y" ] && {
-        sudo wget "${GH_PROXY}"/https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq && sudo chmod +x /usr/bin/yq
+        sudo wget "${GH_PROXY}"https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq && sudo chmod +x /usr/bin/yq
         _okcat 'yq 安装成功'
     } || _failcat '取消安装'
 }
@@ -95,14 +95,14 @@ _tunstatus() {
 
 _tunoff() {
     _tunstatus > /dev/null || return 0
-    yq -i '.tun.enable = false' "$CLASH_CONFIG_MIXIN"
-    _concat_config_restart && _okcat "Tun 模式已关闭"
+    sudo yq -i '.tun.enable = false' "$CLASH_CONFIG_MIXIN"
+    _concat_config_restart > /dev/null && _okcat "Tun 模式已关闭"
 }
 
 _tunon() {
     _tunstatus 2> /dev/null && return 0
-    yq -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
-    _concat_config_restart
+    sudo yq -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
+    _concat_config_restart > /dev/null
     systemctl status clash | grep -qs 'unsupported kernel version' && {
         _tunoff >&/dev/null
         _error_quit '当前系统内核版本不支持'
@@ -126,11 +126,9 @@ function clashtun() {
 }
 
 function clashupdate() {
-    # 获取默认的订阅链接（从配置文件读取）
     local url=$(cat "$CLASH_CONFIG_URL")
     local is_auto=false
 
-    # 判断是否提供了有效的链接
     case "$1" in
     auto)
         is_auto=true
@@ -153,7 +151,8 @@ function clashupdate() {
 
     # 如果是自动更新模式，则设置定时任务
     [ "$is_auto" = true ] && {
-        grep -qs 'clashupdate' "$CLASH_CRON_TAB" || echo "0 0 */2 * * . $BASHRC;clashupdate $url" >> "$CLASH_CRON_TAB"
+        # todo 多次执行，修改更新订阅
+        sudo grep -qs 'clashupdate' "$CLASH_CRON_TAB" || echo "0 0 */2 * * . $BASHRC;clashupdate $url" | sudo tee -a "$CLASH_CRON_TAB" >&/dev/null
         _okcat "定时任务设置成功" && return 0
     }
 
