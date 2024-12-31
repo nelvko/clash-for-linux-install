@@ -155,10 +155,8 @@ function clashupdate() {
         sudo grep -qs 'clashupdate' "$CLASH_CRON_TAB" || echo "0 0 */2 * * . $BASHRC;clashupdate $url" | sudo tee -a "$CLASH_CRON_TAB" >&/dev/null
         _okcat "定时任务设置成功" && return 0
     }
-
-    # 下载配置文件
+    cat "$CLASH_CONFIG_RAW" | sudo tee "$CLASH_CONFIG_RAW_BAK" >&/dev/null
     _download_config "$url" "$CLASH_CONFIG_RAW"
-    # shellcheck disable=SC2015
 
     # 校验并更新配置
     _valid_config "$CLASH_CONFIG_RAW" && {
@@ -168,7 +166,8 @@ function clashupdate() {
         echo "$(date +"%Y-%m-%d %H:%M:%S") 配置更新成功 ✅ $url" | sudo tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
     } || {
         echo "$(date +"%Y-%m-%d %H:%M:%S") 配置更新失败 ❌ $url" | sudo tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
-        _error_quit '配置无效：请检查配置内容'
+        cat "$CLASH_CONFIG_RAW_BAK" | sudo tee "$CLASH_CONFIG_RAW" >&/dev/null
+        _error_quit '下载失败或配置无效：已回滚'
     }
 }
 
