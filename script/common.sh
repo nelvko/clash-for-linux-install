@@ -10,6 +10,7 @@ TEMP_UI_RAR='./resource/yacd.tar.xz'
 CLASH_BASE_DIR='/opt/clash'
 CLASH_CONFIG_URL="${CLASH_BASE_DIR}/url"
 CLASH_CONFIG_RAW="${CLASH_BASE_DIR}/config.yaml"
+CLASH_CONFIG_RAW_BAK="${CLASH_CONFIG_RAW}.bak"
 CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/config-mixin.yaml"
 CLASH_CONFIG_RUNTIME="${CLASH_BASE_DIR}/config-runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_BASE_DIR}/clashupdate.log"
