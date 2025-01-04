@@ -4,7 +4,7 @@
 GH_PROXY='https://ghgo.xyz/'
 
 TEMP_CONFIG='./resource/config.yaml'
-TEMP_CLASH_RAR='./resource/clash-linux-amd64-2023.08.17.gz'
+TEMP_CLASH_RAR='./resource/clash-linux-*.gz'
 TEMP_UI_RAR='./resource/yacd.tar.xz'
 
 CLASH_BASE_DIR='/opt/clash'
@@ -62,10 +62,46 @@ function _error_quit() {
     echo "$0" | grep -qs 'bash' && exec bash || exit 1
 }
 
+function _download_clash() {
+    local url sha256sum
+    case "$1" in
+        *86*)
+            url=https://downloads.clash.wiki/ClashPremium/clash-linux-386-2023.08.17.gz
+            sha256sum='254125efa731ade3c1bf7cfd83ae09a824e1361592ccd7c0cccd2a266dcb92b5'
+        ;;
+        armv*)
+            url='https://downloads.clash.wiki/ClashPremium/clash-linux-armv5-2023.08.17.gz'
+            sha256sum='622f5e774847782b6d54066f0716114a088f143f9bdd37edf3394ae8253062e8'
+
+        ;;
+        aarch64)
+            url='https://downloads.clash.wiki/ClashPremium/clash-linux-arm64-2023.08.17.gz'
+            sha256sum='c45b39bb241e270ae5f4498e2af75cecc0f03c9db3c0db5e55c8c4919f01afdd'
+
+        ;;
+        *)
+            _error_quit "未知的架构版本：$1，请自行下载并替换对应版本"
+            ;;
+    esac
+    /bin/rm -rf "$TEMP_CLASH_RAR"
+    _failcat "当前CPU架构为：$1，正在下载对应版本"
+    wget --timeout=30 \
+            --tries=1 \
+            --no-check-certificate \
+            -O "$TEMP_CLASH_RAR" \
+            "$url"
+    echo "$sha256sum $TEMP_CLASH_RAR" | sha256sum -c || _error_quit '下载失败，请自行下载并替换对应版本'
+
+}
+
 function _valid_env() {
     [ "$(whoami)" != "root" ] && _error_quit "需要 root 或 sudo 权限执行"
     [ "$(ps -p $$ -o comm=)" != "bash" ] && _error_quit "当前终端不是 bash"
     [ "$(ps -p 1 -o comm=)" != "systemd" ] && _error_quit "系统不具备 systemd"
+
+    local cpu_arch=$(uname -m)
+    [ "$cpu_arch" = 'x86_64' ] || _download_clash "$cpu_arch"
+
 }
 
 # 配置文件和clash在同一目录
