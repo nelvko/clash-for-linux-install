@@ -1,10 +1,11 @@
 #!/bin/bash
 # shellcheck disable=SC2034
 # shellcheck disable=SC2155
-GH_PROXY='https://ghgo.xyz/'
+GH_PROXY='https://gh-proxy.com/'
+YQ_URL="${GH_PROXY}github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
 
 TEMP_CONFIG='./resource/config.yaml'
-TEMP_CLASH_RAR='./resource/clash-linux-*.gz'
+TEMP_CLASH_RAR='./resource/clash-*.gz'
 TEMP_UI_RAR='./resource/yacd.tar.xz'
 
 CLASH_BASE_DIR='/opt/clash'
@@ -62,6 +63,7 @@ function _error_quit() {
     echo "$0" | grep -qs 'bash' && exec bash || exit 1
 }
 
+# todo 改为安装时下载amd64版本（未墙）
 function _download_clash() {
     local url sha256sum
     case "$1" in
@@ -70,27 +72,28 @@ function _download_clash() {
             sha256sum='254125efa731ade3c1bf7cfd83ae09a824e1361592ccd7c0cccd2a266dcb92b5'
         ;;
         armv*)
-            url='https://downloads.clash.wiki/ClashPremium/clash-linux-armv5-2023.08.17.gz'
+            url=https://downloads.clash.wiki/ClashPremium/clash-linux-armv5-2023.08.17.gz
             sha256sum='622f5e774847782b6d54066f0716114a088f143f9bdd37edf3394ae8253062e8'
-
         ;;
         aarch64)
-            url='https://downloads.clash.wiki/ClashPremium/clash-linux-arm64-2023.08.17.gz'
+            url=https://downloads.clash.wiki/ClashPremium/clash-linux-arm64-2023.08.17.gz
             sha256sum='c45b39bb241e270ae5f4498e2af75cecc0f03c9db3c0db5e55c8c4919f01afdd'
-
         ;;
         *)
-            _error_quit "未知的架构版本：$1，请自行下载并替换对应版本"
+            /bin/rm -rf "$TEMP_CLASH_RAR"
+            _error_quit "未知的架构版本：$1，请自行下载对应版本至 resource 目录下：https://downloads.clash.wiki/ClashPremium/"
             ;;
     esac
-    /bin/rm -rf "$TEMP_CLASH_RAR"
-    _failcat "当前CPU架构为：$1，正在下载对应版本"
+    _failcat "当前CPU架构为：$1，正在下载对应版本..."
     wget --timeout=30 \
             --tries=1 \
             --no-check-certificate \
             -O "$TEMP_CLASH_RAR" \
             "$url"
-    echo "$sha256sum $TEMP_CLASH_RAR" | sha256sum -c || _error_quit '下载失败，请自行下载并替换对应版本'
+    echo "$sha256sum $TEMP_CLASH_RAR" | sha256sum -c || {
+        /bin/rm -rf "$TEMP_CLASH_RAR"
+        _error_quit '下载失败：请自行下载对应版本至 resource 目录下：https://downloads.clash.wiki/ClashPremium/'
+    }
 
 }
 
