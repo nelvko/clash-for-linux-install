@@ -19,7 +19,7 @@ git clone https://gitclone.com/github.com/nelvko/clash-for-linux-install.git \
 	&& cd clash-for-linux-install \
 	&& sudo bash -c '. install.sh; exec bash'
 ```
-> 如遇问题，欢迎在查阅[常见问题](#常见问题)及 [issue](https://github.com/nelvko/clash-for-linux-install/issues?q=is%3Aissue) 未果后进行反馈。
+> 如遇问题，请在查阅[常见问题](#常见问题)及 [issue](https://github.com/nelvko/clash-for-linux-install/issues?q=is%3Aissue) 未果后进行反馈。
 
 - 上述克隆命令使用了[加速前缀](https://gitclone.com/)，如失效请更换其他[可用链接](https://ghproxy.link/)。
 - ~~不懂什么是订阅链接的小白可参考~~：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1)
@@ -57,9 +57,9 @@ $ clashui
 使用原理：
 
 - 使用 `systemctl` 控制 `clash` 启停后，还需调整代理环境变量的值（http_proxy 等）。因为应用程序在发起网络请求时，会通过其指定的代理地址转发流量，不调整会造成：关闭代理后仍转发导致请求失败、开启代理后未设置代理地址导致请求不转发。
-- `clashon`等命令封装了上述流程。
+- `clashon` 等命令封装了上述流程。
 
-### 定时更新配置
+### 定时更新订阅
 
 ```bash
 $ clashupdate [url]
@@ -72,10 +72,10 @@ $ clashupdate log
 ✅ 2024-12-13 23:38:56 配置更新成功 ...
 ```
 
-- 不指定 `url` 默认使用安装时填的订阅。
-- 可通过 `crontab -e` 修改更新频率及订阅链接。
-- 不使用订阅链接更新配置：[pr#24](https://github.com/nelvko/clash-for-linux-install/pull/24#issuecomment-2565054701)
-- 依赖 [`yq`](https://github.com/mikefarah/yq/releases) 命令实现 [`Mixin`](#mixin-配置)，如下载失败请自行安装到 `PATH` 路径内。
+- `clashupdate` 会记忆上次更新成功的订阅，后续执行无需再指定 `url`。
+- 可通过 `crontab -e` 修改定时更新频率及订阅链接。
+- 其他更新方式：[pr#24](https://github.com/nelvko/clash-for-linux-install/pull/24#issuecomment-2565054701)
+- 依赖 [`yq`](https://github.com/mikefarah/yq/releases) 命令实现 [`Mixin`](#mixin-配置)，如自动下载失败请自行安装到 `PATH` 路径内。
 
 ### Web 控制台密钥
 
@@ -93,13 +93,13 @@ $ clashsecret
 
 ```bash
 $ clashtun
-😼 Tun 状态：关闭
+😾 Tun 状态：关闭
 
 $ clashtun on
 😼 Tun 模式已开启
 ```
 
-- 作用：实现宿主机及 `Docker` 等容器的所有流量路由到 `clash` 代理、DNS 劫持等。
+- 作用：实现本机及 `Docker` 等容器的所有流量路由到 `clash` 代理、DNS 劫持等。
 - 原理：[clash-verge-rev](https://www.clashverge.dev/guide/term.html#tun)、 [clash.wiki](https://clash.wiki/premium/tun-device.html)。
 
 ### `Mixin` 配置
