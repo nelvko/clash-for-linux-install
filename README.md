@@ -93,7 +93,7 @@ $ clashsecret
 
 ```bash
 $ clashtun
-😼 Tun 状态：关闭
+😾 Tun 状态：关闭
 
 $ clashtun on
 😼 Tun 模式已开启
