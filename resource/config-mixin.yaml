@@ -1,6 +1,6 @@
 # tun-config-start
 tun:
-  enable: true
+  enable: false
   stack: system # or gvisor
   # dns-hijack:
   #   - 8.8.8.8:53

@@ -77,7 +77,7 @@ _valid_yq() {
     yq -V >&/dev/null && return 0
     read -r -p '依赖 yq 命令，是否安装？[y/N]: ' flag
     [ "$flag" = "y" ] && {
-        sudo wget "${GH_PROXY}"https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq && sudo chmod +x /usr/bin/yq
+        sudo wget "${YQ_URL}" -O /usr/bin/yq && sudo chmod +x /usr/bin/yq
         _okcat 'yq 安装成功'
     } || _failcat '取消安装'
 }
@@ -127,12 +127,12 @@ function clashtun() {
 
 function clashupdate() {
     local url=$(cat "$CLASH_CONFIG_URL")
-    local is_auto=false
+    local is_auto
 
     case "$1" in
     auto)
         is_auto=true
-        url=$2
+        [ -n "$2" ] && url=$2
         ;;
     log)
         tail "${CLASH_UPDATE_LOG}"
@@ -144,14 +144,13 @@ function clashupdate() {
     esac
 
     # 如果没有提供有效的订阅链接（url为空或者不是http开头），则使用默认配置文件
-    [ -z "$url" ] || [ "${url:0:4}" != "http" ] && {
+    [ "${url:0:4}" != "http" ] && {
         _failcat "没有提供有效的订阅链接，使用${CLASH_CONFIG_RAW}进行更新..."
         url="file://$CLASH_CONFIG_RAW"
     }
 
     # 如果是自动更新模式，则设置定时任务
     [ "$is_auto" = true ] && {
-        # todo 多次执行，修改更新订阅
         sudo grep -qs 'clashupdate' "$CLASH_CRON_TAB" || echo "0 0 */2 * * . $BASHRC;clashupdate $url" | sudo tee -a "$CLASH_CRON_TAB" >&/dev/null
         _okcat "定时任务设置成功" && return 0
     }
