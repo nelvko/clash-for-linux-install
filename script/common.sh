@@ -7,7 +7,7 @@ YQ_URL="${GH_PROXY}github.com/mikefarah/yq/releases/latest/download/yq_linux_amd
 TEMP_CONFIG='./resource/config.yaml'
 TEMP_CLASH_RAR='./resource/clash-*.gz'
 TEMP_UI_RAR='./resource/yacd.tar.xz'
-TEMP_YQ_RAR='./resource/yq_linux_amd64.tar.gz'
+TEMP_YQ_RAR='./resource/yq*.gz'
 
 CLASH_BASE_DIR='/opt/clash'
 CLASH_CONFIG_URL="${CLASH_BASE_DIR}/url"

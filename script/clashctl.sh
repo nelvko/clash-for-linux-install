@@ -173,7 +173,7 @@ function clashupdate() {
 function clashmixin() {
     case "$1" in
     -e)
-        sudo vi "$CLASH_CONFIG_MIXIN" && {
+        sudo vim "$CLASH_CONFIG_MIXIN" && {
             _concat_config_restart && _okcat "配置更新成功，已重启生效"
         }
         ;;
