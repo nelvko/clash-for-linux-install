@@ -16,7 +16,7 @@ CLASH_CONFIG_RAW_BAK="${CLASH_CONFIG_RAW}.bak"
 CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/mixin.yaml"
 CLASH_CONFIG_RUNTIME="${CLASH_BASE_DIR}/runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_BASE_DIR}/clashupdate.log"
-YQ_BIN='/usr/local/bin'
+YQ_BIN='/usr/bin'
 
 function _get_os() {
     local os_info=$(cat /etc/os-release)
