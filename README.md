@@ -24,7 +24,7 @@ git clone https://gh-proxy.com/https://github.com/nelvko/clash-for-linux-install
 - 上述克隆命令使用了[加速前缀](https://gh-proxy.com/)，如失效请更换其他[可用链接](https://ghproxy.link/)。
 - ~~不懂什么是订阅链接的小白可参考~~：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1)
 - 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
-
+- 验证是否连通外网：`wget www.google.com`
 ### 命令一览
 
 执行 `clash` 列出开箱即用的快捷命令。
@@ -54,9 +54,9 @@ $ clashui
 😼 Web 面板地址...
 ```
 
-使用原理：
+原理：
 
-- 使用 `systemctl` 控制 `clash` 启停后，还需调整代理环境变量的值（http_proxy 等）。因为应用程序在发起网络请求时，会通过其指定的代理地址转发流量，不调整会造成：关闭代理后仍转发导致请求失败、开启代理后未设置代理地址导致请求不转发。
+- 使用 `systemctl` 控制 `clash` 启停，并调整代理环境变量的值（http_proxy 等）。因为应用程序在发起网络请求时，会通过其指定的代理地址转发流量，不调整会造成：关闭代理后仍转发导致请求失败、开启代理后未设置代理地址导致请求不转发。
 - `clashon` 等命令封装了上述流程。
 
 ### 定时更新订阅
@@ -72,10 +72,9 @@ $ clashupdate log
 ✅ 2024-12-13 23:38:56 配置更新成功 ...
 ```
 
-- `clashupdate` 会记忆上次更新成功的订阅，后续执行无需再指定 `url`。
+- `clashupdate` 会记忆上次更新成功的订阅，后续执行无需再指定订阅 `url`。
 - 可通过 `crontab -e` 修改定时更新频率及订阅链接。
 - 其他更新方式：[pr#24](https://github.com/nelvko/clash-for-linux-install/pull/24#issuecomment-2565054701)
-- 依赖 [`yq`](https://github.com/mikefarah/yq/releases) 命令实现 [`Mixin`](#mixin-配置)，如自动下载失败请自行安装到 `PATH` 路径内。
 
 ### Web 控制台密钥
 
@@ -106,13 +105,13 @@ $ clashtun on
 
 ```bash
 $ clashmixin
-😼 查看 mixin 配置
+😼 查看 mixin 配置（less）
 
 $ clashmixin -e
-😼 编辑 mixin 配置
+😼 编辑 mixin 配置（vim）
 
 $ clashmixin -r
-😼 查看 运行时 配置
+😼 查看 运行时 配置（less）
 ```
 
 - 作用：用来存储自定义配置，防止更新订阅后覆盖丢失自定义配置内容。
@@ -121,6 +120,7 @@ $ clashmixin -r
 
 ### 卸载
 
+以下为通用命令，`root` 用户可直接使用： `. uninstall.sh`。
 ```bash
 sudo bash -c '. uninstall.sh; exec bash'
 ```
@@ -159,6 +159,10 @@ sudo bash -c '. uninstall.sh; exec bash'
 
   </details>
 
+### ping 不通外网
+- `ping` 命令使用的是第三层中的 `ICMP` 协议，不依赖 `clash` 代理的上层 `TCP` 协议。
+- 执行 `clashtun on` 后可以 `ping` 通，但得到的是 fake ip，原理详见：[clash.wiki](https://clash.wiki/configuration/dns.html#fake-ip)。
+
 ### 服务启动失败/未启动
 
 - [端口占用](https://github.com/nelvko/clash-for-linux-install/issues/15#issuecomment-2507341281)
@@ -166,7 +170,7 @@ sudo bash -c '. uninstall.sh; exec bash'
 
 ### x86、arm架构
 
-默认集成 `amd64` 版本的软件包，安装时会检测 `CPU` 架构，若为其他架构会从 [Clash 内核官网](https://downloads.clash.wiki/ClashPremium/)下载对应版本。若自动下载失败请自行下载至项目的 `resource` 路径下，并重新执行安装脚本。
+默认集成的 `clash`、`yq` 软件包为 `amd64` 版本 ，安装时会检测 `CPU` 架构，若为其他架构会从 [Clash 内核官网](https://downloads.clash.wiki/ClashPremium/)下载对应版本。若自动下载失败请自行下载至项目的 `resource` 路径下，并重新执行安装脚本。
 
 ## 引用
 
