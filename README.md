@@ -15,13 +15,13 @@
 ### 一键安装
 
 ```bash
-git clone https://gitclone.com/github.com/nelvko/clash-for-linux-install.git \
+git clone https://gh-proxy.com/https://github.com/nelvko/clash-for-linux-install.git \
 	&& cd clash-for-linux-install \
 	&& sudo bash -c '. install.sh; exec bash'
 ```
 > 如遇问题，请在查阅[常见问题](#常见问题)及 [issue](https://github.com/nelvko/clash-for-linux-install/issues?q=is%3Aissue) 未果后进行反馈。
 
-- 上述克隆命令使用了[加速前缀](https://gitclone.com/)，如失效请更换其他[可用链接](https://ghproxy.link/)。
+- 上述克隆命令使用了[加速前缀](https://gh-proxy.com/)，如失效请更换其他[可用链接](https://ghproxy.link/)。
 - ~~不懂什么是订阅链接的小白可参考~~：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1)
 - 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
 
