@@ -12,7 +12,7 @@ clashoff > /dev/null 2>&1
 systemctl disable clash > /dev/null 2>&1
 rm -f /etc/systemd/system/clash.service
 systemctl daemon-reload
-# rm -rf /usr/bin/yq
+rm -rf "$YQ_BIN"
 rm -rf "$CLASH_BASE_DIR"
 sed -i '/clashupdate/d' "$CLASH_CRON_TAB"
 echo '😼 已卸载，相关配置已清除'

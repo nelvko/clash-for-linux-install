@@ -7,6 +7,7 @@ YQ_URL="${GH_PROXY}github.com/mikefarah/yq/releases/latest/download/yq_linux_amd
 TEMP_CONFIG='./resource/config.yaml'
 TEMP_CLASH_RAR='./resource/clash-*.gz'
 TEMP_UI_RAR='./resource/yacd.tar.xz'
+TEMP_YQ_RAR='./resource/yq_linux_amd64.tar.gz'
 
 CLASH_BASE_DIR='/opt/clash'
 CLASH_CONFIG_URL="${CLASH_BASE_DIR}/url"
@@ -15,6 +16,7 @@ CLASH_CONFIG_RAW_BAK="${CLASH_CONFIG_RAW}.bak"
 CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/mixin.yaml"
 CLASH_CONFIG_RUNTIME="${CLASH_BASE_DIR}/runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_BASE_DIR}/clashupdate.log"
+YQ_BIN='/usr/local/bin'
 
 function _get_os() {
     local os_info=$(cat /etc/os-release)
