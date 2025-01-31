@@ -3,13 +3,13 @@
 . script/common.sh
 . script/clashctl.sh
 
-_valid_env
+# _valid_env
 
 [ ! -d "$CLASH_BASE_DIR" ] && echo "😾 未安装或已卸载,开始自动清理相关配置..."
 
-clashoff > /dev/null 2>&1
+clashoff >/dev/null 2>&1
 
-systemctl disable clash > /dev/null 2>&1
+systemctl disable clash >/dev/null 2>&1
 rm -f /etc/systemd/system/clash.service
 systemctl daemon-reload
 rm -rf "$YQ_BIN"

@@ -2,12 +2,13 @@
 # shellcheck disable=SC2034
 # shellcheck disable=SC2155
 GH_PROXY='https://gh-proxy.com/'
-YQ_URL="${GH_PROXY}github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
+YQ_URL="https://github.com/mikefarah/yq/releases/tag/v4.45.14"
 
-TEMP_CONFIG='./resource/config.yaml'
-TEMP_CLASH_RAR='./resource/clash-*.gz'
-TEMP_UI_RAR='./resource/yacd.tar.xz'
-TEMP_YQ_RAR='./resource/yq*.gz'
+TEMP_RESOURCE='./resource/'
+TEMP_CONFIG="${TEMP_RESOURCE}config.yaml"
+TEMP_CLASH_RAR="${TEMP_RESOURCE}clash*.gz"
+TEMP_UI_RAR="${TEMP_RESOURCE}yacd.tar.xz"
+TEMP_YQ_RAR="${TEMP_RESOURCE}yq*.gz"
 
 CLASH_BASE_DIR='/opt/clash'
 CLASH_CONFIG_URL="${CLASH_BASE_DIR}/url"
@@ -16,7 +17,7 @@ CLASH_CONFIG_RAW_BAK="${CLASH_CONFIG_RAW}.bak"
 CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/mixin.yaml"
 CLASH_CONFIG_RUNTIME="${CLASH_BASE_DIR}/runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_BASE_DIR}/clashupdate.log"
-YQ_BIN='/usr/bin'
+YQ_BIN='/usr/bin/yq'
 
 function _get_os() {
     local os_info=$(cat /etc/os-release)
@@ -32,7 +33,7 @@ function _get_os() {
 _get_os
 
 function _get_value() {
-     sed -En "s/$1:\s(.*)/\1/p" $CLASH_CONFIG_RUNTIME
+    sed -En "s/$1:\s(.*)/\1/p" $CLASH_CONFIG_RUNTIME
 }
 function _get_port() {
     local ext_ctl=$(_get_value 'external-controller')
@@ -68,31 +69,37 @@ function _error_quit() {
 function _download_clash() {
     local url sha256sum
     case "$1" in
-        *86*)
-            url=https://downloads.clash.wiki/ClashPremium/clash-linux-386-2023.08.17.gz
-            sha256sum='254125efa731ade3c1bf7cfd83ae09a824e1361592ccd7c0cccd2a266dcb92b5'
+    x86_64)
+        url=https://downloads.clash.wiki/ClashPremium/clash-linux-amd64-2023.08.17.gz
+        sha256sum='92380f053f083e3794c1681583be013a57b160292d1d9e1056e7fa1c2d948747'
         ;;
-        armv*)
-            url=https://downloads.clash.wiki/ClashPremium/clash-linux-armv5-2023.08.17.gz
-            sha256sum='622f5e774847782b6d54066f0716114a088f143f9bdd37edf3394ae8253062e8'
+    *86*)
+        url=https://downloads.clash.wiki/ClashPremium/clash-linux-386-2023.08.17.gz
+        sha256sum='254125efa731ade3c1bf7cfd83ae09a824e1361592ccd7c0cccd2a266dcb92b5'
         ;;
-        aarch64)
-            url=https://downloads.clash.wiki/ClashPremium/clash-linux-arm64-2023.08.17.gz
-            sha256sum='c45b39bb241e270ae5f4498e2af75cecc0f03c9db3c0db5e55c8c4919f01afdd'
+    armv*)
+        url=https://downloads.clash.wiki/ClashPremium/clash-linux-armv5-2023.08.17.gz
+        sha256sum='622f5e774847782b6d54066f0716114a088f143f9bdd37edf3394ae8253062e8'
         ;;
-        *)
-            /bin/rm -rf "$TEMP_CLASH_RAR"
-            _error_quit "未知的架构版本：$1，请自行下载对应版本至 resource 目录下：https://downloads.clash.wiki/ClashPremium/"
-            ;;
+    aarch64)
+        url=https://downloads.clash.wiki/ClashPremium/clash-linux-arm64-2023.08.17.gz
+        sha256sum='c45b39bb241e270ae5f4498e2af75cecc0f03c9db3c0db5e55c8c4919f01afdd'
+        ;;
+    *)
+        # shellcheck disable=SC2086
+        /bin/rm -rf $TEMP_CLASH_RAR
+        _error_quit "未知的架构版本：$1，请自行下载对应版本至 resource 目录下：https://downloads.clash.wiki/ClashPremium/"
+        ;;
     esac
     _failcat "当前CPU架构为：$1，正在下载对应版本..."
     wget --timeout=30 \
-            --tries=1 \
-            --no-check-certificate \
-            -O "$TEMP_CLASH_RAR" \
-            "$url"
-    echo "$sha256sum $TEMP_CLASH_RAR" | sha256sum -c || {
-        /bin/rm -rf "$TEMP_CLASH_RAR"
+        --tries=1 \
+        --no-check-certificate \
+        -P "$TEMP_RESOURCE" \
+        "$url"
+    # shellcheck disable=SC2086
+    echo $sha256sum $TEMP_CLASH_RAR | sha256sum -c || {
+        /bin/rm -rf $TEMP_CLASH_RAR
         _error_quit '下载失败：请自行下载对应版本至 resource 目录下：https://downloads.clash.wiki/ClashPremium/'
     }
 
@@ -104,14 +111,15 @@ function _valid_env() {
     [ "$(ps -p 1 -o comm=)" != "systemd" ] && _error_quit "系统不具备 systemd"
 
     local cpu_arch=$(uname -m)
-    [ "$cpu_arch" = 'x86_64' ] || _download_clash "$cpu_arch"
+    # shellcheck disable=SC2086
+    { /bin/ls $TEMP_CLASH_RAR | grep clash; } >&/dev/null || _download_clash "$cpu_arch"
 
 }
 
 # 配置文件和clash在同一目录
 function _valid_config() {
-    [ -e "$1" ] && [ "$(wc -l < "$1")" -gt 1 ] \
-        && "$(dirname "$1")/clash" -d "$(dirname "$1")" -f "$1" -t
+    [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] &&
+        "$(dirname "$1")/clash" -d "$(dirname "$1")" -f "$1" -t
 }
 
 function _download_config() {
@@ -123,8 +131,8 @@ function _download_config() {
         --user-agent "$agent" \
         -k \
         -o "$output" \
-        "$url" \
-        || sudo wget --timeout=5 \
+        "$url" ||
+        sudo wget --timeout=5 \
             --tries=1 \
             --user-agent="$agent" \
             --no-check-certificate \

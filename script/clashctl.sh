@@ -3,8 +3,8 @@
 # shellcheck disable=SC2155
 # clash快捷指令
 function clashon() {
-    sudo systemctl start clash && _okcat '已开启代理环境' \
-        || _failcat '启动失败: 执行 "systemctl status clash" 查看日志' || return 1
+    sudo systemctl start clash && _okcat '已开启代理环境' ||
+        _failcat '启动失败: 执行 "systemctl status clash" 查看日志' || return 1
     _get_port
     local proxy_addr=http://127.0.0.1:${MIXED_PORT}
     export http_proxy=$proxy_addr
@@ -14,8 +14,8 @@ function clashon() {
 }
 
 function clashoff() {
-    sudo systemctl stop clash && _okcat '已关闭代理环境' \
-        || _failcat '关闭失败: 执行 "systemctl status clash" 查看日志' || return 1
+    sudo systemctl stop clash && _okcat '已关闭代理环境' ||
+        _failcat '关闭失败: 执行 "systemctl status clash" 查看日志' || return 1
     unset http_proxy
     unset https_proxy
     unset HTTP_PROXY
@@ -74,17 +74,12 @@ function clashsecret() {
 }
 
 _valid_yq() {
-    yq -V >&/dev/null && return 0
-    read -r -p '依赖 yq 命令，是否安装？[y/N]: ' flag
-    [ "$flag" = "y" ] && {
-        sudo wget "${YQ_URL}" -O /usr/bin/yq && sudo chmod +x /usr/bin/yq
-        _okcat 'yq 安装成功'
-    } || _failcat '取消安装'
+    yq -V >&/dev/null || _error_quit "依赖 yq 命令，请下载对应版本至 PATH 路径内。$YQ_URL"
 }
 
 _concat_config_restart() {
     _valid_config "$CLASH_CONFIG_MIXIN" || _error_quit "Mixin 配置验证失败，请检查"
-    _valid_yq || return 1
+    _valid_yq
     sudo yq -n "load(\"$CLASH_CONFIG_RAW\") * load(\"$CLASH_CONFIG_MIXIN\")" | sudo tee "$CLASH_CONFIG_RUNTIME" >&/dev/null && clashrestart
 }
 
@@ -94,15 +89,15 @@ _tunstatus() {
 }
 
 _tunoff() {
-    _tunstatus > /dev/null || return 0
+    _tunstatus >/dev/null || return 0
     sudo yq -i '.tun.enable = false' "$CLASH_CONFIG_MIXIN"
-    _concat_config_restart > /dev/null && _okcat "Tun 模式已关闭"
+    _concat_config_restart >/dev/null && _okcat "Tun 模式已关闭"
 }
 
 _tunon() {
-    _tunstatus 2> /dev/null && return 0
+    _tunstatus 2>/dev/null && return 0
     sudo yq -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
-    _concat_config_restart > /dev/null
+    _concat_config_restart >/dev/null
     systemctl status clash | grep -qs 'unsupported kernel version' && {
         _tunoff >&/dev/null
         _error_quit '当前系统内核版本不支持'
@@ -111,7 +106,7 @@ _tunon() {
 }
 
 function clashtun() {
-    _valid_yq || return 1
+    _valid_yq
     case "$1" in
     on)
         _tunon
@@ -187,14 +182,14 @@ function clashmixin() {
 }
 
 function clash() {
-    cat << EOF | column -t -s '：'
+    cat <<EOF | column -t -s '：'
 Usage:
-    clashon                开启代理：
-    clashoff               关闭代理：
-    clashui                面板地址：
-    clashtun [on|off]      Tun模式：
-    clashsecret [secret]   查看/设置密钥：
-    clashmixin [-e|-r]     Mixin配置：
-    clashupdate [auto|log] 更新订阅：
+    clashon                 开启代理：
+    clashoff                关闭代理：
+    clashui                 面板地址：
+    clashtun [on|off]       Tun模式：
+    clashsecret [secret]    查看/设置密钥：
+    clashmixin [-e|-r]      Mixin配置：
+    clashupdate [auto|log]  更新订阅：
 EOF
 }
