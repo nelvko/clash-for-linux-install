@@ -16,15 +16,17 @@
 
 ```bash
 git clone https://gh-proxy.com/https://github.com/nelvko/clash-for-linux-install.git \
-	&& cd clash-for-linux-install \
-	&& sudo bash -c '. install.sh; exec bash'
+ && cd clash-for-linux-install \
+ && sudo bash -c '. install.sh; exec bash'
 ```
+
 > 如遇问题，请在查阅[常见问题](#常见问题)及 [issue](https://github.com/nelvko/clash-for-linux-install/issues?q=is%3Aissue) 未果后进行反馈。
 
 - 上述克隆命令使用了[加速前缀](https://gh-proxy.com/)，如失效请更换其他[可用链接](https://ghproxy.link/)。
 - ~~不懂什么是订阅链接的小白可参考~~：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1)
 - 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
 - 验证是否连通外网：`wget www.google.com`
+
 ### 命令一览
 
 执行 `clash` 列出开箱即用的快捷命令。
@@ -32,13 +34,13 @@ git clone https://gh-proxy.com/https://github.com/nelvko/clash-for-linux-install
 ```bash
 $ clash
 Usage:                                    
-    clashon               	开启代理       
-    clashoff              	关闭代理       
-    clashui               	面板地址       
-    clashtun [on|off]     	Tun模式        
-    clashsecret [secret]  	查看/设置密钥  
-    clashmixin [-e|-r]    	Mixin配置      
-    clashupdate [auto|log]	更新订阅
+    clashon                开启代理       
+    clashoff               关闭代理       
+    clashui                面板地址       
+    clashtun [on|off]      Tun模式        
+    clashsecret [secret]   查看/设置密钥  
+    clashmixin [-e|-r]     Mixin配置      
+    clashupdate [auto|log] 更新订阅
 ```
 
 ### 基础使用
@@ -121,6 +123,7 @@ $ clashmixin -r
 ### 卸载
 
 以下为通用命令，`root` 用户可直接使用： `. uninstall.sh`。
+
 ```bash
 sudo bash -c '. uninstall.sh; exec bash'
 ```
@@ -136,30 +139,34 @@ sudo bash -c '. uninstall.sh; exec bash'
 
 - 原因：使用 `bash install.sh` 执行脚本不会对当前 `shell` 生效。
 - 解决：当前 `shell` 执行下 `bash` 即可。
-- <details>
 
-  <summary>几种运行方式的区别：</summary>
+<details>
 
-	- `bash` 命令运行：当前 `shell` 开启一个子 `shell` 执行脚本，对环境的修改不会作用到当前 `shell`，因此不具备 `clashon`
-	  等命令。
+<summary>几种运行方式的区别：</summary>
 
-	  ```bash
-	  # 需要有可执行权限
-	  $ ./install.sh
-	  # 不需要可执行权限，需要读权限
-	  $ bash ./install.sh
-	  ```
-	- `shell` 内建命令运行：脚本在当前 `shell` 环境中执行，变量和函数的定义对当前 `shell` 有效，`root` 用户推荐这种方式执行脚本。
+- `bash` 命令运行：当前 `shell` 开启一个子 `shell` 执行脚本，对环境的修改不会作用到当前 `shell`，因此不具备 `clashon`
+   等命令。
 
-	  ```bash
-	  # 不需要可执行权限，需要读权限
-	  $ . install.sh
-	  $ source uninstall.sh
-	  ```
+  ```bash
+   # 需要有可执行权限
+   $ ./install.sh
+   
+   # 不需要可执行权限，需要读权限
+   $ bash ./install.sh
+  ```
 
-  </details>
+- `shell` 内建命令运行：脚本在当前 `shell` 环境中执行，变量和函数的定义对当前 `shell` 有效，`root` 用户推荐这种方式执行脚本。
+
+  ```bash
+  # 不需要可执行权限，需要读权限
+   $ . install.sh
+   $ source uninstall.sh
+  ```
+
+</details>
 
 ### ping 不通外网
+
 - `ping` 命令使用的是第三层中的 `ICMP` 协议，不依赖 `clash` 代理的上层 `TCP` 协议。
 - 执行 `clashtun on` 后可以 `ping` 通，但得到的是 fake ip，原理详见：[clash.wiki](https://clash.wiki/configuration/dns.html#fake-ip)。
 
@@ -170,7 +177,10 @@ sudo bash -c '. uninstall.sh; exec bash'
 
 ### x86、arm架构
 
-默认集成的 `clash`、`yq` 软件包为 `amd64` 版本 ，安装时会检测 `CPU` 架构，若为其他架构会从 [Clash 内核官网](https://downloads.clash.wiki/ClashPremium/)下载对应版本。若自动下载失败请自行下载至项目的 `resource` 路径下，并重新执行安装脚本。
+将 `resource` 目录中的 `clash-linux-amd64-2023.08.17.gz`、`yq_linux_amd64` 替换为对应架构版本后再执行安装脚本。
+
+- [clash 内核](https://downloads.clash.wiki/ClashPremium/)
+- [yq releases](https://github.com/mikefarah/yq/releases/tag/v4.45.1)
 
 ## 引用
 
