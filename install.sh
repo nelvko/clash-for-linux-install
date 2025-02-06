@@ -21,7 +21,7 @@ echo "$url" >"$CLASH_CONFIG_URL"
 /bin/ls resource | grep -Ev 'gz|png|xz' | xargs -I {} /bin/cp -rf "resource/{}" "$CLASH_BASE_DIR"
 tar -xf "$TEMP_UI_RAR" -C "$CLASH_BASE_DIR"
 # shellcheck disable=SC2086
-gzip -dc $TEMP_YQ_RAR >"$YQ_BIN" && chmod +x "$YQ_BIN"
+/bin/cp -f $TEMP_YQ_BIN "$YQ_BIN" && chmod +x "$YQ_BIN"
 
 _mark_raw
 cat "${CLASH_CONFIG_RAW}" >"${CLASH_CONFIG_RUNTIME}"
