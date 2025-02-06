@@ -24,7 +24,7 @@ tar -xf "$TEMP_UI_RAR" -C "$CLASH_BASE_DIR"
 /bin/cp -f $TEMP_YQ_BIN "$YQ_BIN" && chmod +x "$YQ_BIN"
 
 _mark_raw
-cat "${CLASH_CONFIG_RAW}" >"${CLASH_CONFIG_RUNTIME}"
+_concat_config_restart >&/dev/null
 
 cat <<EOF >/etc/systemd/system/clash.service
 [Unit]

@@ -1,4 +1,4 @@
-# default-config-start
+# mixin-config-start
 # 开箱即用 clashui
 external-controller: '0.0.0.0:9090'
 # clashtun 相关配置
@@ -13,4 +13,3 @@ tun:
   auto-route: true # manage $(ip route) and $(ip rules)
   auto-redir: true # manage nftable REDIRECT
   auto-detect-interface: true
-# default-config-end
