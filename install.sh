@@ -9,11 +9,15 @@ _valid_env
 [ -d "$CLASH_BASE_DIR" ] && _error_quit "已安装，如需重新安装请先执行卸载脚本"
 
 # shellcheck disable=SC2086
-gzip -dc $TEMP_CLASH_RAR >"${TEMP_RESOURCE}clash" && chmod +x "${TEMP_RESOURCE}clash"
+gzip -dc $TEMP_CLASH_RAR >"${TEMP_RESOURCE}/clash" && chmod +x "${TEMP_RESOURCE}/clash"
+tar -xf $TEMP_CONVERT_RAR -C "$TEMP_RESOURCE"
 _valid_config "$TEMP_CONFIG" && echo '✅ 配置可用' || {
     read -r -p '😼 输入订阅链接：' url
     _download_config "$url" "$TEMP_CONFIG" || _error_quit "下载失败: 请自行粘贴配置内容到 ${TEMP_CONFIG} 后再执行安装脚本"
-    _valid_config "$TEMP_CONFIG" || _error_quit "配置无效：请检查配置内容"
+    _valid_config "$TEMP_CONFIG" || {
+        _failcat "配置无效：将在本地转换订阅后重试..."
+        retry_convert
+    }
 }
 mkdir -p "$CLASH_BASE_DIR"
 echo "$url" >"$CLASH_CONFIG_URL"

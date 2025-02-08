@@ -4,11 +4,12 @@
 GH_PROXY='https://gh-proxy.com/'
 YQ_URL="https://github.com/mikefarah/yq/releases/tag/v4.45.14"
 
-TEMP_RESOURCE='./resource/'
-TEMP_CONFIG="${TEMP_RESOURCE}config.yaml"
-TEMP_CLASH_RAR="${TEMP_RESOURCE}clash*.gz"
-TEMP_UI_RAR="${TEMP_RESOURCE}yacd.tar.xz"
-TEMP_YQ_BIN="${TEMP_RESOURCE}yq*"
+TEMP_RESOURCE='./resource'
+TEMP_CONFIG="${TEMP_RESOURCE}/config.yaml"
+TEMP_CLASH_RAR="${TEMP_RESOURCE}/clash*.gz"
+TEMP_UI_RAR="${TEMP_RESOURCE}/yacd.tar.xz"
+TEMP_YQ_BIN="${TEMP_RESOURCE}/yq*"
+TEMP_CONVERT_RAR="${TEMP_RESOURCE}/subconverter*.tar.gz"
 
 CLASH_BASE_DIR='/opt/clash'
 CLASH_CONFIG_URL="${CLASH_BASE_DIR}/url"
@@ -126,8 +127,8 @@ function _download_config() {
     local url=$1
     local output=$2
     local agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
-    sudo curl --connect-timeout 3 \
-        --retry 2 \
+    sudo curl --connect-timeout 4 \
+        --retry 1 \
         --user-agent "$agent" \
         -k \
         -o "$output" \
@@ -138,4 +139,46 @@ function _download_config() {
             --no-check-certificate \
             -O "$output" \
             "$url"
+}
+
+function _convert_url() {
+    local raw_url="$1"
+    local base_url="http://127.0.0.1:25500/sub?target=clash&url="
+
+    urlencode() {
+        local LANG=C
+        local length="${#1}"
+        for ((i = 0; i < length; i++)); do
+            c="${1:i:1}"
+            case "$c" in
+            [a-zA-Z0-9.~_-]) printf "%s" "$c" ;;
+            *) printf '%%%02X' "'$c" ;;
+            esac
+        done
+        echo
+    }
+
+    local encoded_url=$(urlencode "$raw_url")
+
+    echo "${base_url}${encoded_url}"
+}
+
+function _start_convert() {
+    local bin_path="${CLASH_BASE_DIR}/subconverter"
+    [ -e "$bin_path" ] || bin_path="${TEMP_RESOURCE}/subconverter"
+
+    sudo nohup ${bin_path}/subconverter >&/dev/null &
+    echo $!
+}
+
+function _stop_convert() {
+    pkill -9 subconverter
+}
+
+function retry_convert() {
+    _start_convert
+    _download_config $(_convert_url "$url") "$TEMP_CONFIG" &&
+        echo '✅ 配置可用' ||
+        _error_quit '配置无效：请检查配置内容'
+    _stop_convert
 }

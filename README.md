@@ -133,7 +133,8 @@ sudo bash -c '. uninstall.sh; exec bash'
 ### 配置下载失败或无效
 
 - 下载失败：脚本使用 `wget`、`curl` 命令进行了多次[重试](https://github.com/nelvko/clash-for-linux-install/blob/035c85ac92166e95b7503b2a678a6b535fbd4449/script/common.sh#L32-L46)下载，如果还是失败可能是机场限制，请自行粘贴订阅内容到配置文件：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1#issuecomment-2066334716)
-- 订阅配置无效：[issue#14](https://github.com/nelvko/clash-for-linux-install/issues/14#issuecomment-2513303276)
+- 订阅配置无效：~~[issue#14](https://github.com/nelvko/clash-for-linux-install/issues/14#issuecomment-2513303276)~~
+配置下载成功后会对其进行校验，校验失败将在本地进行订阅转换后重试，仍提示无效请检查订阅链接是否有效及订阅格式是否为`clash`.
 
 ### bash: clashon: command not found
 
@@ -177,17 +178,20 @@ sudo bash -c '. uninstall.sh; exec bash'
 
 ### x86、arm架构
 
-将 `resource` 目录中的 `clash-linux-amd64-2023.08.17.gz`、`yq_linux_amd64` 替换为对应架构版本后再执行安装脚本。
+将 `resource` 目录中的 `clash-linux-amd64-2023.08.17.gz`、`yq_linux_amd64`、`subconverter_linux64.tar.gz` 替换为对应架构版本后再执行安装脚本。
 
 - [clash 内核](https://downloads.clash.wiki/ClashPremium/)
 - [yq releases](https://github.com/mikefarah/yq/releases/tag/v4.45.1)
+- [subconverter releases](https://github.com/tindy2013/subconverter/releases/tag/v0.9.0)
 
 ## 引用
 
 - [clash-linux-amd64-2023.08.17.gz](https://downloads.clash.wiki/ClashPremium/)
-- [Clash Web Dashboard](https://github.com/haishanh/yacd/releases/tag/v0.3.8)
+- [Clash Dashboard](https://github.com/haishanh/yacd)
 - [Clash 全家桶下载](https://www.clash.la/releases/)
 - [Clash 知识库](https://clash.wiki/)
+- [yq 处理yaml](https://github.com/mikefarah/yq)
+- [subconverter 本地订阅转换](https://github.com/tindy2013/subconverter)
 
 ## Todo
 
@@ -198,6 +202,7 @@ sudo bash -c '. uninstall.sh; exec bash'
 - [X] Tun 模式
 - [x] mixin 配置
 - [x] 适配x86、arm架构
+- [x] 本地订阅转换
 - [ ] [bug / 需求](https://github.com/nelvko/clash-for-linux-install/issues)
 
 ## Thanks
