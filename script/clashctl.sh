@@ -147,16 +147,16 @@ function clashupdate() {
     _download_config "$url" "$CLASH_CONFIG_RAW"
 
     # 校验并更新配置
-    _valid_config "$CLASH_CONFIG_RAW" && {
-        _mark_raw
-        _concat_config_restart && _okcat '配置更新成功，已重启生效'
-        echo "$url" | sudo tee "$CLASH_CONFIG_URL" >&/dev/null
-        echo "$(date +"%Y-%m-%d %H:%M:%S") 配置更新成功 ✅ $url" | sudo tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
-    } || {
+    _valid_config "$CLASH_CONFIG_RAW" || _convert_config "$CLASH_CONFIG_RAW"
+    _valid_config "$CLASH_CONFIG_RAW" || {
         echo "$(date +"%Y-%m-%d %H:%M:%S") 配置更新失败 ❌ $url" | sudo tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
         sudo cat "$CLASH_CONFIG_RAW_BAK" | sudo tee "$CLASH_CONFIG_RAW" >&/dev/null
-        _error_quit '下载失败或配置无效：已回滚'
+        _error_quit '下载失败或配置无效：已回滚配置'
     }
+    _mark_raw
+    _concat_config_restart && _okcat '配置更新成功，已重启生效'
+    echo "$url" | sudo tee "$CLASH_CONFIG_URL" >&/dev/null
+    echo "$(date +"%Y-%m-%d %H:%M:%S") 配置更新成功 ✅ $url" | sudo tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
 }
 
 function clashmixin() {

@@ -12,14 +12,16 @@ _get_os
 
 gzip -dc $TEMP_CLASH_ZIP >"${TEMP_TOOL_DIR}/clash" && chmod +x "${TEMP_TOOL_DIR}/clash"
 tar -xf $TEMP_CONVERT_ZIP -C "$TEMP_TOOL_DIR"
-_valid_config "$TEMP_CONFIG" && echo '✅ 配置可用' || {
+_valid_config "$TEMP_CONFIG" || {
     read -r -p '😼 输入订阅链接：' url
     _download_config "$url" "$TEMP_CONFIG" || _error_quit "下载失败: 请自行粘贴配置内容到 ${TEMP_CONFIG} 后再执行安装脚本"
     _valid_config "$TEMP_CONFIG" || {
-        _failcat "配置无效：尝试在本地进行订阅转换..."
-        _convert_config
+        _failcat "配置无效：尝试进行本地订阅转换..."
+        _convert_config "$TEMP_CONFIG"
+        _valid_config "$TEMP_CONFIG" || _error_quit '配置无效：请检查配置内容'
     }
 }
+echo '✅ 配置可用'
 mkdir -p "$CLASH_BASE_DIR"
 echo "$url" >"$CLASH_CONFIG_URL"
 /bin/cp -rf script "$CLASH_BASE_DIR"

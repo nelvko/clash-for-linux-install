@@ -188,7 +188,6 @@ _stop_convert() {
 
 function _convert_config() {
     _start_convert
-    _download_config "$(_convert_url "$url")" "$TEMP_CONFIG" || _error_quit '配置无效：请检查配置内容'
-    echo '✅ 配置可用'
+    _download_config "$(_convert_url "$url")" "$1"
     _stop_convert
 }
