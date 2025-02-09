@@ -73,30 +73,25 @@ function clashsecret() {
     esac
 }
 
-_valid_yq() {
-    yq -V >&/dev/null || _error_quit "依赖 yq 命令，请下载对应版本至 PATH 路径内。$YQ_URL"
-}
-
 _concat_config_restart() {
     _valid_config "$CLASH_CONFIG_MIXIN" || _error_quit "Mixin 配置验证失败，请检查"
-    _valid_yq
-    sudo yq -n "load(\"$CLASH_CONFIG_RAW\") * load(\"$CLASH_CONFIG_MIXIN\")" | sudo tee "$CLASH_CONFIG_RUNTIME" >&/dev/null && clashrestart
+    sudo "$TOOL_YQ" -n "load(\"$CLASH_CONFIG_RAW\") * load(\"$CLASH_CONFIG_MIXIN\")" | sudo tee "$CLASH_CONFIG_RUNTIME" >&/dev/null && clashrestart
 }
 
 _tunstatus() {
-    local status=$(yq '.tun.enable' "${CLASH_CONFIG_RUNTIME}")
+    local status=$($TOOL_YQ '.tun.enable' "${CLASH_CONFIG_RUNTIME}")
     [ "$status" = 'true' ] && _okcat 'Tun 状态：启用' || _failcat 'Tun 状态：关闭'
 }
 
 _tunoff() {
     _tunstatus >/dev/null || return 0
-    sudo yq -i '.tun.enable = false' "$CLASH_CONFIG_MIXIN"
+    sudo "$TOOL_YQ" -i '.tun.enable = false' "$CLASH_CONFIG_MIXIN"
     _concat_config_restart >/dev/null && _okcat "Tun 模式已关闭"
 }
 
 _tunon() {
     _tunstatus 2>/dev/null && return 0
-    sudo yq -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
+    sudo "$TOOL_YQ" -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
     _concat_config_restart >/dev/null
     systemctl status clash | grep -qs 'unsupported kernel version' && {
         _tunoff >&/dev/null
@@ -106,7 +101,6 @@ _tunon() {
 }
 
 function clashtun() {
-    _valid_yq
     case "$1" in
     on)
         _tunon

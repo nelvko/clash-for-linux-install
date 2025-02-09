@@ -6,10 +6,12 @@ YQ_URL="https://github.com/mikefarah/yq/releases/tag/v4.45.14"
 
 TEMP_RESOURCE='./resource'
 TEMP_CONFIG="${TEMP_RESOURCE}/config.yaml"
-TEMP_CLASH_RAR="${TEMP_RESOURCE}/clash*.gz"
-TEMP_UI_RAR="${TEMP_RESOURCE}/yacd.tar.xz"
-TEMP_YQ_BIN="${TEMP_RESOURCE}/yq*"
-TEMP_CONVERT_RAR="${TEMP_RESOURCE}/subconverter*.tar.gz"
+TEMP_ZIP="${TEMP_RESOURCE}/zip"
+TEMP_TOOL_DIR="${TEMP_RESOURCE}/tool"
+TEMP_CLASH_ZIP="${TEMP_ZIP}/clash*.gz"
+TEMP_YQ_ZIP="${TEMP_ZIP}/yq*.tar.gz"
+TEMP_CONVERT_ZIP="${TEMP_ZIP}/subconverter*.tar.gz"
+TEMP_UI_ZIP="${TEMP_ZIP}/yacd.tar.xz"
 
 CLASH_BASE_DIR='/opt/clash'
 CLASH_CONFIG_URL="${CLASH_BASE_DIR}/url"
@@ -18,7 +20,11 @@ CLASH_CONFIG_RAW_BAK="${CLASH_CONFIG_RAW}.bak"
 CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/mixin.yaml"
 CLASH_CONFIG_RUNTIME="${CLASH_BASE_DIR}/runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_BASE_DIR}/clashupdate.log"
-YQ_BIN='/usr/bin/yq'
+
+TOOL_BASE_DIR="${CLASH_BASE_DIR}/tool"
+TOOL_CLASH="${TOOL_BASE_DIR}/clash"
+TOOL_YQ="${TOOL_BASE_DIR}/yq"
+TOOL_SUBCONVERTER="${TOOL_BASE_DIR}/subconverter/subconverter"
 
 function _get_os() {
     local os_info=$(cat /etc/os-release)
@@ -30,10 +36,13 @@ function _get_os() {
         CLASH_CRON_TAB='/var/spool/cron/crontabs/root'
         BASHRC='/etc/bash.bashrc'
     }
-}
-_get_os
 
-function _get_value() {
+    local cpu_arch=$(uname -m)
+    # shellcheck disable=SC2086
+    { /bin/ls $TEMP_CLASH_ZIP | grep clash; } >&/dev/null || _download_clash "$cpu_arch"
+}
+
+_get_value() {
     sed -En "s/$1:\s(.*)/\1/p" $CLASH_CONFIG_RUNTIME
 }
 function _get_port() {
@@ -88,8 +97,8 @@ function _download_clash() {
         ;;
     *)
         # shellcheck disable=SC2086
-        /bin/rm -rf $TEMP_CLASH_RAR
-        _error_quit "未知的架构版本：$1，请自行下载对应版本至 resource 目录下：https://downloads.clash.wiki/ClashPremium/"
+        /bin/rm -rf $TEMP_CLASH_ZIP
+        _error_quit "未知的架构版本：$1，请自行下载对应版本至 ${TEMP_ZIP} 目录下：https://downloads.clash.wiki/ClashPremium/"
         ;;
     esac
     _failcat "当前CPU架构为：$1，正在下载对应版本..."
@@ -99,9 +108,9 @@ function _download_clash() {
         -P "$TEMP_RESOURCE" \
         "$url"
     # shellcheck disable=SC2086
-    echo $sha256sum $TEMP_CLASH_RAR | sha256sum -c || {
-        /bin/rm -rf $TEMP_CLASH_RAR
-        _error_quit '下载失败：请自行下载对应版本至 resource 目录下：https://downloads.clash.wiki/ClashPremium/'
+    echo $sha256sum $TEMP_CLASH_ZIP | sha256sum -c || {
+        /bin/rm -rf $TEMP_CLASH_ZIP
+        _error_quit "下载失败：请自行下载对应版本至 ${TEMP_ZIP} 目录下：https://downloads.clash.wiki/ClashPremium/"
     }
 
 }
@@ -110,17 +119,14 @@ function _valid_env() {
     [ "$(whoami)" != "root" ] && _error_quit "需要 root 或 sudo 权限执行"
     [ "$(ps -p $$ -o comm=)" != "bash" ] && _error_quit "当前终端不是 bash"
     [ "$(ps -p 1 -o comm=)" != "systemd" ] && _error_quit "系统不具备 systemd"
-
-    local cpu_arch=$(uname -m)
-    # shellcheck disable=SC2086
-    { /bin/ls $TEMP_CLASH_RAR | grep clash; } >&/dev/null || _download_clash "$cpu_arch"
-
 }
 
-# 配置文件和clash在同一目录
 function _valid_config() {
+    local bin_path="${TOOL_CLASH}"
+    [ ! -e "$bin_path" ] && bin_path="${TEMP_TOOL_DIR}/clash"
+
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] &&
-        "$(dirname "$1")/clash" -d "$(dirname "$1")" -f "$1" -t
+        "${bin_path}" -d "$(dirname "$1")" -f "$1" -t
 }
 
 function _download_config() {
@@ -163,22 +169,26 @@ function _convert_url() {
     echo "${base_url}${encoded_url}"
 }
 
-function _start_convert() {
-    local bin_path="${CLASH_BASE_DIR}/subconverter"
-    [ -e "$bin_path" ] || bin_path="${TEMP_RESOURCE}/subconverter"
-
-    sudo nohup ${bin_path}/subconverter >&/dev/null &
-    echo $!
+_start_convert() {
+    local bin_path="${TOOL_SUBCONVERTER}"
+    [ ! -e "$bin_path" ] && bin_path="${TEMP_TOOL_DIR}/subconverter/subconverter"
+    # 子shell运行，屏蔽kill时的输出
+    (sudo ${bin_path} >&/dev/null &)
+    local start=$(date +%s%3N)
+    while ! sudo lsof -i :25500 >&/dev/null; do
+        sleep 0.05
+        local now=$(date +%s%3N)
+        [ $(("$now" - "$start")) -gt 500 ] && _error_quit '订阅转换服务未启动，请检查25500端口是否被占用'
+    done
 }
 
-function _stop_convert() {
-    pkill -9 subconverter
+_stop_convert() {
+    pkill -9 -f subconverter >&/dev/null
 }
 
-function retry_convert() {
+function _convert_config() {
     _start_convert
-    _download_config $(_convert_url "$url") "$TEMP_CONFIG" &&
-        echo '✅ 配置可用' ||
-        _error_quit '配置无效：请检查配置内容'
+    _download_config "$(_convert_url "$url")" "$TEMP_CONFIG" || _error_quit '配置无效：请检查配置内容'
+    echo '✅ 配置可用'
     _stop_convert
 }
