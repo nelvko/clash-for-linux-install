@@ -1,5 +1,4 @@
 .idea
 .vscode
 config.yaml
-resource/clash
-resource/subconverter
+resource/tool/*
