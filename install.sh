@@ -10,8 +10,8 @@ _get_os
 
 [ -d "$CLASH_BASE_DIR" ] && _error_quit "已安装，如需重新安装请先执行卸载脚本"
 
-gzip -dc $TEMP_CLASH_ZIP >"${TEMP_TOOL_DIR}/clash" && chmod +x "${TEMP_TOOL_DIR}/clash"
-tar -xf $TEMP_CONVERT_ZIP -C "$TEMP_TOOL_DIR"
+gzip -dc $ZIP_CLASH >"${TEMP_TOOL_DIR}/clash" && chmod +x "${TEMP_TOOL_DIR}/clash"
+tar -xf $ZIP_CONVERT -C "$TEMP_TOOL_DIR"
 _valid_config "$TEMP_CONFIG" || {
     read -r -p '😼 输入订阅链接：' url
     _download_config "$url" "$TEMP_CONFIG" || _error_quit "下载失败: 请自行粘贴配置内容到 ${TEMP_CONFIG} 后再执行安装脚本"
@@ -26,8 +26,8 @@ mkdir -p "$CLASH_BASE_DIR"
 echo "$url" >"$CLASH_CONFIG_URL"
 /bin/cp -rf script "$CLASH_BASE_DIR"
 /bin/ls resource | grep -Ev 'zip|png' | xargs -I {} /bin/cp -rf "resource/{}" "$CLASH_BASE_DIR"
-tar -xf "$TEMP_UI_ZIP" -C "$CLASH_BASE_DIR"
-tar -xf $TEMP_YQ_ZIP -C "${TEMP_TOOL_DIR}" && install -m +x ${TEMP_TOOL_DIR}/yq_* "$TOOL_YQ"
+tar -xf "$ZIP_UI" -C "$CLASH_BASE_DIR"
+tar -xf $ZIP_YQ -C "${TEMP_TOOL_DIR}" && install -m +x ${TEMP_TOOL_DIR}/yq_* "$TOOL_YQ"
 
 _mark_raw
 _concat_config_restart >&/dev/null

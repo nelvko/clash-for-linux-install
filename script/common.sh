@@ -2,16 +2,17 @@
 # shellcheck disable=SC2034
 # shellcheck disable=SC2155
 GH_PROXY='https://gh-proxy.com/'
-YQ_URL="https://github.com/mikefarah/yq/releases/tag/v4.45.14"
+URL_YQ="https://github.com/mikefarah/yq/releases/tag/v4.45.1"
 
 TEMP_RESOURCE='./resource'
-TEMP_CONFIG="${TEMP_RESOURCE}/config.yaml"
-TEMP_ZIP="${TEMP_RESOURCE}/zip"
 TEMP_TOOL_DIR="${TEMP_RESOURCE}/tool"
-TEMP_CLASH_ZIP="${TEMP_ZIP}/clash*.gz"
-TEMP_YQ_ZIP="${TEMP_ZIP}/yq*.tar.gz"
-TEMP_CONVERT_ZIP="${TEMP_ZIP}/subconverter*.tar.gz"
-TEMP_UI_ZIP="${TEMP_ZIP}/yacd.tar.xz"
+TEMP_CONFIG="${TEMP_RESOURCE}/config.yaml"
+
+ZIP_BASE_DIR="${TEMP_RESOURCE}/zip"
+ZIP_CLASH="${ZIP_BASE_DIR}/clash*.gz"
+ZIP_YQ="${ZIP_BASE_DIR}/yq*.tar.gz"
+ZIP_CONVERT="${ZIP_BASE_DIR}/subconverter*.tar.gz"
+ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
 
 CLASH_BASE_DIR='/opt/clash'
 CLASH_CONFIG_URL="${CLASH_BASE_DIR}/url"
@@ -39,7 +40,7 @@ function _get_os() {
 
     local cpu_arch=$(uname -m)
     # shellcheck disable=SC2086
-    { /bin/ls $TEMP_CLASH_ZIP | grep clash; } >&/dev/null || _download_clash "$cpu_arch"
+    { /bin/ls $ZIP_CLASH | grep clash; } >&/dev/null || _download_clash "$cpu_arch"
 }
 
 _get_value() {
@@ -97,20 +98,20 @@ function _download_clash() {
         ;;
     *)
         # shellcheck disable=SC2086
-        /bin/rm -rf $TEMP_CLASH_ZIP
-        _error_quit "未知的架构版本：$1，请自行下载对应版本至 ${TEMP_ZIP} 目录下：https://downloads.clash.wiki/ClashPremium/"
+        /bin/rm -rf $ZIP_CLASH
+        _error_quit "未知的架构版本：$1，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录下：https://downloads.clash.wiki/ClashPremium/"
         ;;
     esac
     _failcat "当前CPU架构为：$1，正在下载对应版本..."
     wget --timeout=30 \
         --tries=1 \
         --no-check-certificate \
-        -P "$TEMP_RESOURCE" \
+        --directory-prefix "$ZIP_BASE_DIR" \
         "$url"
     # shellcheck disable=SC2086
-    echo $sha256sum $TEMP_CLASH_ZIP | sha256sum -c || {
-        /bin/rm -rf $TEMP_CLASH_ZIP
-        _error_quit "下载失败：请自行下载对应版本至 ${TEMP_ZIP} 目录下：https://downloads.clash.wiki/ClashPremium/"
+    echo $sha256sum $ZIP_CLASH | sha256sum -c || {
+        /bin/rm -rf $ZIP_CLASH
+        _error_quit "下载失败：请自行下载对应版本至 ${ZIP_BASE_DIR} 目录下：https://downloads.clash.wiki/ClashPremium/"
     }
 
 }
