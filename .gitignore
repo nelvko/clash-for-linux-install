@@ -2,3 +2,4 @@
 .vscode
 config.yaml
 resource/bin/**
+!.gitkeep
