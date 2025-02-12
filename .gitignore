@@ -1,4 +1,4 @@
 .idea
 .vscode
 config.yaml
-resource/tool/**
+resource/bin/**

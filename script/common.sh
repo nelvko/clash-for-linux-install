@@ -1,17 +1,19 @@
 #!/bin/bash
 # shellcheck disable=SC2034
 # shellcheck disable=SC2155
+set +o noglob
+
 GH_PROXY='https://gh-proxy.com/'
 URL_YQ="https://github.com/mikefarah/yq/releases/tag/v4.45.1"
 URL_CLASH_UI="http://board.zash.run.place"
 
 TEMP_RESOURCE='./resource'
-TEMP_TOOL_DIR="${TEMP_RESOURCE}/tool"
+TEMP_BIN="${TEMP_RESOURCE}/bin"
 TEMP_CONFIG="${TEMP_RESOURCE}/config.yaml"
 
 ZIP_BASE_DIR="${TEMP_RESOURCE}/zip"
 ZIP_CLASH="${ZIP_BASE_DIR}/clash*.gz"
-# ZIP_CLASH="${ZIP_BASE_DIR}/mihomo*.gz"
+ZIP_MIHOMO="${ZIP_BASE_DIR}/mihomo*.gz"
 ZIP_YQ="${ZIP_BASE_DIR}/yq*.tar.gz"
 ZIP_CONVERT="${ZIP_BASE_DIR}/subconverter*.tar.gz"
 ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
@@ -24,10 +26,15 @@ CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/mixin.yaml"
 CLASH_CONFIG_RUNTIME="${CLASH_BASE_DIR}/runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_BASE_DIR}/clashupdate.log"
 
-TOOL_BASE_DIR="${CLASH_BASE_DIR}/tool"
-TOOL_CLASH="${TOOL_BASE_DIR}/clash"
-TOOL_YQ="${TOOL_BASE_DIR}/yq"
-TOOL_SUBCONVERTER="${TOOL_BASE_DIR}/subconverter/subconverter"
+BIN_BASE_DIR="${CLASH_BASE_DIR}/bin"
+BIN_CLASH="${BIN_BASE_DIR}/clash"
+BIN_YQ="${BIN_BASE_DIR}/yq"
+BIN_SUBCONVERTER="${BIN_BASE_DIR}/subconverter/subconverter"
+
+function _get_kernel() {
+    # shellcheck disable=SC2086
+    [ -e $ZIP_MIHOMO ] && ZIP_KERNEL=$ZIP_MIHOMO || ZIP_KERNEL=$ZIP_CLASH
+}
 
 function _get_os() {
     local os_info=$(cat /etc/os-release)
@@ -39,16 +46,17 @@ function _get_os() {
         CLASH_CRON_TAB='/var/spool/cron/crontabs/root'
         BASHRC='/etc/bash.bashrc'
     }
-
+    
+    _get_kernel
     local cpu_arch=$(uname -m)
     # shellcheck disable=SC2086
-    { /bin/ls $ZIP_CLASH | grep -E 'clash|mihomo'; } >&/dev/null || _download_clash "$cpu_arch"
+    { /bin/ls $ZIP_KERNEL | grep -E 'clash|mihomo'; } >&/dev/null || _download_clash "$cpu_arch"
 }
 
 function _get_port() {
-    local port=$(sudo $TOOL_YQ '.port' $CLASH_CONFIG_RUNTIME)
-    local mixed_port=$(sudo $TOOL_YQ '.mixed-port' $CLASH_CONFIG_RUNTIME)
-    local external_port=$(sudo $TOOL_YQ '.external-controller' $CLASH_CONFIG_RUNTIME | cut -d':' -f2)
+    local port=$(sudo $BIN_YQ '.port' $CLASH_CONFIG_RUNTIME)
+    local mixed_port=$(sudo $BIN_YQ '.mixed-port' $CLASH_CONFIG_RUNTIME)
+    local external_port=$(sudo $BIN_YQ '.external-controller' $CLASH_CONFIG_RUNTIME | cut -d':' -f2)
 
     PROXY_PORT="${mixed_port:-${port:-7890}}"
     UI_PORT=${external_port:-9090}
@@ -92,7 +100,7 @@ function _download_clash() {
         ;;
     *)
         # shellcheck disable=SC2086
-        /bin/rm -rf $ZIP_CLASH
+        /bin/rm -rf $ZIP_KERNEL
         _error_quit "未知的架构版本：$1，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录下：https://downloads.clash.wiki/ClashPremium/"
         ;;
     esac
@@ -103,8 +111,8 @@ function _download_clash() {
         --directory-prefix "$ZIP_BASE_DIR" \
         "$url"
     # shellcheck disable=SC2086
-    echo $sha256sum $ZIP_CLASH | sha256sum -c || {
-        /bin/rm -rf $ZIP_CLASH
+    echo $sha256sum $ZIP_KERNEL | sha256sum -c || {
+        /bin/rm -rf $ZIP_KERNEL
         _error_quit "下载失败：请自行下载对应版本至 ${ZIP_BASE_DIR} 目录下：https://downloads.clash.wiki/ClashPremium/"
     }
 
@@ -117,12 +125,12 @@ function _valid_env() {
 }
 
 function _valid_config() {
-    local bin_path="${TOOL_CLASH}"
-    [ ! -e "$bin_path" ] && bin_path="${TEMP_TOOL_DIR}/clash"
+    local bin_path=${BIN_CLASH}
+    [ ! -e $bin_path ] && bin_path=${TEMP_BIN}/clash
 
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
-        local test="$bin_path -d $(dirname "$1") -f $1 -t"
-        eval "$test >&/dev/null" || eval "$test"
+        local test_cmd="$bin_path -d $(dirname "$1") -t"
+        eval "$test_cmd >&/dev/null" || eval "$test_cmd"
     }
 }
 
@@ -162,13 +170,12 @@ _convert_url() {
     }
 
     local encoded_url=$(urlencode "$raw_url")
-
     echo "${base_url}${encoded_url}"
 }
 
 _start_convert() {
-    local bin_path="${TOOL_SUBCONVERTER}"
-    [ ! -e "$bin_path" ] && bin_path="${TEMP_TOOL_DIR}/subconverter/subconverter"
+    local bin_path="${BIN_SUBCONVERTER}"
+    [ ! -e "$bin_path" ] && bin_path="${TEMP_BIN}/subconverter/subconverter"
     # 子shell运行，屏蔽kill时的输出
     (sudo ${bin_path} >&/dev/null &)
     local start=$(date +%s%3N)
