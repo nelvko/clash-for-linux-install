@@ -17,7 +17,7 @@ _valid_config "$TEMP_CONFIG" || {
     _download_config "$url" "$TEMP_CONFIG" || _error_quit "下载失败: 请自行粘贴配置内容到 ${TEMP_CONFIG} 后再执行安装脚本"
     _valid_config "$TEMP_CONFIG" || {
         _failcat "配置无效：尝试进行本地订阅转换..."
-        _convert_config "$TEMP_CONFIG"
+        _download_convert_config "$TEMP_CONFIG"
         _valid_config "$TEMP_CONFIG" || _error_quit '配置无效：请检查配置内容'
     }
 }
@@ -29,8 +29,7 @@ echo "$url" >"$CLASH_CONFIG_URL"
 tar -xf "$ZIP_UI" -C "$CLASH_BASE_DIR"
 tar -xf $ZIP_YQ -C "${TEMP_TOOL_DIR}" && install -m +x ${TEMP_TOOL_DIR}/yq_* "$TOOL_YQ"
 
-_mark_raw
-_concat_config_restart >&/dev/null
+_merge_config_restart
 
 cat <<EOF >/etc/systemd/system/clash.service
 [Unit]
@@ -40,7 +39,7 @@ After=network-online.target
 [Service]
 Type=simple
 Restart=always
-ExecStart=${TOOL_CLASH} -d ${CLASH_BASE_DIR} -f ${CLASH_CONFIG_RUNTIME} -ext-ui public -secret ''
+ExecStart=${TOOL_CLASH} -d ${CLASH_BASE_DIR} -f ${CLASH_CONFIG_RUNTIME}
 
 [Install]
 WantedBy=multi-user.target

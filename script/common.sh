@@ -3,6 +3,7 @@
 # shellcheck disable=SC2155
 GH_PROXY='https://gh-proxy.com/'
 URL_YQ="https://github.com/mikefarah/yq/releases/tag/v4.45.1"
+URL_CLASH_UI="http://board.zash.run.place"
 
 TEMP_RESOURCE='./resource'
 TEMP_TOOL_DIR="${TEMP_RESOURCE}/tool"
@@ -10,6 +11,7 @@ TEMP_CONFIG="${TEMP_RESOURCE}/config.yaml"
 
 ZIP_BASE_DIR="${TEMP_RESOURCE}/zip"
 ZIP_CLASH="${ZIP_BASE_DIR}/clash*.gz"
+# ZIP_CLASH="${ZIP_BASE_DIR}/mihomo*.gz"
 ZIP_YQ="${ZIP_BASE_DIR}/yq*.tar.gz"
 ZIP_CONVERT="${ZIP_BASE_DIR}/subconverter*.tar.gz"
 ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
@@ -40,24 +42,16 @@ function _get_os() {
 
     local cpu_arch=$(uname -m)
     # shellcheck disable=SC2086
-    { /bin/ls $ZIP_CLASH | grep clash; } >&/dev/null || _download_clash "$cpu_arch"
+    { /bin/ls $ZIP_CLASH | grep -E 'clash|mihomo'; } >&/dev/null || _download_clash "$cpu_arch"
 }
 
-_get_value() {
-    sed -En "s/$1:\s(.*)/\1/p" $CLASH_CONFIG_RUNTIME
-}
 function _get_port() {
-    local ext_ctl=$(_get_value 'external-controller')
-    EXT_PORT=${ext_ctl##*:}
-    EXT_PORT=${EXT_PORT//\'/}
-    MIXED_PORT=$(_get_value 'mixed-port')
+    local port=$(sudo $TOOL_YQ '.port' $CLASH_CONFIG_RUNTIME)
+    local mixed_port=$(sudo $TOOL_YQ '.mixed-port' $CLASH_CONFIG_RUNTIME)
+    local external_port=$(sudo $TOOL_YQ '.external-controller' $CLASH_CONFIG_RUNTIME | cut -d':' -f2)
 
-    [ -z "$MIXED_PORT" ] && MIXED_PORT=7890
-    [ -z "$EXT_PORT" ] && EXT_PORT=9090
-}
-
-function _mark_raw() {
-    sudo sed -i -e '1i\# raw-config-start' -e '$a\# raw-config-end\n' "${CLASH_CONFIG_RAW}"
+    PROXY_PORT="${mixed_port:-${port:-7890}}"
+    UI_PORT=${external_port:-9090}
 }
 
 function _okcat() {
@@ -126,8 +120,10 @@ function _valid_config() {
     local bin_path="${TOOL_CLASH}"
     [ ! -e "$bin_path" ] && bin_path="${TEMP_TOOL_DIR}/clash"
 
-    [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] &&
-        "${bin_path}" -d "$(dirname "$1")" -f "$1" -t
+    [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
+        local test="$bin_path -d $(dirname "$1") -f $1 -t"
+        eval "$test >&/dev/null" || eval "$test"
+    }
 }
 
 function _download_config() {
@@ -148,7 +144,7 @@ function _download_config() {
             "$url"
 }
 
-function _convert_url() {
+_convert_url() {
     local raw_url="$1"
     local base_url="http://127.0.0.1:25500/sub?target=clash&url="
 
@@ -187,7 +183,7 @@ _stop_convert() {
     pkill -9 -f subconverter >&/dev/null
 }
 
-function _convert_config() {
+function _download_convert_config() {
     _start_convert
     _download_config "$(_convert_url "$url")" "$1"
     _stop_convert
