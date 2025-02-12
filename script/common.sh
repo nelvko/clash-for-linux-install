@@ -46,7 +46,7 @@ function _get_os() {
         CLASH_CRON_TAB='/var/spool/cron/crontabs/root'
         BASHRC='/etc/bash.bashrc'
     }
-    
+
     _get_kernel
     local cpu_arch=$(uname -m)
     # shellcheck disable=SC2086
@@ -54,9 +54,9 @@ function _get_os() {
 }
 
 function _get_port() {
-    local port=$(sudo $BIN_YQ '.port' $CLASH_CONFIG_RUNTIME)
-    local mixed_port=$(sudo $BIN_YQ '.mixed-port' $CLASH_CONFIG_RUNTIME)
-    local external_port=$(sudo $BIN_YQ '.external-controller' $CLASH_CONFIG_RUNTIME | cut -d':' -f2)
+    local port=$(sudo $BIN_YQ '.port // ""' $CLASH_CONFIG_RUNTIME)
+    local mixed_port=$(sudo $BIN_YQ '.mixed-port // ""' $CLASH_CONFIG_RUNTIME)
+    local external_port=$(sudo $BIN_YQ '.external-controller // ""' $CLASH_CONFIG_RUNTIME | cut -d':' -f2)
 
     PROXY_PORT="${mixed_port:-${port:-7890}}"
     UI_PORT=${external_port:-9090}

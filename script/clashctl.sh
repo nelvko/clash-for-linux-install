@@ -61,7 +61,7 @@ _merge_config_restart() {
 function clashsecret() {
     case "$#" in
     0)
-        _okcat "当前密钥：$(sudo "$BIN_YQ" '.secret' "$CLASH_CONFIG_RUNTIME")"
+        _okcat "当前密钥：$(sudo "$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME")"
         ;;
     1)
         local secret=$1
