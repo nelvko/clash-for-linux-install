@@ -31,9 +31,21 @@ BIN_CLASH="${BIN_BASE_DIR}/clash"
 BIN_YQ="${BIN_BASE_DIR}/yq"
 BIN_SUBCONVERTER="${BIN_BASE_DIR}/subconverter/subconverter"
 
-function _get_kernel() {
+_get_kernel() {
     # shellcheck disable=SC2086
     [ -e $ZIP_MIHOMO ] && ZIP_KERNEL=$ZIP_MIHOMO || ZIP_KERNEL=$ZIP_CLASH
+}
+
+_get_arch() {
+    local cpu_arch=$(uname -m)
+    {
+        # shellcheck disable=SC2086
+        /bin/ls $ZIP_KERNEL 2>/dev/null | grep -E 'clash|mihomo' | grep -qs 'amd64' \
+        && [ $cpu_arch = 'x86_64' ]
+    } || {
+        _get_kernel
+        _download_clash "$cpu_arch"
+    }
 }
 
 function _get_os() {
@@ -48,9 +60,7 @@ function _get_os() {
     }
 
     _get_kernel
-    local cpu_arch=$(uname -m)
-    # shellcheck disable=SC2086
-    { /bin/ls $ZIP_KERNEL | grep -E 'clash|mihomo'; } >&/dev/null || _download_clash "$cpu_arch"
+    _get_arch
 }
 
 function _get_port() {
@@ -79,7 +89,9 @@ function _error_quit() {
     echo "$0" | grep -qs 'bash' && exec bash || exit 1
 }
 
-function _download_clash() {
+_download_clash() {
+    # shellcheck disable=SC2086
+    /bin/rm -rf $ZIP_KERNEL
     local url sha256sum
     case "$1" in
     x86_64)
@@ -99,8 +111,6 @@ function _download_clash() {
         sha256sum='c45b39bb241e270ae5f4498e2af75cecc0f03c9db3c0db5e55c8c4919f01afdd'
         ;;
     *)
-        # shellcheck disable=SC2086
-        /bin/rm -rf $ZIP_KERNEL
         _error_quit "未知的架构版本：$1，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录下：https://downloads.clash.wiki/ClashPremium/"
         ;;
     esac
@@ -111,10 +121,8 @@ function _download_clash() {
         --directory-prefix "$ZIP_BASE_DIR" \
         "$url"
     # shellcheck disable=SC2086
-    echo $sha256sum $ZIP_KERNEL | sha256sum -c || {
-        /bin/rm -rf $ZIP_KERNEL
+    echo $sha256sum $ZIP_KERNEL | sha256sum -c || \
         _error_quit "下载失败：请自行下载对应版本至 ${ZIP_BASE_DIR} 目录下：https://downloads.clash.wiki/ClashPremium/"
-    }
 
 }
 
