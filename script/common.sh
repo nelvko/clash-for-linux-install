@@ -7,11 +7,10 @@ GH_PROXY='https://gh-proxy.com/'
 URL_YQ="https://github.com/mikefarah/yq/releases/tag/v4.45.1"
 URL_CLASH_UI="http://board.zash.run.place"
 
-TEMP_RESOURCE='./resource'
-TEMP_BIN="${TEMP_RESOURCE}/bin"
-TEMP_CONFIG="${TEMP_RESOURCE}/config.yaml"
+RESOURCES_BASE_DIR='./resources'
+RESOURCES_CONFIG="${RESOURCES_BASE_DIR}/config.yaml"
 
-ZIP_BASE_DIR="${TEMP_RESOURCE}/zip"
+ZIP_BASE_DIR="${RESOURCES_BASE_DIR}/zip"
 ZIP_CLASH="${ZIP_BASE_DIR}/clash*.gz"
 ZIP_MIHOMO="${ZIP_BASE_DIR}/mihomo*.gz"
 ZIP_YQ="${ZIP_BASE_DIR}/yq*.tar.gz"
@@ -28,12 +27,18 @@ CLASH_UPDATE_LOG="${CLASH_BASE_DIR}/clashupdate.log"
 
 BIN_BASE_DIR="${CLASH_BASE_DIR}/bin"
 BIN_CLASH="${BIN_BASE_DIR}/clash"
+BIN_MIHOMO="${BIN_BASE_DIR}/mihomo"
 BIN_YQ="${BIN_BASE_DIR}/yq"
 BIN_SUBCONVERTER="${BIN_BASE_DIR}/subconverter/subconverter"
 
 _get_kernel() {
+    ZIP_KERNEL=$ZIP_CLASH
+    BIN_KERNEL=$BIN_CLASH
     # shellcheck disable=SC2086
-    [ -e $ZIP_MIHOMO ] && ZIP_KERNEL=$ZIP_MIHOMO || ZIP_KERNEL=$ZIP_CLASH
+    [ -e $ZIP_MIHOMO ] && {
+        ZIP_KERNEL=$ZIP_MIHOMO
+        BIN_KERNEL=$BIN_MIHOMO
+    }
 }
 
 _get_arch() {
@@ -133,11 +138,8 @@ function _valid_env() {
 }
 
 function _valid_config() {
-    local bin_path=${BIN_CLASH}
-    [ ! -e $bin_path ] && bin_path=${TEMP_BIN}/clash
-
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
-        local test_cmd="$bin_path -d $(dirname "$1") -t"
+        local test_cmd="$BIN_KERNEL -d $(dirname "$1") -t"
         eval "$test_cmd >&/dev/null" || eval "$test_cmd"
     }
 }
@@ -182,10 +184,8 @@ _convert_url() {
 }
 
 _start_convert() {
-    local bin_path="${BIN_SUBCONVERTER}"
-    [ ! -e "$bin_path" ] && bin_path="${TEMP_BIN}/subconverter/subconverter"
     # 子shell运行，屏蔽kill时的输出
-    (sudo ${bin_path} >&/dev/null &)
+    (sudo $BIN_SUBCONVERTER >&/dev/null &)
     local start=$(date +%s%3N)
     while ! sudo lsof -i :25500 >&/dev/null; do
         sleep 0.05
