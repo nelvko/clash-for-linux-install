@@ -70,10 +70,12 @@ function _get_os() {
 
 function _get_port() {
     local port=$(sudo $BIN_YQ '.port // ""' $CLASH_CONFIG_RUNTIME)
+    local socks_port=$(sudo $BIN_YQ '.socks-port // ""' $CLASH_CONFIG_RUNTIME)
     local mixed_port=$(sudo $BIN_YQ '.mixed-port // ""' $CLASH_CONFIG_RUNTIME)
     local external_port=$(sudo $BIN_YQ '.external-controller // ""' $CLASH_CONFIG_RUNTIME | cut -d':' -f2)
 
-    PROXY_PORT="${mixed_port:-${port:-7890}}"
+    HTTP_PROXY_PORT="${mixed_port:-${port:-7890}}"
+    SOCKS_PROXY_PORT="${mixed_port:-${socks_port:-7891}}"
     UI_PORT=${external_port:-9090}
 }
 

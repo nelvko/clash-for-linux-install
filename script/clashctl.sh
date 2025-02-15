@@ -4,25 +4,44 @@
 function clashon() {
     sudo systemctl start clash && _okcat '已开启代理环境' ||
         _failcat '启动失败: 执行 "systemctl status clash" 查看日志' || return 1
+
     _get_port
-    local proxy_addr=http://127.0.0.1:${PROXY_PORT}
-    export http_proxy=$proxy_addr
-    export https_proxy=$proxy_addr
-    export HTTP_PROXY=$proxy_addr
-    export HTTPS_PROXY=$proxy_addr
+    local http_proxy_addr=http://127.0.0.1:${HTTP_PROXY_PORT}
+    local socks_proxy_addr=socks5://127.0.0.1:${SOCKS_PROXY_PORT}
+    local no_proxy_addr="localhost,127.0.0.1,::1"
+
+    export http_proxy=$http_proxy_addr
+    export https_proxy=$http_proxy
+    export HTTP_PROXY=$http_proxy
+    export HTTPS_PROXY=$http_proxy
+
+    export all_proxy=$socks_proxy_addr
+    export ALL_PROXY=$all_proxy
+
+    export no_proxy=$no_proxy_addr
+    export NO_PROXY=$no_proxy
 }
 
 function clashoff() {
     sudo systemctl stop clash && _okcat '已关闭代理环境' ||
         _failcat '关闭失败: 执行 "systemctl status clash" 查看日志' || return 1
+
     unset http_proxy
     unset https_proxy
     unset HTTP_PROXY
     unset HTTPS_PROXY
+    unset all_proxy
+    unset ALL_PROXY
+    unset no_proxy
+    unset NO_PROXY
 }
 
 clashrestart() {
     { clashoff && clashon; } >&/dev/null
+}
+
+clashstatus() {
+    sudo systemctl status clash
 }
 
 function clashui() {
@@ -32,8 +51,8 @@ function clashui() {
     # ifconfig.me
     # cip.cc
     _get_port
-    local public_ip=$(curl -s --noproxy "*" ifconfig.me)
-    local public_address="http://${public_ip}:${UI_PORT}/ui"
+    local public_ip=$(curl -s --noproxy "*" --connect-timeout 2 ifconfig.me)
+    local public_address="http://${public_ip:-公网IP}:${UI_PORT}/ui"
     # 内网ip
     # ip route get 1.1.1.1 | grep -oP 'src \K\S+'
     local local_ip=$(hostname -I | awk '{print $1}')
