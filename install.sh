@@ -25,7 +25,7 @@ echo '✅ 配置可用'
 echo "$url" >"$CLASH_CONFIG_URL"
 
 /bin/cp -rf script "$CLASH_BASE_DIR"
-/bin/ls "$RESOURCES_BASE_DIR" | grep -Ev 'zip|png' | xargs -I {} /bin/cp -rf "${$RESOURCES_BASE_DIR}/{}" "$CLASH_BASE_DIR"
+/bin/ls "$RESOURCES_BASE_DIR" | grep -Ev 'zip|png' | xargs -I {} /bin/cp -rf "${RESOURCES_BASE_DIR}/{}" "$CLASH_BASE_DIR"
 tar -xf "$ZIP_UI" -C "$CLASH_BASE_DIR"
 # shellcheck disable=SC2086
 tar -xf $ZIP_YQ -C "${BIN_BASE_DIR}" && install -m +x ${BIN_BASE_DIR}/yq_* "$BIN_YQ"
