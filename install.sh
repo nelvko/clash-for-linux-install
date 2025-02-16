@@ -17,7 +17,7 @@ _valid_config "$RESOURCES_CONFIG" || {
     _download_config "$url" "$RESOURCES_CONFIG" || _error_quit "下载失败: 请自行粘贴配置内容到 ${RESOURCES_CONFIG} 后再执行安装脚本"
     _valid_config "$RESOURCES_CONFIG" || {
         _failcat "配置无效：尝试进行本地订阅转换..."
-        _download_convert_config "$RESOURCES_CONFIG"
+        _download_convert_config "$RESOURCES_CONFIG" "$url"
         _valid_config "$RESOURCES_CONFIG" || _error_quit '配置无效：请检查配置内容'
     }
 }

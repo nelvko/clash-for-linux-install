@@ -165,7 +165,7 @@ function clashupdate() {
     _download_config "$url" "$CLASH_CONFIG_RAW"
 
     # 校验并更新配置
-    _valid_config "$CLASH_CONFIG_RAW" || _download_convert_config "$CLASH_CONFIG_RAW"
+    _valid_config "$CLASH_CONFIG_RAW" || _download_convert_config "$CLASH_CONFIG_RAW" "$url"
     _valid_config "$CLASH_CONFIG_RAW" || {
         echo "$(date +"%Y-%m-%d %H:%M:%S") 配置更新失败 ❌ $url" | sudo tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
         sudo cat "$CLASH_CONFIG_RAW_BAK" | sudo tee "$CLASH_CONFIG_RAW" >&/dev/null

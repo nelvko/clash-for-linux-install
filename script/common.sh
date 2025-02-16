@@ -45,8 +45,8 @@ _get_arch() {
     local cpu_arch=$(uname -m)
     {
         # shellcheck disable=SC2086
-        /bin/ls $ZIP_KERNEL 2>/dev/null | grep -E 'clash|mihomo' | grep -qs 'amd64' \
-        && [ $cpu_arch = 'x86_64' ]
+        /bin/ls $ZIP_KERNEL 2>/dev/null | grep -E 'clash|mihomo' | grep -qs 'amd64' &&
+            [ $cpu_arch = 'x86_64' ]
     } || {
         _get_kernel
         _download_clash "$cpu_arch"
@@ -128,7 +128,7 @@ _download_clash() {
         --directory-prefix "$ZIP_BASE_DIR" \
         "$url"
     # shellcheck disable=SC2086
-    echo $sha256sum $ZIP_KERNEL | sha256sum -c || \
+    echo $sha256sum $ZIP_KERNEL | sha256sum -c ||
         _error_quit "下载失败：请自行下载对应版本至 ${ZIP_BASE_DIR} 目录下：https://downloads.clash.wiki/ClashPremium/"
 
 }
@@ -148,19 +148,19 @@ function _valid_config() {
 
 function _download_config() {
     local url=$1
-    local output=$2
+    local dest=$2
     local agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
     sudo curl --connect-timeout 4 \
         --retry 1 \
         --user-agent "$agent" \
         -k \
-        -o "$output" \
+        -o "$dest" \
         "$url" ||
         sudo wget --timeout=5 \
             --tries=1 \
             --user-agent="$agent" \
             --no-check-certificate \
-            -O "$output" \
+            -O "$dest" \
             "$url"
 }
 
@@ -201,7 +201,9 @@ _stop_convert() {
 }
 
 function _download_convert_config() {
+    local url=$1
+    local dest=$2
     _start_convert
-    _download_config "$(_convert_url "$url")" "$1"
+    _download_config "$(_convert_url "$url")" "$dest"
     _stop_convert
 }
