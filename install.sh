@@ -4,6 +4,7 @@
 . script/clashctl.sh
 
 _valid_env
+_get_kernel
 _get_os
 
 [ -d "$CLASH_BASE_DIR" ] && _error_quit "已安装，如需重新安装请先执行卸载脚本"
@@ -30,25 +31,34 @@ tar -xf "$ZIP_UI" -C "$CLASH_BASE_DIR"
 # shellcheck disable=SC2086
 tar -xf $ZIP_YQ -C "${BIN_BASE_DIR}" && install -m +x ${BIN_BASE_DIR}/yq_* "$BIN_YQ"
 
-_merge_config_restart
+_merge_config_restart >/dev/null
 
 cat <<EOF >/etc/systemd/system/clash.service
 [Unit]
-Description=Clash 守护进程, Go 语言实现的基于规则的代理.
-After=network-online.target
+Description=$(basename "$BIN_KERNEL") Daemon, A[nother] Clash Kernel.
+After=network.target NetworkManager.service systemd-networkd.service iwd.service
 
 [Service]
 Type=simple
+LimitNPROC=500
+LimitNOFILE=1000000
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE
 Restart=always
-ExecStart=${BIN_CLASH} -d ${CLASH_BASE_DIR} -f ${CLASH_CONFIG_RUNTIME}
+ExecStartPre=/usr/bin/sleep 1s
+ExecStart=${BIN_KERNEL} -d ${CLASH_BASE_DIR} -f ${CLASH_CONFIG_RUNTIME}
+ExecReload=/bin/kill -HUP $MAINPID
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
+[ -n "$(tail -1 "$BASHRC")" ] && echo >> "$BASHRC"
 echo "source $CLASH_BASE_DIR/script/common.sh && source $CLASH_BASE_DIR/script/clashctl.sh" >>"$BASHRC"
+
 systemctl daemon-reload
+clashon
 # shellcheck disable=SC2015
 systemctl enable clash >&/dev/null && _okcat "已设置开机自启" || _failcat "设置自启失败"
-clashon && clashui
+clashui
 clash
