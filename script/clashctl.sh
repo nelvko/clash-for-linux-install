@@ -1,13 +1,13 @@
 #!/bin/bash
 # shellcheck disable=SC2155
-# clash快捷指令
-function clashon() {
-    sudo systemctl start clash && _okcat '已开启代理环境' ||
-        _failcat '启动失败: 执行 "systemctl status clash" 查看日志' || return 1
 
+function clashon() {
     _get_port
-    local http_proxy_addr=http://127.0.0.1:${HTTP_PROXY_PORT}
-    local socks_proxy_addr=socks5://127.0.0.1:${SOCKS_PROXY_PORT}
+    sudo systemctl start clash && _okcat '已开启代理环境' ||
+        _failcat '启动失败: 执行 "clashstatus" 查看日志' || return 1
+
+    local http_proxy_addr="http://127.0.0.1:${MIXED_PORT}"
+    local socks_proxy_addr="socks5://127.0.0.1:${MIXED_PORT}"
     local no_proxy_addr="localhost,127.0.0.1,::1"
 
     export http_proxy=$http_proxy_addr
@@ -24,7 +24,7 @@ function clashon() {
 
 function clashoff() {
     sudo systemctl stop clash && _okcat '已关闭代理环境' ||
-        _failcat '关闭失败: 执行 "systemctl status clash" 查看日志' || return 1
+        _failcat '关闭失败: 执行 "clashstatus" 查看日志' || return 1
 
     unset http_proxy
     unset https_proxy
@@ -41,7 +41,7 @@ clashrestart() {
 }
 
 clashstatus() {
-    sudo systemctl status clash
+    sudo systemctl status clash "$@"
 }
 
 function clashui() {
@@ -59,13 +59,13 @@ function clashui() {
     local local_address="http://${local_ip}:${UI_PORT}/ui"
     printf "\n"
     printf "╔═══════════════════════════════════════════════╗\n"
-    printf "║                😼 Web 面板地址                ║\n"
+    printf "║                %s                ║\n" "$(_okcat 'Web 面板地址')"
     printf "║═══════════════════════════════════════════════║\n"
     printf "║                                               ║\n"
-    printf "║      🔓 请注意放行 %s 端口                  ║\n" "$UI_PORT"
-    printf "║      🏠 内网：%-30s  ║\n" "$local_address"
-    printf "║      🌍 公网：%-30s  ║\n" "$public_address"
-    printf "║      ☁️  公共：%-30s  ║\n" "$URL_CLASH_UI"
+    printf "║     🔓 注意放行端口：%-5s                    ║\n" "$UI_PORT"
+    printf "║     🏠 内网：%-31s  ║\n" "$local_address"
+    printf "║     🌍 公网：%-31s  ║\n" "$public_address"
+    printf "║     ☁️  公共：%-31s  ║\n" "$URL_CLASH_UI"
     printf "║                                               ║\n"
     printf "╚═══════════════════════════════════════════════╝\n"
     printf "\n"
@@ -111,7 +111,7 @@ _tunon() {
     _tunstatus 2>/dev/null && return 0
     sudo "$BIN_YQ" -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
     _merge_config_restart
-    systemctl status clash | grep -qs 'unsupported kernel version' && {
+    clashstatus -l | grep -qs 'unsupported kernel version' && {
         _tunoff >&/dev/null
         _error_quit '当前系统内核版本不支持'
     }
@@ -193,14 +193,18 @@ function clashmixin() {
 }
 
 function clash() {
-    cat <<EOF | column -t -s '：'
+    printf "%b\n" "$(
+        cat <<EOF | column -t -s ',' | sed -E 's|(clash)(\w*)|\1\\e[38;2;141;145;165m\2\\e[0m|g'
 Usage:
-    clashon                 开启代理：
-    clashoff                关闭代理：
-    clashui                 面板地址：
-    clashtun [on|off]       Tun模式：
-    clashsecret [secret]    查看/设置密钥：
-    clashmixin [-e|-r]      Mixin配置：
-    clashupdate [auto|log]  更新订阅：
+    clash                    命令一览,
+    clashon                  开启代理,
+    clashoff                 关闭代理,
+    clashui                  面板地址,
+    clashstatus              内核状况,
+    clashtun     [on|off]    Tun 模式,
+    clashmixin   [-e|-r]     Mixin 配置,
+    clashsecret  [secret]    Web 密钥,
+    clashupdate  [auto|log]  更新订阅,
 EOF
+    )"
 }

@@ -3,8 +3,7 @@
 # shellcheck disable=SC2155
 set +o noglob
 
-GH_PROXY='https://gh-proxy.com/'
-URL_YQ="https://github.com/mikefarah/yq/releases/tag/v4.45.1"
+URL_GH_PROXY='https://gh-proxy.com/'
 URL_CLASH_UI="http://board.zash.run.place"
 
 RESOURCES_BASE_DIR='./resources'
@@ -31,25 +30,26 @@ BIN_MIHOMO="${BIN_BASE_DIR}/mihomo"
 BIN_YQ="${BIN_BASE_DIR}/yq"
 BIN_SUBCONVERTER="${BIN_BASE_DIR}/subconverter/subconverter"
 
-_get_kernel() {
-    ZIP_KERNEL=$ZIP_CLASH
-    BIN_KERNEL=$BIN_CLASH
-    # shellcheck disable=SC2086
+# 默认集成、安装mihomo内核
+# 删除mihomo/系统非amd64：下载安装clash内核
+# shellcheck disable=SC2086
+# shellcheck disable=SC2015
+function _get_kernel() {
+    local cpu_arch=$(uname -m)
+    {
+        [ "$cpu_arch" = 'x86_64' ] &&
+            /bin/ls $ZIP_BASE_DIR 2>/dev/null | grep -E 'clash|mihomo' | grep -qs 'amd64'
+    } || {
+        /bin/rm -rf $ZIP_KERNEL
+        _download_clash "$cpu_arch"
+    }
+
     [ -e $ZIP_MIHOMO ] && {
         ZIP_KERNEL=$ZIP_MIHOMO
         BIN_KERNEL=$BIN_MIHOMO
-    }
-}
-
-_get_arch() {
-    local cpu_arch=$(uname -m)
-    {
-        # shellcheck disable=SC2086
-        /bin/ls $ZIP_KERNEL 2>/dev/null | grep -E 'clash|mihomo' | grep -qs 'amd64' &&
-            [ $cpu_arch = 'x86_64' ]
     } || {
-        _get_kernel
-        _download_clash "$cpu_arch"
+        ZIP_KERNEL=$ZIP_CLASH
+        BIN_KERNEL=$BIN_CLASH
     }
 }
 
@@ -63,42 +63,78 @@ function _get_os() {
         CLASH_CRON_TAB='/var/spool/cron/crontabs/root'
         BASHRC='/etc/bash.bashrc'
     }
-
-    _get_kernel
-    _get_arch
 }
 
 function _get_port() {
-    local port=$(sudo $BIN_YQ '.port // ""' $CLASH_CONFIG_RUNTIME)
-    local socks_port=$(sudo $BIN_YQ '.socks-port // ""' $CLASH_CONFIG_RUNTIME)
     local mixed_port=$(sudo $BIN_YQ '.mixed-port // ""' $CLASH_CONFIG_RUNTIME)
     local external_port=$(sudo $BIN_YQ '.external-controller // ""' $CLASH_CONFIG_RUNTIME | cut -d':' -f2)
 
-    HTTP_PROXY_PORT="${mixed_port:-${port:-7890}}"
-    SOCKS_PROXY_PORT="${mixed_port:-${socks_port:-7891}}"
+    MIXED_PORT="${mixed_port:-7890}"
     UI_PORT=${external_port:-9090}
+
+    # 端口占用场景
+    _random_port() {
+        local randomPort
+        while :; do
+            randomPort=$((RANDOM % 64512 + 1024))
+            grep -q "$(printf ":%04X" $randomPort)" /proc/net/tcp || {
+                echo $randomPort
+                break
+            }
+        done
+    }
+    local arg
+    for arg in $MIXED_PORT $UI_PORT; do
+        sudo awk '{print $2}' /proc/net/tcp | grep -qsi ":$(printf "%x" "$arg")" && {
+            [ "$arg" = "$MIXED_PORT" ] && {
+                local newPort=$(_random_port)
+                local msg="代理端口被占用：${MIXED_PORT}，随机分配：$newPort"
+                sudo "$BIN_YQ" -i ".mixed-port = $newPort" $CLASH_CONFIG_RUNTIME
+                MIXED_PORT=$newPort
+                _failcat "$msg"
+                continue
+            }
+            [ "$arg" = "$UI_PORT" ] && {
+                newPort=$(_random_port)
+                msg="Web 端口被占用：${UI_PORT}，随机分配：$newPort"
+                sudo "$BIN_YQ" -i ".external-controller = \"0.0.0.0:$newPort\"" $CLASH_CONFIG_RUNTIME
+                UI_PORT=$newPort
+                _failcat "$msg"
+            }
+        }
+    done
+}
+
+function _color_msg() {
+    local hex="${1#\#}" msg=$2
+    local r=$((16#${hex:0:2}))
+    local g=$((16#${hex:2:2}))
+    local b=$((16#${hex:4:2}))
+    printf "\e[38;2;%d;%d;%dm%s\e[0m\n" "$r" "$g" "$b" "$msg"
 }
 
 function _okcat() {
-    echo "😼 $1" && return 0
+    local color=#8d91a5
+    local msg="😼 $1"
+    _color_msg "$color" "$msg" && return 0
 }
 
 function _failcat() {
-    echo "😾 $1" >&2 && return 1
+    local color=#fdcb6e
+    local msg="😾 $1"
+    _color_msg "$color" "$msg" && return 1
 }
 
 # bash执行   $0为脚本执行路径
 # source执行 $0为bash
 function _error_quit() {
-    local red='\033[0;31m'
-    local nc='\033[0m' # 无色
-    echo -e "${red}❌ $1${nc}"
+    local color=#f92f60
+    local msg="❌ $1"
+    _color_msg "$color" "$msg"
     echo "$0" | grep -qs 'bash' && exec bash || exit 1
 }
 
 _download_clash() {
-    # shellcheck disable=SC2086
-    /bin/rm -rf $ZIP_KERNEL
     local url sha256sum
     case "$1" in
     x86_64)
@@ -128,7 +164,7 @@ _download_clash() {
         --directory-prefix "$ZIP_BASE_DIR" \
         "$url"
     # shellcheck disable=SC2086
-    echo $sha256sum $ZIP_KERNEL | sha256sum -c ||
+    echo $sha256sum $ZIP_CLASH | sha256sum -c ||
         _error_quit "下载失败：请自行下载对应版本至 ${ZIP_BASE_DIR} 目录下：https://downloads.clash.wiki/ClashPremium/"
 
 }
@@ -141,8 +177,11 @@ function _valid_env() {
 
 function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
-        local test_cmd="$BIN_KERNEL -d $(dirname "$1") -t"
-        eval "$test_cmd >&/dev/null" || eval "$test_cmd"
+        local test_cmd="$BIN_KERNEL -d $(dirname "$1") -f $1 -t"
+        $test_cmd >/dev/null || {
+            $test_cmd && $test_cmd | grep -qs "unsupport proxy type" &&
+                _error_quit "不支持的代理协议，请安装 mihomo 内核"
+        }
     }
 }
 
