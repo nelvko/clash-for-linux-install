@@ -34,7 +34,7 @@ tar -xf "$ZIP_UI" -C "$CLASH_BASE_DIR"
 # shellcheck disable=SC2086
 tar -xf $ZIP_YQ -C "${BIN_BASE_DIR}" && install -m +x ${BIN_BASE_DIR}/yq_* "$BIN_YQ"
 
-_merge_config_restart >/dev/null
+_merge_config_restart
 
 cat <<EOF >/etc/systemd/system/clash.service
 [Unit]

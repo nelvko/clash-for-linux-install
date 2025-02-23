@@ -73,7 +73,7 @@ function clashui() {
 }
 
 _merge_config_restart() {
-    _valid_config "$CLASH_CONFIG_MIXIN" || _error_quit "Mixin 配置验证失败，请检查"
+    _valid_config "$CLASH_CONFIG_MIXIN" || _error_quit "验证失败：请检查 Mixin 配置"
     sudo "$BIN_YQ" -n "load(\"$CLASH_CONFIG_RAW\") * load(\"$CLASH_CONFIG_MIXIN\")" | sudo tee "$CLASH_CONFIG_RUNTIME" >&/dev/null && clashrestart
 }
 

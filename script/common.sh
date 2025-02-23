@@ -8,6 +8,7 @@ URL_CLASH_UI="http://board.zash.run.place"
 
 RESOURCES_BASE_DIR='./resources'
 RESOURCES_CONFIG="${RESOURCES_BASE_DIR}/config.yaml"
+RESOURCES_CONFIG_MIXIN="${RESOURCES_BASE_DIR}/mixin.yaml"
 
 ZIP_BASE_DIR="${RESOURCES_BASE_DIR}/zip"
 ZIP_CLASH="${ZIP_BASE_DIR}/clash*.gz"
@@ -18,9 +19,9 @@ ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
 
 CLASH_BASE_DIR='/opt/clash'
 CLASH_CONFIG_URL="${CLASH_BASE_DIR}/url"
-CLASH_CONFIG_RAW="${CLASH_BASE_DIR}/config.yaml"
+CLASH_CONFIG_RAW="${CLASH_BASE_DIR}/$(basename $RESOURCES_CONFIG)"
 CLASH_CONFIG_RAW_BAK="${CLASH_CONFIG_RAW}.bak"
-CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/mixin.yaml"
+CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/$(basename $RESOURCES_CONFIG_MIXIN)"
 CLASH_CONFIG_RUNTIME="${CLASH_BASE_DIR}/runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_BASE_DIR}/clashupdate.log"
 
@@ -169,7 +170,7 @@ _download_clash() {
         _error_quit "未知的架构版本：$1，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录下：https://downloads.clash.wiki/ClashPremium/"
         ;;
     esac
-    _failcat "当前CPU架构为：$1，正在下载对应版本..."
+    _failcat "当前 CPU 架构为：$1，正在下载对应版本..."
     wget --timeout=30 \
         --tries=1 \
         --no-check-certificate \
