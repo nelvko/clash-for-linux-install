@@ -4,6 +4,7 @@
 . script/clashctl.sh
 
 _valid_env
+_get_os
 
 [ ! -d "$CLASH_BASE_DIR" ] && _failcat "未安装或已卸载,开始自动清理相关配置..."
 
