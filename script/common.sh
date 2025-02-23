@@ -44,9 +44,10 @@ function _get_kernel() {
         /bin/rm -rf $ZIP_KERNEL
         _download_clash "$cpu_arch"
     }
+    _adaptive
 }
 
-_adapt() {
+_adaptive() {
     local os_info=$(cat /etc/os-release)
     echo "$os_info" | grep -iqsE "rhel|centos" && {
         CLASH_CRON_TAB='/var/spool/cron/root'
@@ -67,7 +68,7 @@ _adapt() {
         BIN_KERNEL=$BIN_CLASH
     }
 }
-_adapt
+_adaptive
 
 function _get_port() {
     local mixed_port=$(sudo $BIN_YQ '.mixed-port // ""' $CLASH_CONFIG_RUNTIME)
