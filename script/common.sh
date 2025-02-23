@@ -44,17 +44,9 @@ function _get_kernel() {
         /bin/rm -rf $ZIP_KERNEL
         _download_clash "$cpu_arch"
     }
-
-    [ -e $ZIP_MIHOMO ] && {
-        ZIP_KERNEL=$ZIP_MIHOMO
-        BIN_KERNEL=$BIN_MIHOMO
-    } || {
-        ZIP_KERNEL=$ZIP_CLASH
-        BIN_KERNEL=$BIN_CLASH
-    }
 }
 
-function _get_os() {
+_adapt() {
     local os_info=$(cat /etc/os-release)
     echo "$os_info" | grep -iqsE "rhel|centos" && {
         CLASH_CRON_TAB='/var/spool/cron/root'
@@ -64,7 +56,18 @@ function _get_os() {
         CLASH_CRON_TAB='/var/spool/cron/crontabs/root'
         BASHRC='/etc/bash.bashrc'
     }
+
+    # shellcheck disable=SC2086
+    # shellcheck disable=SC2015
+    [ -e $ZIP_MIHOMO ] && {
+        ZIP_KERNEL=$ZIP_MIHOMO
+        BIN_KERNEL=$BIN_MIHOMO
+    } || {
+        ZIP_KERNEL=$ZIP_CLASH
+        BIN_KERNEL=$BIN_CLASH
+    }
 }
+_adapt
 
 function _get_port() {
     local mixed_port=$(sudo $BIN_YQ '.mixed-port // ""' $CLASH_CONFIG_RUNTIME)
@@ -98,7 +101,7 @@ function _get_port() {
             }
             [ "$arg" = "$UI_PORT" ] && {
                 newPort=$(_random_port)
-                msg="端口占用：$UI_PORT，随机分配：$newPort"
+                msg="端口占用：${UI_PORT}，随机分配：$newPort"
                 sudo "$BIN_YQ" -i ".external-controller = \"0.0.0.0:$newPort\"" $CLASH_CONFIG_RUNTIME
                 UI_PORT=$newPort
                 _failcat "$msg"
@@ -135,15 +138,17 @@ function _failcat() {
     local emoji=😾
     [ $# -gt 1 ] && emoji=$1 && shift
     local msg="${emoji} $1"
-    _color_msg "$color" "$msg" && return 1
+    _color_msg "$color" "$msg" >&2 && return 1
 }
 
 # bash执行   $0为脚本执行路径
 # source执行 $0为bash
 function _error_quit() {
-    local color=#f92f60
-    local msg="❌ $1"
-    _color_msg "$color" "$msg"
+    [ $# -gt 0 ] && {
+        local color=#f92f60
+        local msg="❌ $1"
+        _color_msg "$color" "$msg"
+    }
     echo "$0" | grep -qs 'bash' && exec bash || exit 1
 }
 
@@ -198,7 +203,7 @@ function _valid_config() {
     }
 }
 
-function _download_config() {
+_download_raw_config() {
     local url=$1
     local dest=$2
     local agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
@@ -257,10 +262,23 @@ _stop_convert() {
     pkill -9 -f subconverter >&/dev/null
 }
 
-function _download_convert_config() {
+_download_convert_config() {
     local url=$1
     local dest=$2
     _start_convert
-    _download_config "$(_convert_url "$url")" "$dest"
+    _download_raw_config "$(_convert_url "$url")" "$dest"
     _stop_convert
+}
+
+function _download_config() {
+    local url=$1
+    local dest=$2
+    _download_raw_config "$url" "$dest" || _error_quit "下载失败: 请自行粘贴配置内容到 ${dest}"
+    _okcat "下载成功：内核验证配置..."
+    _valid_config "$dest" || {
+        _failcat "验证失败：本地订阅转换..."
+        _download_convert_config "$url" "$dest"
+        _okcat "转换成功：内核验证配置..."
+        _valid_config "$dest"
+    }
 }
