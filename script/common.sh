@@ -67,10 +67,11 @@ function _get_os() {
 
 function _get_port() {
     local mixed_port=$(sudo $BIN_YQ '.mixed-port // ""' $CLASH_CONFIG_RUNTIME)
-    local external_port=$(sudo $BIN_YQ '.external-controller // ""' $CLASH_CONFIG_RUNTIME | cut -d':' -f2)
+    local ext_addr=$(sudo $BIN_YQ '.external-controller // ""' $CLASH_CONFIG_RUNTIME)
+    local ext_port=${ext_addr##*:}
 
-    MIXED_PORT="${mixed_port:-7890}"
-    UI_PORT=${external_port:-9090}
+    MIXED_PORT=${mixed_port:-7890}
+    UI_PORT=${ext_port:-9090}
 
     # 端口占用场景
     _random_port() {
@@ -88,7 +89,7 @@ function _get_port() {
         sudo awk '{print $2}' /proc/net/tcp | grep -qsi ":$(printf "%x" "$arg")" && {
             [ "$arg" = "$MIXED_PORT" ] && {
                 local newPort=$(_random_port)
-                local msg="代理端口被占用：${MIXED_PORT}，随机分配：$newPort"
+                local msg="端口占用：${MIXED_PORT}，随机分配：$newPort"
                 sudo "$BIN_YQ" -i ".mixed-port = $newPort" $CLASH_CONFIG_RUNTIME
                 MIXED_PORT=$newPort
                 _failcat "$msg"
@@ -96,7 +97,7 @@ function _get_port() {
             }
             [ "$arg" = "$UI_PORT" ] && {
                 newPort=$(_random_port)
-                msg="Web 端口被占用：${UI_PORT}，随机分配：$newPort"
+                msg="端口占用：$UI_PORT，随机分配：$newPort"
                 sudo "$BIN_YQ" -i ".external-controller = \"0.0.0.0:$newPort\"" $CLASH_CONFIG_RUNTIME
                 UI_PORT=$newPort
                 _failcat "$msg"
@@ -105,23 +106,34 @@ function _get_port() {
     done
 }
 
-function _color_msg() {
-    local hex="${1#\#}" msg=$2
+function _color() {
+    local hex="${1#\#}"
     local r=$((16#${hex:0:2}))
     local g=$((16#${hex:2:2}))
     local b=$((16#${hex:4:2}))
-    printf "\e[38;2;%d;%d;%dm%s\e[0m\n" "$r" "$g" "$b" "$msg"
+    printf "\e[38;2;%d;%d;%dm" "$r" "$g" "$b"
+}
+
+function _color_msg() {
+    local color=$(_color "$1")
+    local msg=$2
+    local reset="\033[0m"
+    printf "%b%s%b\n" "$color" "$msg" "$reset"
 }
 
 function _okcat() {
-    local color=#8d91a5
-    local msg="😼 $1"
+    local color=#c8d6e5
+    local emoji=😼
+    [ $# -gt 1 ] && emoji=$1 && shift
+    local msg="${emoji} $1"
     _color_msg "$color" "$msg" && return 0
 }
 
 function _failcat() {
-    local color=#fdcb6e
-    local msg="😾 $1"
+    local color=#FFD700
+    local emoji=😾
+    [ $# -gt 1 ] && emoji=$1 && shift
+    local msg="${emoji} $1"
     _color_msg "$color" "$msg" && return 1
 }
 
@@ -179,7 +191,7 @@ function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
         local test_cmd="$BIN_KERNEL -d $(dirname "$1") -f $1 -t"
         $test_cmd >/dev/null || {
-            $test_cmd && $test_cmd | grep -qs "unsupport proxy type" &&
+            $test_cmd >&2 | grep -qs "unsupport proxy type" &&
                 _error_quit "不支持的代理协议，请安装 mihomo 内核"
         }
     }
@@ -189,17 +201,22 @@ function _download_config() {
     local url=$1
     local dest=$2
     local agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
-    sudo curl --connect-timeout 4 \
+    sudo curl \
+        --silent \
+        --show-error \
+        --insecure \
+        --connect-timeout 4 \
         --retry 1 \
         --user-agent "$agent" \
-        -k \
-        -o "$dest" \
+        --output "$dest" \
         "$url" ||
-        sudo wget --timeout=5 \
-            --tries=1 \
-            --user-agent="$agent" \
+        sudo wget \
+            --no-verbose \
             --no-check-certificate \
-            -O "$dest" \
+            --timeout 3 \
+            --tries 1 \
+            --user-agent "$agent" \
+            --output-document "$dest" \
             "$url"
 }
 

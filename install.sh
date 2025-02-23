@@ -10,19 +10,22 @@ _get_os
 [ -d "$CLASH_BASE_DIR" ] && _error_quit "已安装，如需重新安装请先执行卸载脚本"
 
 # shellcheck disable=SC2086
-install -D -m +x  <(gzip -dc $ZIP_KERNEL) $BIN_KERNEL
+install -D -m +x <(gzip -dc $ZIP_KERNEL) $BIN_KERNEL
 # shellcheck disable=SC2086
 tar -xf $ZIP_CONVERT -C "$BIN_BASE_DIR"
 _valid_config "$RESOURCES_CONFIG" || {
-    read -r -p '😼 输入订阅链接：' url
+    _okcat '输入订阅链接：' | tr -d '\n'
+    read -r url
     _download_config "$url" "$RESOURCES_CONFIG" || _error_quit "下载失败: 请自行粘贴配置内容到 ${RESOURCES_CONFIG} 后再执行安装脚本"
+    _okcat "下载成功：内核验证配置..."
     _valid_config "$RESOURCES_CONFIG" || {
-        _failcat "配置无效：尝试进行本地订阅转换..."
-        _download_convert_config "$RESOURCES_CONFIG" "$url"
-        _valid_config "$RESOURCES_CONFIG" || _error_quit '配置无效：请检查配置内容'
+        _failcat "验证失败：本地订阅转换..."
+        _download_convert_config "$url" "$RESOURCES_CONFIG"
+        _okcat "转换成功：内核验证配置..."
+        _valid_config "$RESOURCES_CONFIG" || _error_quit "配置无效：请检查配置内容：$RESOURCES_CONFIG"
     }
 }
-echo '✅ 配置可用'
+_okcat '✅' '配置可用'
 echo "$url" >"$CLASH_CONFIG_URL"
 
 /bin/cp -rf script "$CLASH_BASE_DIR"
@@ -53,7 +56,7 @@ ExecReload=/bin/kill -HUP $MAINPID
 WantedBy=multi-user.target
 EOF
 
-[ -n "$(tail -1 "$BASHRC")" ] && echo >> "$BASHRC"
+[ -n "$(tail -1 "$BASHRC")" ] && echo >>"$BASHRC"
 echo "source $CLASH_BASE_DIR/script/common.sh && source $CLASH_BASE_DIR/script/clashctl.sh" >>"$BASHRC"
 
 systemctl daemon-reload

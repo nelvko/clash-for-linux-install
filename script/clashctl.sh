@@ -193,8 +193,11 @@ function clashmixin() {
 }
 
 function clash() {
+    local color=#c8d6e5
+    local prefix=$(_color "$color")
+    local suffix=$(printf '\033[0m')
     printf "%b\n" "$(
-        cat <<EOF | column -t -s ',' | sed -E 's|(clash)(\w*)|\1\\e[38;2;141;145;165m\2\\e[0m|g'
+        cat <<EOF | column -t -s ',' | sed -E "/clash/ s|(clash)(\w*)|\1${prefix}\2${suffix}|g"
 Usage:
     clash                    命令一览,
     clashon                  开启代理,
