@@ -32,16 +32,12 @@ BIN_YQ="${BIN_BASE_DIR}/yq"
 BIN_SUBCONVERTER="${BIN_BASE_DIR}/subconverter/subconverter"
 
 # 默认集成、安装mihomo内核
-# 删除mihomo/系统非amd64：下载安装clash内核
+# 移除/删除mihomo：下载安装clash内核
 # shellcheck disable=SC2086
 # shellcheck disable=SC2015
 function _get_kernel() {
-    local cpu_arch=$(uname -m)
-    {
-        [ "$cpu_arch" = 'x86_64' ] &&
-            /bin/ls $ZIP_BASE_DIR 2>/dev/null | grep -E 'clash|mihomo' | grep -qs 'amd64'
-    } || {
-        /bin/rm -rf $ZIP_KERNEL
+    /bin/ls $ZIP_BASE_DIR 2>/dev/null | grep -qsE 'clash|mihomo' || {
+        local cpu_arch=$(uname -m)
         _download_clash "$cpu_arch"
     }
     _adaptive
