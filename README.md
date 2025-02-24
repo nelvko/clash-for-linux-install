@@ -1,8 +1,12 @@
 # Linux 一键安装 Clash
 
-因为有在服务器上使用代理的需求，试过许多开源脚本，总是遇到各种问题。于是自己动手，丰衣足食：对 `Clash` 的安装过程及功能进行了友好封装，使用起来优雅、简单、明确。
+因为有在服务器上使用代理的需求，试过许多开源脚本，总是遇到各种问题。于是自己动手，丰衣足食：对 `Clash` 内核 的安装过程及功能进行了友好封装，使用起来优雅、简单、明确。
 
-![img](resources/preview.png)
+- 默认安装 `mihomo` 内核，[可选](#安装-clash-内核) `clash`。
+- 自动进行本地订阅转换。
+- 多架构支持，适配主流 `Linux` 发行版：`CentOS 7.6`、`Debian 12`、`Ubuntu 24.04.1 LTS`。
+
+![preview](resources/preview.png)
 
 ## 快速开始
 
@@ -10,12 +14,17 @@
 
 - 需要 `root` 或 `sudo` 权限。
 - 具备 `bash` 和 `systemd` 的系统环境。
-- 已适配：`CentOS 7.6`、`Debian 12`、`Ubuntu 24.04.1 LTS`。
 
 ### 一键安装
 
+下述命令适用于 `x86_64` 架构，其他架构需修改 `--branch` 指定的分支。可通过 `uname -m` 查询系统架构，其与分支的对应关系如下：
+
+| 分支 | master | arch-x86 | arch-arm64 | arch-arm32 |
+|:---:| :---:  | :---:    | :---:      | :---:      |
+| 架构 | x86_64 | i386, ...| aarch64    | armv7l, ...|
+
 ```bash
-git clone https://gh-proxy.com/https://github.com/nelvko/clash-for-linux-install.git \
+git clone --branch master --depth 1 https://gh-proxy.com/https://github.com/nelvko/clash-for-linux-install.git \
   && cd clash-for-linux-install \
   && sudo bash -c '. install.sh; exec bash'
 ```
@@ -33,14 +42,16 @@ git clone https://gh-proxy.com/https://github.com/nelvko/clash-for-linux-install
 
 ```bash
 $ clash
-Usage:                                    
-    clashon                开启代理       
-    clashoff               关闭代理       
-    clashui                面板地址       
-    clashtun [on|off]      Tun模式        
-    clashsecret [secret]   查看/设置密钥  
-    clashmixin [-e|-r]     Mixin配置      
-    clashupdate [auto|log] 更新订阅
+Usage:
+    clash                    命令一览
+    clashon                  开启代理
+    clashoff                 关闭代理
+    clashui                  面板地址
+    clashstatus              内核状况
+    clashtun     [on|off]    Tun 模式
+    clashmixin   [-e|-r]     Mixin 配置
+    clashsecret  [secret]    Web 密钥
+    clashupdate  [auto|log]  更新订阅
 ```
 
 ### 开始使用
@@ -65,18 +76,23 @@ $ clashui
 
 ```bash
 $ clashupdate [url]
-😼 配置更新成功，已重启生效
+😼 备份配置：/opt/clash/config.yaml.bak
+😼 下载成功：内核验证配置...
+😾 验证失败：本地订阅转换...
+😼 下载成功：内核验证配置...
+✅ [2025-02-23 22:45:23] 订阅更新成功：https://xxx.com
 
 $ clashupdate auto [url]
 😼 定时任务设置成功
 
 $ clashupdate log
-✅ 2024-12-13 23:38:56 配置更新成功 ...
+✅ [2025-02-23 22:45:23] 订阅更新成功：https://xxx.com
+...
 ```
 
-- `clashupdate` 会记忆上次更新成功的订阅，后续执行无需再指定订阅 `url`。
+- `clashupdate` 会记忆安装/上次更新成功的订阅，后续执行无需再指定订阅url。
 - 可通过 `crontab -e` 修改定时更新频率及订阅链接。
-- 其他更新方式：[pr#24](https://github.com/nelvko/clash-for-linux-install/pull/24#issuecomment-2565054701)
+- 通过配置文件进行更新：[pr#24](https://github.com/nelvko/clash-for-linux-install/pull/24#issuecomment-2565054701)
 
 ### Web 控制台密钥
 
@@ -169,30 +185,34 @@ sudo bash -c '. uninstall.sh; exec bash'
 ### ping 不通外网
 
 - `ping` 命令使用的是第三层中的 `ICMP` 协议，不依赖 `clash` 代理的上层 `TCP` 协议。
-- 执行 `clashtun on` 后可以 `ping` 通，但得到的是 fake ip，原理详见：[clash.wiki](https://clash.wiki/configuration/dns.html#fake-ip)。
+- 执行 `clashtun on` 后~~可以 `ping` 通~~，但得到的是 fake ip，原理详见：[clash.wiki](https://clash.wiki/configuration/dns.html#fake-ip)。
 
 ### 服务启动失败/未启动
 
 - [端口占用](https://github.com/nelvko/clash-for-linux-install/issues/15#issuecomment-2507341281)
 - [系统为 WSL 环境或不具备 systemd](https://github.com/nelvko/clash-for-linux-install/issues/11#issuecomment-2469817217)
 
-### x86、arm架构
+### 安装 `clash` 内核
 
-将 `resource/zip` 目录中的 `clash-linux-amd64-2023.08.17.gz`、`yq_linux_amd64.tar.gz`、`subconverter_linux64.tar.gz` 压缩包替换为对应架构版本后再执行安装脚本。
+将 `resources/zip/` 路径下的 `mihomo` 内核压缩包移出或删除即可，安装时会自动下载对应架构版本的 `clash` 内核。
 
-> 目前仅支持自动下载 clash 的对应架构软件包。
+安装逻辑：
 
-- [yq v4.45.1](https://github.com/mikefarah/yq/releases/tag/v4.45.1)
-- [subconverter v0.9.0](https://github.com/tindy2013/subconverter/releases/tag/v0.9.0)
-- [Clash Premium](https://downloads.clash.wiki/ClashPremium/)
+- `resources/zip/` 路径下无任何内核压缩包时，默认下载安装 `clash` 。
+- 有且仅有一个内核压缩包时，安装该内核。
+- `clash` 和 `mihomo` 压缩包共存时，优先安装 `mihomo` 。
+
+注意：手动替换内核或其他命令版本时，需从官方渠道获取软件包且**勿重命名**。
 
 ## 引用
 
 - [Clash 知识库](https://clash.wiki/)
 - [Clash 全家桶下载](https://www.clash.la/releases/)
-- [subconverter：本地订阅转换](https://github.com/tindy2013/subconverter)
-- [yacd：Web UI](https://github.com/haishanh/yacd)
-- [yq：处理 yaml](https://github.com/mikefarah/yq)
+- [Clash Premium 2023.08.17](https://downloads.clash.wiki/ClashPremium/)
+- [mihomo v1.19.2](https://github.com/MetaCubeX/mihomo)
+- [subconverter v0.9.0：本地订阅转换](https://github.com/tindy2013/subconverter)
+- [yacd v0.3.8：Web UI](https://github.com/haishanh/yacd)
+- [yq v4.45.1：处理 yaml](https://github.com/mikefarah/yq)
 
 ## Todolog
 
@@ -204,7 +224,8 @@ sudo bash -c '. uninstall.sh; exec bash'
 - [x] mixin 配置
 - [x] 适配x86、arm架构
 - [x] 本地订阅转换
-- [ ] 切换 mohomo 内核
+- [x] 切换 mihomo 内核
+- [x] 端口占用时随机分配
 - [ ] [bug / 需求](https://github.com/nelvko/clash-for-linux-install/issues)
 
 ## Thanks
