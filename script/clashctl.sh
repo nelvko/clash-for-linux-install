@@ -83,9 +83,10 @@ function clashsecret() {
         _okcat "当前密钥：$(sudo "$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME")"
         ;;
     1)
-        local secret=$1
-        [ -z "$secret" ] && secret=\"\"
-        sudo "$BIN_YQ" -i ".secret = $secret" "$CLASH_CONFIG_MIXIN"
+        sudo "$BIN_YQ" -i ".secret = \"$1\"" "$CLASH_CONFIG_MIXIN" || {
+            _failcat "密钥更新失败，请重新输入"
+            return 1
+        }
         _merge_config_restart
         _okcat "密钥更新成功，已重启生效"
         ;;
@@ -164,12 +165,18 @@ function clashupdate() {
 
     _okcat "备份配置：$CLASH_CONFIG_RAW_BAK"
     sudo cat "$CLASH_CONFIG_RAW" | sudo tee "$CLASH_CONFIG_RAW_BAK" >&/dev/null
-    _download_config "$url" "$CLASH_CONFIG_RAW" || {
-        _failcat "验证失败：回滚配置..."
+
+    _rollback() {
+        _failcat "$1"
         sudo cat "$CLASH_CONFIG_RAW_BAK" | sudo tee "$CLASH_CONFIG_RAW" >&/dev/null
         _failcat '❌' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新失败：$url" 2>&1 | sudo tee -a "${CLASH_UPDATE_LOG}"
         _error_quit
     }
+
+    _download_config "$url" "$CLASH_CONFIG_RAW" || _rollback "下载失败：回滚配置..."
+    _okcat "下载成功：内核验证配置..."
+    _valid_config "$CLASH_CONFIG_RAW" || _rollback "配置无效：回滚配置..."
+
     _merge_config_restart
     echo "$url" | sudo tee "$CLASH_CONFIG_URL" >&/dev/null
     _okcat '✅' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新成功：$url" | sudo tee -a "${CLASH_UPDATE_LOG}"

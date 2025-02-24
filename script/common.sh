@@ -274,12 +274,10 @@ _download_convert_config() {
 function _download_config() {
     local url=$1
     local dest=$2
-    _download_raw_config "$url" "$dest" || _error_quit "下载失败: 请自行粘贴配置内容到 ${dest}"
+    _download_raw_config "$url" "$dest" || return 1
     _okcat "下载成功：内核验证配置..."
     _valid_config "$dest" || {
         _failcat "验证失败：本地订阅转换..."
-        _download_convert_config "$url" "$dest"
-        _okcat "转换成功：内核验证配置..."
-        _valid_config "$dest"
+        _download_convert_config "$url" "$dest" || return 1
     }
 }
