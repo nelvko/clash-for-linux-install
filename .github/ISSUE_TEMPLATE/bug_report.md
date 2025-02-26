@@ -12,12 +12,11 @@ assignees: ''
 > 请先提供以下信息
 
 ```shell
-# 系统版本信息
-hostnamectl
+# 系统信息
+uname -vm
 
-# 当前所用 shell
-echo $0
-
+# mihomo/clash 内核？
+ls /opt/clash/bin/
 ```
 
 **描述 & 复现：**
