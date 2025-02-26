@@ -1,12 +1,10 @@
 # Linux 一键安装 Clash
 
-因为有在服务器上使用代理的需求，试过许多开源脚本，总是遇到各种问题。于是自己动手，丰衣足食：对 `Clash` 内核 的安装过程及功能进行了友好封装，使用起来优雅、简单、明确。
+![preview](resources/preview.png)
 
-- 默认安装 `mihomo` 内核，[可选](#安装-clash-内核) `clash`。
+- 默认安装 `mihomo` 内核，[可选安装](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ#%E5%AE%89%E8%A3%85-clash-%E5%86%85%E6%A0%B8) `clash`。
 - 自动进行本地订阅转换。
 - 多架构支持，适配主流 `Linux` 发行版：`CentOS 7.6`、`Debian 12`、`Ubuntu 24.04.1 LTS`。
-
-![preview](resources/preview.png)
 
 ## 快速开始
 
@@ -17,11 +15,7 @@
 
 ### 一键安装
 
-下述命令适用于 `x86_64` 架构，其他架构需修改 `--branch` 指定的分支。可通过 `uname -m` 查询系统架构，其与分支的对应关系如下：
-
-| 分支 | master | arch-x86 | arch-arm64 | arch-arm32 |
-|:---:| :---:  | :---:    | :---:      | :---:      |
-| 架构 | x86_64 | i386, ...| aarch64    | armv7l, ...|
+下述命令适用于 `x86_64` 架构，其他架构请戳：[一键安装-多架构](https://github.com/nelvko/clash-for-linux-install/wiki#%E4%B8%80%E9%94%AE%E5%AE%89%E8%A3%85-%E5%A4%9A%E6%9E%B6%E6%9E%84)
 
 ```bash
 git clone --branch master --depth 1 https://gh-proxy.com/https://github.com/nelvko/clash-for-linux-install.git \
@@ -29,7 +23,7 @@ git clone --branch master --depth 1 https://gh-proxy.com/https://github.com/nelv
   && sudo bash -c '. install.sh; exec bash'
 ```
 
-> 如遇问题，请在查阅[常见问题](#常见问题)及 [issue](https://github.com/nelvko/clash-for-linux-install/issues?q=is%3Aissue) 未果后进行反馈。
+> 如遇问题，请在查阅[常见问题](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)及 [issue](https://github.com/nelvko/clash-for-linux-install/issues?q=is%3Aissue) 未果后进行反馈。
 
 - 上述克隆命令使用了[加速前缀](https://gh-proxy.com/)，如失效请更换其他[可用链接](https://ghproxy.link/)。
 - ~~不懂什么是订阅链接的小白可参考~~：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1)
@@ -75,7 +69,7 @@ $ clashui
 ### 定时更新订阅
 
 ```bash
-$ clashupdate [url]
+$ clashupdate https://example.com
 😼 备份配置：/opt/clash/config.yaml.bak
 😼 下载成功：内核验证配置...
 😾 验证失败：本地订阅转换...
@@ -86,7 +80,7 @@ $ clashupdate auto [url]
 😼 定时任务设置成功
 
 $ clashupdate log
-✅ [2025-02-23 22:45:23] 订阅更新成功：https://xxx.com
+✅ [2025-02-23 22:45:23] 订阅更新成功：https://example.com
 ...
 ```
 
@@ -99,11 +93,11 @@ $ clashupdate log
 控制台密钥默认为空，若暴露到公网使用建议更新密钥。
 
 ```bash
-$ clashsecret xxx
+$ clashsecret 666
 😼 密钥更新成功，已重启生效
 
 $ clashsecret
-😼 当前密钥：xxx
+😼 当前密钥：666
 ```
 
 ### `Tun` 模式
@@ -144,89 +138,15 @@ $ clashmixin -r
 sudo bash -c '. uninstall.sh; exec bash'
 ```
 
-## 常见问题
-
-### 配置下载失败或无效
-
-- 下载失败：脚本使用 `wget`、`curl` 命令进行了多次[重试](https://github.com/nelvko/clash-for-linux-install/blob/035c85ac92166e95b7503b2a678a6b535fbd4449/script/common.sh#L32-L46)下载，如果还是失败可能是机场限制，请自行粘贴订阅内容到配置文件：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1#issuecomment-2066334716)
-- 订阅配置无效：~~[issue#14](https://github.com/nelvko/clash-for-linux-install/issues/14#issuecomment-2513303276)~~
-配置下载成功后会对其进行校验，校验失败将在本地进行订阅转换后重试，仍无效请检查是否为有效的 `clash` 订阅。
-
-### bash: clashon: command not found
-
-- 原因：使用 `bash install.sh` 执行脚本不会对当前 `shell` 生效。
-- 解决：当前 `shell` 执行下 `bash` 即可。
-
-<details>
-
-<summary>几种运行方式的区别：</summary>
-
-- `bash` 命令运行：当前 `shell` 开启一个子 `shell` 执行脚本，对环境的修改不会作用到当前 `shell`，因此不具备 `clashon`
-   等命令。
-
-  ```bash
-  # 需要有可执行权限
-  $ ./install.sh
-   
-  # 不需要可执行权限，需要读权限
-  $ bash ./install.sh
-  ```
-
-- `shell` 内建命令运行：脚本在当前 `shell` 环境中执行，变量和函数的定义对当前 `shell` 有效，`root` 用户推荐这种方式执行脚本。
-
-  ```bash
-  # 不需要可执行权限，需要读权限
-  $ . install.sh
-  $ source uninstall.sh
-  ```
-
-</details>
-
-### ping 不通外网
-
-- `ping` 命令使用的是第三层中的 `ICMP` 协议，不依赖 `clash` 代理的上层 `TCP` 协议。
-- 执行 `clashtun on` 后~~可以 `ping` 通~~，但得到的是 fake ip，原理详见：[clash.wiki](https://clash.wiki/configuration/dns.html#fake-ip)。
-
-### 服务启动失败/未启动
-
-- [端口占用](https://github.com/nelvko/clash-for-linux-install/issues/15#issuecomment-2507341281)
-- [系统为 WSL 环境或不具备 systemd](https://github.com/nelvko/clash-for-linux-install/issues/11#issuecomment-2469817217)
-
-### 安装 `clash` 内核
-
-将 `resources/zip/` 路径下的 `mihomo` 内核压缩包移出或删除即可，安装时会自动下载对应架构版本的 `clash` 内核。
-
-安装逻辑：
-
-- `resources/zip/` 路径下无任何内核压缩包时，默认下载安装 `clash` 。
-- 有且仅有一个内核压缩包时，安装该内核。
-- `clash` 和 `mihomo` 压缩包共存时，优先安装 `mihomo` 。
-
-注意：手动替换内核或其他命令版本时，需从官方渠道获取软件包且**勿重命名**。
-
 ## 引用
 
 - [Clash 知识库](https://clash.wiki/)
-- [Clash 全家桶下载](https://www.clash.la/releases/)
+- [Clash 家族下载](https://www.clash.la/releases/)
 - [Clash Premium 2023.08.17](https://downloads.clash.wiki/ClashPremium/)
 - [mihomo v1.19.2](https://github.com/MetaCubeX/mihomo)
 - [subconverter v0.9.0：本地订阅转换](https://github.com/tindy2013/subconverter)
 - [yacd v0.3.8：Web UI](https://github.com/haishanh/yacd)
 - [yq v4.45.1：处理 yaml](https://github.com/mikefarah/yq)
-
-## Todolog
-
-- [X] 定时更新配置
-- [X] 😼
-- [X] 适配其他发行版
-- [X] 配置更新日志
-- [X] Tun 模式
-- [x] mixin 配置
-- [x] 适配x86、arm架构
-- [x] 本地订阅转换
-- [x] 切换 mihomo 内核
-- [x] 端口占用时随机分配
-- [ ] [bug / 需求](https://github.com/nelvko/clash-for-linux-install/issues)
 
 ## Thanks
 
