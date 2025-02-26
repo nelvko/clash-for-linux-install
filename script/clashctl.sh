@@ -174,7 +174,6 @@ function clashupdate() {
     }
 
     _download_config "$url" "$CLASH_CONFIG_RAW" || _rollback "下载失败：回滚配置..."
-    _okcat "下载成功：内核验证配置..."
     _valid_config "$CLASH_CONFIG_RAW" || _rollback "配置无效：回滚配置..."
 
     _merge_config_restart

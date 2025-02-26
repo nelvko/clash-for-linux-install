@@ -18,7 +18,6 @@ _valid_config "$RESOURCES_CONFIG" || {
         rm -rf "$CLASH_BASE_DIR"
         _error_quit "下载失败: 请将配置内容写入 $RESOURCES_CONFIG 后重新安装"
     }
-    _okcat "下载成功：内核验证配置..."
     _valid_config "$RESOURCES_CONFIG" || {
         rm -rf "$CLASH_BASE_DIR"
         _error_quit "配置无效，请检查：$RESOURCES_CONFIG"

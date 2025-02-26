@@ -72,9 +72,7 @@ $ clashui
 $ clashupdate https://example.com
 😼 备份配置：/opt/clash/config.yaml.bak
 😼 下载成功：内核验证配置...
-😾 验证失败：本地订阅转换...
-😼 下载成功：内核验证配置...
-✅ [2025-02-23 22:45:23] 订阅更新成功：https://xxx.com
+✅ [2025-02-23 22:45:23] 订阅更新成功：https://example.com
 
 $ clashupdate auto [url]
 😼 定时任务设置成功
