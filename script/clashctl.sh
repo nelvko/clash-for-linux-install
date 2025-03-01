@@ -112,9 +112,10 @@ _tunon() {
     _tunstatus 2>/dev/null && return 0
     sudo "$BIN_YQ" -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
     _merge_config_restart
-    clashstatus -l | grep -qs 'unsupported kernel version' && {
+    sleep 0.3s
+    clashstatus -l | grep -E 'unsupported kernel version|Start TUN listening error' && {
         _tunoff >&/dev/null
-        _error_quit '当前系统内核版本不支持'
+        _error_quit '不支持的内核版本'
     }
     _okcat "Tun 模式已开启"
 }
