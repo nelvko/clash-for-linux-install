@@ -15,8 +15,8 @@ assignees: ''
 # 系统信息
 uname -vm
 
-# mihomo/clash 内核？
-ls /opt/clash/bin/
+# 内核状况
+systemctl status clash
 ```
 
 **描述 & 复现：**
