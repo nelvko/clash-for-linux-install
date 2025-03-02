@@ -14,7 +14,7 @@ ZIP_BASE_DIR="${RESOURCES_BASE_DIR}/zip"
 ZIP_CLASH="${ZIP_BASE_DIR}/clash*.gz"
 ZIP_MIHOMO="${ZIP_BASE_DIR}/mihomo*.gz"
 ZIP_YQ="${ZIP_BASE_DIR}/yq*.tar.gz"
-ZIP_CONVERT="${ZIP_BASE_DIR}/subconverter*.tar.gz"
+ZIP_SUBCONVERTER="${ZIP_BASE_DIR}/subconverter*.tar.gz"
 ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
 
 CLASH_BASE_DIR='/opt/clash'
@@ -29,7 +29,10 @@ BIN_BASE_DIR="${CLASH_BASE_DIR}/bin"
 BIN_CLASH="${BIN_BASE_DIR}/clash"
 BIN_MIHOMO="${BIN_BASE_DIR}/mihomo"
 BIN_YQ="${BIN_BASE_DIR}/yq"
-BIN_SUBCONVERTER="${BIN_BASE_DIR}/subconverter/subconverter"
+BIN_SUBCONVERTER_DIR="${BIN_BASE_DIR}/subconverter"
+BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
+BIN_SUBCONVERTER_PORT="25500"
+BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
 
 # 默认集成、安装mihomo内核
 # 移除/删除mihomo：下载安装clash内核
@@ -38,9 +41,11 @@ BIN_SUBCONVERTER="${BIN_BASE_DIR}/subconverter/subconverter"
 function _get_kernel() {
     /bin/ls $ZIP_BASE_DIR 2>/dev/null | grep -qsE 'clash|mihomo' || {
         local cpu_arch=$(uname -m)
+        _failcat "${ZIP_BASE_DIR}：未检测到有效的内核压缩包，即将下载内核：clash"
         _download_clash "$cpu_arch"
     }
     _adaptive
+    _okcat "安装内核：$BIN_KERNEL_NAME"
 }
 
 _adaptive() {
@@ -63,8 +68,24 @@ _adaptive() {
         ZIP_KERNEL=$ZIP_CLASH
         BIN_KERNEL=$BIN_CLASH
     }
+    BIN_KERNEL_NAME=$(basename "$BIN_KERNEL")
 }
 _adaptive
+
+_is_bind() {
+    sudo awk '{print $2}' /proc/net/tcp | grep -qsi ":$(printf "%x" "$1")"
+}
+
+_random_port() {
+    local randomPort
+    while :; do
+        randomPort=$((RANDOM % 64512 + 1024))
+        grep -q "$(printf ":%04X" $randomPort)" /proc/net/tcp || {
+            echo $randomPort
+            break
+        }
+    done
+}
 
 function _get_port() {
     local mixed_port=$(sudo $BIN_YQ '.mixed-port // ""' $CLASH_CONFIG_RUNTIME)
@@ -75,33 +96,23 @@ function _get_port() {
     UI_PORT=${ext_port:-9090}
 
     # 端口占用场景
-    _random_port() {
-        local randomPort
-        while :; do
-            randomPort=$((RANDOM % 64512 + 1024))
-            grep -q "$(printf ":%04X" $randomPort)" /proc/net/tcp || {
-                echo $randomPort
-                break
-            }
-        done
-    }
-    local arg
-    for arg in $MIXED_PORT $UI_PORT; do
-        sudo awk '{print $2}' /proc/net/tcp | grep -qsi ":$(printf "%x" "$arg")" && {
-            [ "$arg" = "$MIXED_PORT" ] && {
+    local port
+    for port in $MIXED_PORT $UI_PORT; do
+        _is_bind "$port" && {
+            [ "$port" = "$MIXED_PORT" ] && {
                 local newPort=$(_random_port)
                 local msg="端口占用：${MIXED_PORT}，随机分配：$newPort"
                 sudo "$BIN_YQ" -i ".mixed-port = $newPort" $CLASH_CONFIG_RUNTIME
                 MIXED_PORT=$newPort
-                _failcat "$msg"
+                _failcat '🎯' "$msg"
                 continue
             }
-            [ "$arg" = "$UI_PORT" ] && {
+            [ "$port" = "$UI_PORT" ] && {
                 newPort=$(_random_port)
                 msg="端口占用：${UI_PORT}，随机分配：$newPort"
                 sudo "$BIN_YQ" -i ".external-controller = \"0.0.0.0:$newPort\"" $CLASH_CONFIG_RUNTIME
                 UI_PORT=$newPort
-                _failcat "$msg"
+                _failcat '🎯' "$msg"
             }
         }
     done
@@ -131,7 +142,7 @@ function _okcat() {
 }
 
 function _failcat() {
-    local color=#FFD700
+    local color=#fd79a8
     local emoji=😾
     [ $# -gt 1 ] && emoji=$1 && shift
     local msg="${emoji} $1"
@@ -143,7 +154,9 @@ function _failcat() {
 function _error_quit() {
     [ $# -gt 0 ] && {
         local color=#f92f60
-        local msg="❌ $1"
+        local emoji=📢
+        [ $# -gt 1 ] && emoji=$1 && shift
+        local msg="${emoji} $1"
         _color_msg "$color" "$msg"
     }
     echo "$0" | grep -qs 'bash' && exec bash || exit 1
@@ -173,7 +186,9 @@ _download_clash() {
         ;;
     esac
     _failcat "当前 CPU 架构为：$1，正在下载对应版本..."
-    wget --timeout=30 \
+    wget \
+        --timeout=30 \
+        --quiet \
         --tries=1 \
         --no-check-certificate \
         --directory-prefix "$ZIP_BASE_DIR" \
@@ -194,7 +209,7 @@ function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
         local test_cmd="$BIN_KERNEL -d $(dirname "$1") -f $1 -t"
         $test_cmd >/dev/null || {
-            $test_cmd >&2 | grep -qs "unsupport proxy type" &&
+            $test_cmd | grep "unsupport proxy type" &&
                 _error_quit "不支持的代理协议，请安装 mihomo 内核"
         }
     }
@@ -224,9 +239,7 @@ _download_raw_config() {
 }
 
 _convert_url() {
-    local raw_url="$1"
-    local base_url="http://127.0.0.1:25500/sub?target=clash&url="
-
+    # 不支持中文域名编码
     urlencode() {
         local LANG=C
         local length="${#1}"
@@ -240,23 +253,32 @@ _convert_url() {
         echo
     }
 
-    local encoded_url=$(urlencode "$raw_url")
+    local target='clash'
+    local base_url="http://127.0.0.1:${BIN_SUBCONVERTER_PORT}/sub?target=${target}&url="
+    local encoded_url=$(urlencode "$1")
     echo "${base_url}${encoded_url}"
 }
 
 _start_convert() {
+    _is_bind $BIN_SUBCONVERTER_PORT && {
+        local newPort=$(_random_port)
+        _failcat '🎯' "端口占用：$BIN_SUBCONVERTER_PORT，随机分配：$newPort"
+        /bin/mv $BIN_SUBCONVERTER_DIR/pref.example.yml $BIN_SUBCONVERTER_CONFIG
+        $BIN_YQ -i ".server.port = $newPort" $BIN_SUBCONVERTER_CONFIG
+        BIN_SUBCONVERTER_PORT=$newPort
+    }
+    local start=$(date +%s)
     # 子shell运行，屏蔽kill时的输出
     (sudo $BIN_SUBCONVERTER >&/dev/null &)
-    local start=$(date +%s%3N)
-    while ! sudo lsof -i :25500 >&/dev/null; do
-        sleep 0.05
-        local now=$(date +%s%3N)
-        [ $(("$now" - "$start")) -gt 500 ] && _error_quit '订阅转换服务未启动，请检查25500端口是否被占用'
+    while ! _is_bind "$BIN_SUBCONVERTER_PORT" >&/dev/null; do
+        sleep 0.05s
+        local now=$(date +%s)
+        [ $((now - start)) -gt 1 ] && _error_quit "订阅转换服务未启动，请检查：$BIN_SUBCONVERTER_DIR"
     done
 }
 
 _stop_convert() {
-    pkill -9 -f subconverter >&/dev/null
+    pkill -9 -f $BIN_SUBCONVERTER >&/dev/null
 }
 
 _download_convert_config() {
@@ -271,9 +293,9 @@ function _download_config() {
     local url=$1
     local dest=$2
     _download_raw_config "$url" "$dest" || return 1
-    _okcat "下载成功：内核验证配置..."
+    _okcat '🍃' '下载成功：内核验证配置...'
     _valid_config "$dest" || {
-        _failcat "验证失败：本地订阅转换..."
+        _failcat '🍂' "验证失败：尝试订阅转换..."
         _download_convert_config "$url" "$dest" || return 1
     }
 }

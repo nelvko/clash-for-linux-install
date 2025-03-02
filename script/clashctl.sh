@@ -45,26 +45,26 @@ clashstatus() {
 }
 
 function clashui() {
-    # 防止tun模式强制走代理
+    # 防止tun模式强制走代理获取不到真实公网ip
     clashoff >&/dev/null
-    # 查询公网ip
-    # ifconfig.me
-    # cip.cc
     _get_port
-    local public_ip=$(curl -s --noproxy "*" --connect-timeout 2 ifconfig.me)
-    local public_address="http://${public_ip:-公网IP}:${UI_PORT}/ui"
+    # 公网ip
+    # ifconfig.me
+    local query_url='api64.ipify.org'
+    local public_ip=$(curl -s --noproxy "*" --connect-timeout 2 $query_url)
+    local public_address="http://${public_ip:-公网}:${UI_PORT}/ui"
     # 内网ip
     # ip route get 1.1.1.1 | grep -oP 'src \K\S+'
     local local_ip=$(hostname -I | awk '{print $1}')
     local local_address="http://${local_ip}:${UI_PORT}/ui"
     printf "\n"
     printf "╔═══════════════════════════════════════════════╗\n"
-    printf "║                %s                ║\n" "$(_okcat 'Web 面板地址')"
+    printf "║                %s                  ║\n" "$(_okcat 'Web 控制台')"
     printf "║═══════════════════════════════════════════════║\n"
     printf "║                                               ║\n"
     printf "║     🔓 注意放行端口：%-5s                    ║\n" "$UI_PORT"
     printf "║     🏠 内网：%-31s  ║\n" "$local_address"
-    printf "║     🌍 公网：%-31s  ║\n" "$public_address"
+    printf "║     🌏 公网：%-31s  ║\n" "$public_address"
     printf "║     ☁️  公共：%-31s  ║\n" "$URL_CLASH_UI"
     printf "║                                               ║\n"
     printf "╚═══════════════════════════════════════════════╝\n"
@@ -112,8 +112,8 @@ _tunon() {
     _tunstatus 2>/dev/null && return 0
     sudo "$BIN_YQ" -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
     _merge_config_restart
-    sleep 0.3s
-    clashstatus -l | grep -E 'unsupported kernel version|Start TUN listening error' && {
+    sleep 0.5s
+    sudo journalctl -u clash --since "1 min ago" | grep -E 'unsupported kernel version|Start TUN listening error' && {
         _tunoff >&/dev/null
         _error_quit '不支持的内核版本'
     }
