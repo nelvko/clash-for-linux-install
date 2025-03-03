@@ -164,18 +164,18 @@ function clashupdate() {
         _okcat "定时任务设置成功" && return 0
     }
 
-    _okcat "备份配置：$CLASH_CONFIG_RAW_BAK"
+    _okcat '👌' "备份配置：$CLASH_CONFIG_RAW_BAK"
     sudo cat "$CLASH_CONFIG_RAW" | sudo tee "$CLASH_CONFIG_RAW_BAK" >&/dev/null
 
     _rollback() {
-        _failcat "$1"
+        _failcat '👋' "$1"
         sudo cat "$CLASH_CONFIG_RAW_BAK" | sudo tee "$CLASH_CONFIG_RAW" >&/dev/null
         _failcat '❌' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新失败：$url" 2>&1 | sudo tee -a "${CLASH_UPDATE_LOG}"
         _error_quit
     }
 
-    _download_config "$url" "$CLASH_CONFIG_RAW" || _rollback "下载失败：回滚配置..."
-    _valid_config "$CLASH_CONFIG_RAW" || _rollback "配置无效：回滚配置..."
+    _download_config "$CLASH_CONFIG_RAW" "$url" || _rollback "下载失败：已回滚配置"
+    _valid_config "$CLASH_CONFIG_RAW" || _rollback "配置无效：已回滚配置"
 
     _merge_config_restart
     echo "$url" | sudo tee "$CLASH_CONFIG_URL" >&/dev/null

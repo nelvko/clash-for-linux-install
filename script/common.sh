@@ -101,7 +101,7 @@ function _get_port() {
         _is_bind "$port" && {
             [ "$port" = "$MIXED_PORT" ] && {
                 local newPort=$(_random_port)
-                local msg="端口占用：${MIXED_PORT}，随机分配：$newPort"
+                local msg="端口占用：${MIXED_PORT} 🎲 随机分配：$newPort"
                 sudo "$BIN_YQ" -i ".mixed-port = $newPort" $CLASH_CONFIG_RUNTIME
                 MIXED_PORT=$newPort
                 _failcat '🎯' "$msg"
@@ -109,7 +109,7 @@ function _get_port() {
             }
             [ "$port" = "$UI_PORT" ] && {
                 newPort=$(_random_port)
-                msg="端口占用：${UI_PORT}，随机分配：$newPort"
+                msg="端口占用：${UI_PORT} 🎲 随机分配：$newPort"
                 sudo "$BIN_YQ" -i ".external-controller = \"0.0.0.0:$newPort\"" $CLASH_CONFIG_RUNTIME
                 UI_PORT=$newPort
                 _failcat '🎯' "$msg"
@@ -216,8 +216,8 @@ function _valid_config() {
 }
 
 _download_raw_config() {
-    local url=$1
-    local dest=$2
+    local dest=$1
+    local url=$2
     local agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
     sudo curl \
         --silent \
@@ -262,9 +262,11 @@ _convert_url() {
 _start_convert() {
     _is_bind $BIN_SUBCONVERTER_PORT && {
         local newPort=$(_random_port)
-        _failcat '🎯' "端口占用：$BIN_SUBCONVERTER_PORT，随机分配：$newPort"
-        /bin/mv $BIN_SUBCONVERTER_DIR/pref.example.yml $BIN_SUBCONVERTER_CONFIG
-        $BIN_YQ -i ".server.port = $newPort" $BIN_SUBCONVERTER_CONFIG
+        _failcat '🎯' "端口占用：$BIN_SUBCONVERTER_PORT 🎲 随机分配：$newPort"
+        [ ! -e $BIN_SUBCONVERTER_CONFIG ] && {
+            sudo /bin/mv -f $BIN_SUBCONVERTER_DIR/pref.example.yml $BIN_SUBCONVERTER_CONFIG
+        }
+        sudo $BIN_YQ -i ".server.port = $newPort" $BIN_SUBCONVERTER_CONFIG
         BIN_SUBCONVERTER_PORT=$newPort
     }
     local start=$(date +%s)
@@ -273,7 +275,7 @@ _start_convert() {
     while ! _is_bind "$BIN_SUBCONVERTER_PORT" >&/dev/null; do
         sleep 0.05s
         local now=$(date +%s)
-        [ $((now - start)) -gt 1 ] && _error_quit "订阅转换服务未启动，请检查：$BIN_SUBCONVERTER_DIR"
+        [ $((now - start)) -gt 1 ] && _error_quit "订阅转换服务未启动，请检查并重试：$BIN_SUBCONVERTER_DIR"
     done
 }
 
@@ -282,20 +284,21 @@ _stop_convert() {
 }
 
 _download_convert_config() {
-    local url=$1
-    local dest=$2
+    local dest=$1
+    local url=$2
     _start_convert
-    _download_raw_config "$(_convert_url "$url")" "$dest"
+    _download_raw_config "$dest" "$(_convert_url "$url")"
     _stop_convert
 }
 
 function _download_config() {
-    local url=$1
-    local dest=$2
-    _download_raw_config "$url" "$dest" || return 1
+    local dest=$1
+    local url=$2
+    [ "${url:0:4}" = 'file' ] && return 0
+    _download_raw_config "$dest" "$url" || return 1
     _okcat '🍃' '下载成功：内核验证配置...'
     _valid_config "$dest" || {
         _failcat '🍂' "验证失败：尝试订阅转换..."
-        _download_convert_config "$url" "$dest" || return 1
+        _download_convert_config "$dest" "$url" || return 1
     }
 }
