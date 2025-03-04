@@ -26,7 +26,7 @@ git clone --branch master --depth 1 https://gh-proxy.com/https://github.com/nelv
 > 如遇问题，请在查阅[常见问题](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)及 [issue](https://github.com/nelvko/clash-for-linux-install/issues?q=is%3Aissue) 未果后进行反馈。
 
 - 上述克隆命令使用了[加速前缀](https://gh-proxy.com/)，如失效请更换其他[可用链接](https://ghproxy.link/)。
-- ~~不懂什么是订阅链接的小白可参考~~：[issue#1](https://github.com/nelvko/clash-for-linux-install/issues/1)
+- 默认通过远程订阅获取配置进行安装，本地配置安装详见：[issue#39](https://github.com/nelvko/clash-for-linux-install/issues/39)
 - 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
 - 验证是否连通外网：`wget www.google.com`
 
@@ -63,15 +63,15 @@ $ clashui
 
 原理：
 
-- 使用 `systemctl` 控制 `clash` 启停，并调整代理环境变量的值（http_proxy 等）。因为应用程序在发起网络请求时，会通过其指定的代理地址转发流量，不调整会造成：关闭代理后仍转发导致请求失败、开启代理后未设置代理地址导致请求不转发。
+- 使用 `systemctl` 控制 `clash` 启停，并调整代理环境变量的值（http_proxy 等）。应用程序在发起网络请求时，会通过其指定的代理地址转发流量，不调整会造成：关闭代理但未卸载代理变量导致仍转发请求、开启代理后未设置代理地址导致请求不转发。
 - `clashon` 等命令封装了上述流程。
 
 ### 定时更新订阅
 
 ```bash
 $ clashupdate https://example.com
-😼 备份配置：/opt/clash/config.yaml.bak
-😼 下载成功：内核验证配置...
+👌 备份配置：/opt/clash/config.yaml.bak
+🍃 下载成功：内核验证配置...
 ✅ [2025-02-23 22:45:23] 订阅更新成功：https://example.com
 
 $ clashupdate auto [url]
@@ -82,7 +82,7 @@ $ clashupdate log
 ...
 ```
 
-- `clashupdate` 会记忆安装/上次更新成功的订阅，后续执行无需再指定订阅url。
+- `clashupdate` 会记忆安装和更新成功时的订阅，后续执行无需再指定订阅 `url`。
 - 可通过 `crontab -e` 修改定时更新频率及订阅链接。
 - 通过配置文件进行更新：[pr#24](https://github.com/nelvko/clash-for-linux-install/pull/24#issuecomment-2565054701)
 
