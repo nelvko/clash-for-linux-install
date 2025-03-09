@@ -21,6 +21,7 @@ function clashon() {
     export no_proxy=$no_proxy_addr
     export NO_PROXY=$no_proxy
 }
+systemctl is-active clash -q && [ -z "$http_proxy" ] && clashon
 
 function clashoff() {
     sudo systemctl stop clash && _okcat '已关闭代理环境' ||
