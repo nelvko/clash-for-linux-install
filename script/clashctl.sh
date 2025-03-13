@@ -21,7 +21,16 @@ function clashon() {
     export no_proxy=$no_proxy_addr
     export NO_PROXY=$no_proxy
 }
-systemctl is-active clash -q && [ -z "$http_proxy" ] && clashon
+
+systemctl is-active clash -q && {
+    [ -z "$http_proxy" ] && {
+        [ "$(whoami)" != "root" ] && {
+            _failcat '当前 shell 未检测到代理变量，需执行 clashon 开启代理环境'
+            return 1
+        }
+        clashon
+    }
+}
 
 function clashoff() {
     sudo systemctl stop clash && _okcat '已关闭代理环境' ||
