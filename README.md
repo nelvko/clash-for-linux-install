@@ -1,5 +1,7 @@
 # Linux 一键安装 Clash
 
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/f7b6800f88f04c9ab5109f75d935ce13)](https://app.codacy.com/gh/nelvko/clash-for-linux-install?utm_source=github.com&utm_medium=referral&utm_content=nelvko/clash-for-linux-install&utm_campaign=Badge_Grade)
+
 ![preview](resources/preview.png)
 
 - 默认安装 `mihomo` 内核，[可选安装](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ#%E5%AE%89%E8%A3%85-clash-%E5%86%85%E6%A0%B8) `clash`。
