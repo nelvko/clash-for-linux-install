@@ -58,7 +58,7 @@ $ clashon
 😼 已开启代理环境
 
 $ clashui
-😼 Web 面板地址...
+😼 Web 控制台...
 ```
 
 原理：
@@ -72,14 +72,13 @@ $ clashui
 $ clashupdate https://example.com
 👌 备份配置：/opt/clash/config.yaml.bak
 🍃 下载成功：内核验证配置...
-✅ [2025-02-23 22:45:23] 订阅更新成功：https://example.com
+🍃 订阅更新成功
 
 $ clashupdate auto [url]
 😼 定时任务设置成功
 
 $ clashupdate log
 ✅ [2025-02-23 22:45:23] 订阅更新成功：https://example.com
-...
 ```
 
 - `clashupdate` 会记忆安装和更新成功时的订阅，后续执行无需再指定订阅 `url`。
@@ -143,7 +142,7 @@ sudo bash -c '. uninstall.sh; exec bash'
 - [Clash Premium 2023.08.17](https://downloads.clash.wiki/ClashPremium/)
 - [mihomo v1.19.2](https://github.com/MetaCubeX/mihomo)
 - [subconverter v0.9.0：本地订阅转换](https://github.com/tindy2013/subconverter)
-- [yacd v0.3.8：Web UI](https://github.com/haishanh/yacd)
+- [yacd v0.3.8：Web 控制台](https://github.com/haishanh/yacd)
 - [yq v4.45.1：处理 yaml](https://github.com/mikefarah/yq)
 
 ## Thanks
