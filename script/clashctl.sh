@@ -178,18 +178,18 @@ function clashupdate() {
     sudo cat "$CLASH_CONFIG_RAW" | sudo tee "$CLASH_CONFIG_RAW_BAK" >&/dev/null
 
     _rollback() {
-        _failcat '👋' "$1"
+        _failcat '🍂' "$1"
         sudo cat "$CLASH_CONFIG_RAW_BAK" | sudo tee "$CLASH_CONFIG_RAW" >&/dev/null
-        _failcat '❌' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新失败：$url" 2>&1 | sudo tee -a "${CLASH_UPDATE_LOG}"
+        _failcat '❌' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新失败：$url" 2>&1 | sudo tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
         _error_quit
     }
 
-    _download_config "$CLASH_CONFIG_RAW" "$url" || _rollback "下载失败：已回滚配置"
-    _valid_config "$CLASH_CONFIG_RAW" || _rollback "配置无效：已回滚配置"
+    _download_config "$CLASH_CONFIG_RAW" "$url" || _rollback "更新失败：已回滚配置"
+    _valid_config "$CLASH_CONFIG_RAW" || _rollback "转换失败：已回滚配置，请检查日志：$BIN_SUBCONVERTER_LOG"
 
-    _merge_config_restart
+    _merge_config_restart && _okcat '🍃' '订阅更新成功'
     echo "$url" | sudo tee "$CLASH_CONFIG_URL" >&/dev/null
-    _okcat '✅' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新成功：$url" | sudo tee -a "${CLASH_UPDATE_LOG}"
+    _okcat '✅' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新成功：$url" | sudo tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
 }
 
 function clashmixin() {

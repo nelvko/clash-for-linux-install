@@ -33,6 +33,7 @@ BIN_SUBCONVERTER_DIR="${BIN_BASE_DIR}/subconverter"
 BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
 BIN_SUBCONVERTER_PORT="25500"
 BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
+BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
 
 # 默认集成、安装mihomo内核
 # 移除/删除mihomo：下载安装clash内核
@@ -271,11 +272,11 @@ _start_convert() {
     }
     local start=$(date +%s)
     # 子shell运行，屏蔽kill时的输出
-    (sudo $BIN_SUBCONVERTER >&/dev/null &)
+    (sudo $BIN_SUBCONVERTER >&$BIN_SUBCONVERTER_LOG &)
     while ! _is_bind "$BIN_SUBCONVERTER_PORT" >&/dev/null; do
         sleep 0.05s
         local now=$(date +%s)
-        [ $((now - start)) -gt 1 ] && _error_quit "订阅转换服务未启动，请检查并重试：$BIN_SUBCONVERTER_DIR"
+        [ $((now - start)) -gt 1 ] && _error_quit "订阅转换服务未启动，请检查日志：$BIN_SUBCONVERTER_LOG"
     done
 }
 
@@ -299,6 +300,6 @@ function _download_config() {
     _okcat '🍃' '下载成功：内核验证配置...'
     _valid_config "$dest" || {
         _failcat '🍂' "验证失败：尝试订阅转换..."
-        _download_convert_config "$dest" "$url" || return 1
+        _download_convert_config "$dest" "$url" || _failcat '🍂' "转换失败：请检查日志：$BIN_SUBCONVERTER_LOG"
     }
 }
