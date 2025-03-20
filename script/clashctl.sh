@@ -2,8 +2,8 @@
 # shellcheck disable=SC2155
 
 function clashon() {
-    _get_port
-    sudo systemctl start clash && _okcat '已开启代理环境' ||
+    _get_kernel_port
+    sudo systemctl start "$BIN_KERNEL_NAME" && _okcat '已开启代理环境' ||
         _failcat '启动失败: 执行 "clashstatus" 查看日志' || return 1
 
     local http_proxy_addr="http://127.0.0.1:${MIXED_PORT}"
@@ -22,18 +22,12 @@ function clashon() {
     export NO_PROXY=$no_proxy
 }
 
-systemctl is-active clash -q && {
-    [ -z "$http_proxy" ] && {
-        [ "$(whoami)" != "root" ] && {
-            _failcat '当前 shell 未检测到代理变量，需执行 clashon 开启代理环境'
-            return 1
-        }
-        clashon
-    }
+systemctl is-active "$BIN_KERNEL_NAME" >&/dev/null && [ -z "$http_proxy" ] && {
+    _is_root || _failcat '当前 shell 未检测到代理变量，需执行 clashon 开启代理环境' && clashon
 }
 
 function clashoff() {
-    sudo systemctl stop clash && _okcat '已关闭代理环境' ||
+    sudo systemctl stop "$BIN_KERNEL_NAME" && _okcat '已关闭代理环境' ||
         _failcat '关闭失败: 执行 "clashstatus" 查看日志' || return 1
 
     unset http_proxy
@@ -51,13 +45,13 @@ clashrestart() {
 }
 
 clashstatus() {
-    sudo systemctl status clash "$@"
+    sudo systemctl status "$BIN_KERNEL_NAME" "$@"
 }
 
 function clashui() {
     # 防止tun模式强制走代理获取不到真实公网ip
     clashoff >&/dev/null
-    _get_port
+    _get_kernel_port
     # 公网ip
     # ifconfig.me
     local query_url='api64.ipify.org'
@@ -123,7 +117,7 @@ _tunon() {
     sudo "$BIN_YQ" -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
     _merge_config_restart
     sleep 0.5s
-    sudo journalctl -u clash --since "1 min ago" | grep -E 'unsupported kernel version|Start TUN listening error' && {
+    sudo journalctl -u "$BIN_KERNEL_NAME" --since "1 min ago" | grep -E -m1 'unsupported kernel version|Start TUN listening error' && {
         _tunoff >&/dev/null
         _error_quit '不支持的内核版本'
     }
@@ -170,7 +164,7 @@ function clashupdate() {
 
     # 如果是自动更新模式，则设置定时任务
     [ "$is_auto" = true ] && {
-        sudo grep -qs 'clashupdate' "$CLASH_CRON_TAB" || echo "0 0 */2 * * . $BASHRC;clashupdate $url" | sudo tee -a "$CLASH_CRON_TAB" >&/dev/null
+        sudo grep -qs 'clashupdate' "$CLASH_CRON_TAB" || echo "0 0 */2 * * . $BASH_RC_ROOT;clashupdate $url" | sudo tee -a "$CLASH_CRON_TAB" >&/dev/null
         _okcat "定时任务设置成功" && return 0
     }
 
@@ -210,7 +204,7 @@ function clashmixin() {
 
 function clash() {
     local color=#c8d6e5
-    local prefix=$(_color "$color")
+    local prefix=$(_get_color "$color")
     local suffix=$(printf '\033[0m')
     printf "%b\n" "$(
         cat <<EOF | column -t -s ',' | sed -E "/clash/ s|(clash)(\w*)|\1${prefix}\2${suffix}|g"

@@ -34,13 +34,13 @@ _valid_config "$RESOURCES_CONFIG" || {
 _okcat '✅' '配置可用'
 echo "$url" >"$CLASH_CONFIG_URL"
 
-/bin/cp -rf script "$CLASH_BASE_DIR"
+/bin/cp -rf "$SCRIPT_BASE_DIR" "$CLASH_SCRIPT_DIR"
 /bin/ls "$RESOURCES_BASE_DIR" | grep -Ev 'zip|png' | xargs -I {} /bin/cp -rf "${RESOURCES_BASE_DIR}/{}" "$CLASH_BASE_DIR"
 tar -xf "$ZIP_UI" -C "$CLASH_BASE_DIR"
+_set_rc set
 
 _merge_config_restart
-
-cat <<EOF >/etc/systemd/system/clash.service
+cat <<EOF >"/etc/systemd/system/${BIN_KERNEL_NAME}.service"
 [Unit]
 Description=$BIN_KERNEL_NAME Daemon, A[nother] Clash Kernel.
 
@@ -53,13 +53,9 @@ ExecStart=${BIN_KERNEL} -d ${CLASH_BASE_DIR} -f ${CLASH_CONFIG_RUNTIME}
 WantedBy=multi-user.target
 EOF
 
-[ -n "$(tail -1 "$BASHRC")" ] && echo >>"$BASHRC"
-echo "source $CLASH_BASE_DIR/script/common.sh && source $CLASH_BASE_DIR/script/clashctl.sh" >>"$BASHRC"
-
 systemctl daemon-reload
-clashon
-# shellcheck disable=SC2015
-systemctl enable clash >&/dev/null && _okcat '🚀' "已设置开机自启" || _failcat '💥' "设置自启失败"
-_okcat '🎉' 'enjoy 🎉'
+systemctl enable "$BIN_KERNEL_NAME" >&/dev/null || _failcat '💥' "设置自启失败" && _okcat '🚀' "已设置开机自启"
+
+clashon && _okcat '🎉' 'enjoy 🎉'
 clashui
 clash
