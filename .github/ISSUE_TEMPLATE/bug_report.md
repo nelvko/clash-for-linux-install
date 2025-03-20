@@ -9,14 +9,14 @@ assignees: ''
 
 > [!CAUTION]
 >
-> 请先提供以下信息
+> 请提供以下信息，以便更好地排查：
 
 ```shell
 # 系统信息
-uname -vm
+hostnamectl
 
-# 内核状况
-systemctl status clash
+# 内核状况（若已安装）
+clashstatus -l
 ```
 
 **描述 & 复现：**

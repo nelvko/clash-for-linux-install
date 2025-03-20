@@ -48,7 +48,7 @@ Usage:
     clashupdate  [auto|log]  更新订阅
 ```
 
-### 开始使用
+### 优雅启停
 
 ```bash
 $ clashoff
@@ -56,17 +56,43 @@ $ clashoff
 
 $ clashon
 😼 已开启代理环境
-
-$ clashui
-😼 Web 控制台...
 ```
 
-原理：
+<details>
+
+<summary>原理</summary>
 
 - 使用 `systemctl` 控制 `clash` 启停，并调整代理环境变量的值（http_proxy 等）。应用程序在发起网络请求时，会通过其指定的代理地址转发流量，不调整会造成：关闭代理但未卸载代理变量导致仍转发请求、开启代理后未设置代理地址导致请求不转发。
 - `clashon` 等命令封装了上述流程。
 
-### 定时更新订阅
+</details>
+
+### Web 控制台
+
+```bash
+$ clashui
+╔═══════════════════════════════════════════════╗
+║                😼 Web 控制台                  ║
+║═══════════════════════════════════════════════║
+║                                               ║
+║     🔓 注意放行端口：9090                      ║
+║     🏠 内网：http://192.168.0.1:9090/ui       ║
+║     🌏 公网：http://255.255.255.255:9090/ui   ║
+║     ☁️ 公共：http://board.zash.run.place      ║
+║                                               ║
+╚═══════════════════════════════════════════════╝
+
+$ clashsecret 666
+😼 密钥更新成功，已重启生效
+
+$ clashsecret
+😼 当前密钥：666
+```
+
+- 通过浏览器打开 Web 控制台，实现可视化操作：切换节点、查看日志等。
+- 控制台密钥默认为空，若暴露到公网使用建议更新密钥。
+
+### 订阅更新
 
 ```bash
 $ clashupdate https://example.com
@@ -84,18 +110,6 @@ $ clashupdate log
 - `clashupdate` 会记忆安装和更新成功时的订阅，后续执行无需再指定订阅 `url`。
 - 可通过 `crontab -e` 修改定时更新频率及订阅链接。
 - 通过配置文件进行更新：[pr#24](https://github.com/nelvko/clash-for-linux-install/pull/24#issuecomment-2565054701)
-
-### Web 控制台密钥
-
-控制台密钥默认为空，若暴露到公网使用建议更新密钥。
-
-```bash
-$ clashsecret 666
-😼 密钥更新成功，已重启生效
-
-$ clashsecret
-😼 当前密钥：666
-```
 
 ### `Tun` 模式
 
@@ -134,6 +148,10 @@ $ clashmixin -r
 ```bash
 sudo bash -c '. uninstall.sh; exec bash'
 ```
+
+## 常见问题
+
+[wiki](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)
 
 ## 引用
 
