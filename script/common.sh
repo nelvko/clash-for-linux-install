@@ -115,14 +115,9 @@ function _get_kernel() {
 }
 
 _get_random_port() {
-    local randomPort
-    while :; do
-        randomPort=$((RANDOM % 64512 + 1024))
-        grep -q "$(printf ":%04X" $randomPort)" /proc/net/tcp || {
-            echo $randomPort
-            break
-        }
-    done
+    local randomPort=$((RANDOM % 64512 + 1024))
+    ! _is_bind "$randomPort" && { echo "$randomPort" && return; }
+    _get_random_port
 }
 
 function _get_kernel_port() {
@@ -136,7 +131,7 @@ function _get_kernel_port() {
     # 端口占用场景
     local port
     for port in $MIXED_PORT $UI_PORT; do
-        _is_bind "$port" && {
+        _is_already_in_use "$port" "$BIN_KERNEL_NAME" && {
             [ "$port" = "$MIXED_PORT" ] && {
                 local newPort=$(_get_random_port)
                 local msg="端口占用：${MIXED_PORT} 🎲 随机分配：$newPort"
@@ -198,7 +193,14 @@ function _error_quit() {
 }
 
 _is_bind() {
-    sudo awk '{print $2}' /proc/net/tcp | grep -qsi ":$(printf "%x" "$1")"
+    local port=$1
+    { ss -tulnp || netstat -tulnp; } | grep ":${port}\b"
+}
+
+_is_already_in_use() {
+    local port=$1
+    local progress=$2
+    _is_bind "$port" | grep -qs -v "$progress"
 }
 
 function _is_root() {
@@ -316,7 +318,7 @@ function _download_config() {
 }
 
 _start_convert() {
-    _is_bind $BIN_SUBCONVERTER_PORT && {
+    _is_already_in_use $BIN_SUBCONVERTER_PORT 'subconverter' && {
         local newPort=$(_get_random_port)
         _failcat '🎯' "端口占用：$BIN_SUBCONVERTER_PORT 🎲 随机分配：$newPort"
         [ ! -e $BIN_SUBCONVERTER_CONFIG ] && {
