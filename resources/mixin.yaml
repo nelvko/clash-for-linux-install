@@ -1,11 +1,9 @@
-# clashui 配置
+# Web 控制台配置
 external-controller: '0.0.0.0:9090'
 external-ui: public
-
-# clashsecret 配置
 secret: 
 
-# clashtun 配置
+# tun 配置
 tun:
   enable: false
   stack: system
@@ -17,6 +15,9 @@ tun:
     - any:53
     - tcp://any:53
   strict-route: true
+  exclude-interface:
+    - docker0
+    - podman0 
 
 # DNS 配置
 dns:
