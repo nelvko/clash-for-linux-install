@@ -194,7 +194,7 @@ function _error_quit() {
 
 _is_bind() {
     local port=$1
-    { ss -tulnp || netstat -tulnp; } | grep ":${port}\b"
+    { sudo ss -tulnp || sudo netstat -tulnp; } | grep ":${port}\b"
 }
 
 _is_already_in_use() {
