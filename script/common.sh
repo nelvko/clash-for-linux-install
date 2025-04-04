@@ -10,6 +10,7 @@ URL_CLASH_UI="http://board.zash.run.place"
 SCRIPT_BASE_DIR='./script'
 
 RESOURCES_BASE_DIR='./resources'
+RESOURCES_BIN_DIR="${RESOURCES_BASE_DIR}/bin"
 RESOURCES_CONFIG="${RESOURCES_BASE_DIR}/config.yaml"
 RESOURCES_CONFIG_MIXIN="${RESOURCES_BASE_DIR}/mixin.yaml"
 
@@ -29,17 +30,7 @@ CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/$(basename $RESOURCES_CONFIG_MIXIN)"
 CLASH_CONFIG_RUNTIME="${CLASH_BASE_DIR}/runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_BASE_DIR}/clashupdate.log"
 
-BIN_BASE_DIR="${CLASH_BASE_DIR}/bin"
-BIN_CLASH="${BIN_BASE_DIR}/clash"
-BIN_MIHOMO="${BIN_BASE_DIR}/mihomo"
-BIN_YQ="${BIN_BASE_DIR}/yq"
-BIN_SUBCONVERTER_DIR="${BIN_BASE_DIR}/subconverter"
-BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
-BIN_SUBCONVERTER_PORT="25500"
-BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
-BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
-
-_get_var() {
+_set_var() {
     # 定时任务路径
     {
         local os_info=$(cat /etc/os-release)
@@ -58,34 +49,46 @@ _get_var() {
         BASH_RC_ROOT='/root/.bashrc'
         BASH_RC_USER="${home}/.bashrc"
     }
-    # 内核bin路径
-    {
-        [ -f "$BIN_MIHOMO" ] && {
-            BIN_KERNEL=$BIN_MIHOMO
-        }
-        [ -f "$BIN_CLASH" ] && {
-            BIN_KERNEL=$BIN_CLASH
-        }
-        BIN_KERNEL_NAME=$(basename "$BIN_KERNEL")
-    }
 }
-_get_var
+_set_var
+
+# shellcheck disable=SC2120
+_set_bin() {
+    local bin_base_dir="${CLASH_BASE_DIR}/bin"
+    [ -n "$1" ] && bin_base_dir=$1
+    BIN_CLASH="${bin_base_dir}/clash"
+    BIN_MIHOMO="${bin_base_dir}/mihomo"
+    BIN_YQ="${bin_base_dir}/yq"
+    BIN_SUBCONVERTER_DIR="${bin_base_dir}/subconverter"
+    BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
+    BIN_SUBCONVERTER_PORT="25500"
+    BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
+    BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
+
+    [ -f "$BIN_MIHOMO" ] && {
+        BIN_KERNEL=$BIN_MIHOMO
+    }
+    [ -f "$BIN_CLASH" ] && {
+        BIN_KERNEL=$BIN_CLASH
+    }
+    BIN_KERNEL_NAME=$(basename "$BIN_KERNEL")
+}
+_set_bin
 
 # shellcheck disable=SC2086
 _set_rc() {
     [ "$BASH_RC_ROOT" = "$BASH_RC_USER" ] && unset BASH_RC_USER
-    case "$1" in
-    set)
-        [ -n "$(tail -n 1 "$BASH_RC_ROOT")" ] && echo >>"$BASH_RC_ROOT"
-        [ -n "$(tail -n 1 "$BASH_RC_USER" >&/dev/null)" ] && echo >>"$BASH_RC_USER"
 
-        echo "source $CLASH_SCRIPT_DIR/common.sh && source $CLASH_SCRIPT_DIR/clashctl.sh" |
-            tee -a $BASH_RC_ROOT $BASH_RC_USER >&/dev/null
-        ;;
-    unset)
+    [ "$1" = "unset" ] && {
         sed -i "\|$CLASH_SCRIPT_DIR|d" $BASH_RC_ROOT $BASH_RC_USER
-        ;;
-    esac
+        return
+    }
+
+    [ -n "$(tail -n 1 "$BASH_RC_ROOT")" ] && echo >>"$BASH_RC_ROOT"
+    [ -n "$(tail -n 1 "$BASH_RC_USER" >&/dev/null)" ] && echo >>"$BASH_RC_USER"
+
+    echo "source $CLASH_SCRIPT_DIR/common.sh && source $CLASH_SCRIPT_DIR/clashctl.sh" |
+        tee -a $BASH_RC_ROOT $BASH_RC_USER >&/dev/null
 }
 
 # 默认集成、安装mihomo内核
@@ -121,8 +124,8 @@ _get_random_port() {
 }
 
 function _get_kernel_port() {
-    local mixed_port=$(sudo $BIN_YQ '.mixed-port // ""' $CLASH_CONFIG_RUNTIME)
-    local ext_addr=$(sudo $BIN_YQ '.external-controller // ""' $CLASH_CONFIG_RUNTIME)
+    local mixed_port=$(sudo "$BIN_YQ" '.mixed-port // ""' $CLASH_CONFIG_RUNTIME)
+    local ext_addr=$(sudo "$BIN_YQ" '.external-controller // ""' $CLASH_CONFIG_RUNTIME)
     local ext_port=${ext_addr##*:}
 
     MIXED_PORT=${mixed_port:-7890}
@@ -321,15 +324,15 @@ _start_convert() {
     _is_already_in_use $BIN_SUBCONVERTER_PORT 'subconverter' && {
         local newPort=$(_get_random_port)
         _failcat '🎯' "端口占用：$BIN_SUBCONVERTER_PORT 🎲 随机分配：$newPort"
-        [ ! -e $BIN_SUBCONVERTER_CONFIG ] && {
-            sudo /bin/mv -f $BIN_SUBCONVERTER_DIR/pref.example.yml $BIN_SUBCONVERTER_CONFIG
+        [ ! -e "$BIN_SUBCONVERTER_CONFIG" ] && {
+            sudo /bin/mv -f "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
         }
-        sudo $BIN_YQ -i ".server.port = $newPort" $BIN_SUBCONVERTER_CONFIG
+        sudo "$BIN_YQ" -i ".server.port = $newPort" "$BIN_SUBCONVERTER_CONFIG"
         BIN_SUBCONVERTER_PORT=$newPort
     }
     local start=$(date +%s)
     # 子shell运行，屏蔽kill时的输出
-    (sudo $BIN_SUBCONVERTER 2>&1 | sudo tee $BIN_SUBCONVERTER_LOG >/dev/null &)
+    (sudo "$BIN_SUBCONVERTER" 2>&1 | sudo tee "$BIN_SUBCONVERTER_LOG" >/dev/null &)
     while ! _is_bind "$BIN_SUBCONVERTER_PORT" >&/dev/null; do
         sleep 0.05s
         local now=$(date +%s)
@@ -337,5 +340,5 @@ _start_convert() {
     done
 }
 _stop_convert() {
-    pkill -9 -f $BIN_SUBCONVERTER >&/dev/null
+    pkill -9 -f "$BIN_SUBCONVERTER" >&/dev/null
 }
