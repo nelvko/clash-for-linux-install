@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck disable=SC2148
 # shellcheck disable=SC2155
 
 function clashon() {
@@ -23,7 +23,7 @@ function clashon() {
 }
 
 systemctl is-active "$BIN_KERNEL_NAME" >&/dev/null && [ -z "$http_proxy" ] && {
-    _is_root || _failcat '当前 shell 未检测到代理变量，需执行 clashon 开启代理环境' && clashon
+    _is_root || _failcat '未检测到代理变量，可执行 clashon 开启代理环境' && clashon
 }
 
 function clashoff() {
@@ -101,9 +101,9 @@ function clashsecret() {
 }
 
 _tunstatus() {
-    local status=$(sudo "$BIN_YQ" '.tun.enable' "${CLASH_CONFIG_RUNTIME}")
+    local tun_status=$(sudo "$BIN_YQ" '.tun.enable' "${CLASH_CONFIG_RUNTIME}")
     # shellcheck disable=SC2015
-    [ "$status" = 'true' ] && _okcat 'Tun 状态：启用' || _failcat 'Tun 状态：关闭'
+    [ "$tun_status" = 'true' ] && _okcat 'Tun 状态：启用' || _failcat 'Tun 状态：关闭'
 }
 
 _tunoff() {
@@ -178,8 +178,8 @@ function clashupdate() {
         _error_quit
     }
 
-    _download_config "$CLASH_CONFIG_RAW" "$url" || _rollback "更新失败：已回滚配置"
-    _valid_config "$CLASH_CONFIG_RAW" || _rollback "转换失败：已回滚配置，请检查日志：$BIN_SUBCONVERTER_LOG"
+    _download_config "$CLASH_CONFIG_RAW" "$url" || _rollback "下载失败：已回滚配置"
+    _valid_config "$CLASH_CONFIG_RAW" || _rollback "转换失败：已回滚配置，转换日志：$BIN_SUBCONVERTER_LOG"
 
     _merge_config_restart && _okcat '🍃' '订阅更新成功'
     echo "$url" | sudo tee "$CLASH_CONFIG_URL" >&/dev/null
@@ -194,30 +194,79 @@ function clashmixin() {
         }
         ;;
     -r)
-        less "$CLASH_CONFIG_RUNTIME"
+        less -f "$CLASH_CONFIG_RUNTIME"
         ;;
     *)
-        less "$CLASH_CONFIG_MIXIN"
+        less -f "$CLASH_CONFIG_MIXIN"
         ;;
     esac
 }
 
-function clash() {
-    local color=#c8d6e5
-    local prefix=$(_get_color "$color")
-    local suffix=$(printf '\033[0m')
-    printf "%b\n" "$(
-        cat <<EOF | column -t -s ',' | sed -E "/clash/ s|(clash)(\w*)|\1${prefix}\2${suffix}|g"
+function clashctl() {
+    case "$1" in
+    on)
+        clashon
+        ;;
+    off)
+        clashoff
+        ;;
+    ui)
+        clashui
+        ;;
+    status)
+        shift
+        clashstatus "$@"
+        ;;
+
+    tun)
+        shift
+        clashtun "$@"
+        ;;
+    mixin)
+        shift
+        clashmixin "$@"
+        ;;
+    secret)
+        shift
+        clashsecret "$@"
+        ;;
+    update)
+        shift
+        clashupdate "$@"
+        ;;
+    *)
+        cat <<EOF
+
 Usage:
-    clash                    命令一览,
-    clashon                  开启代理,
-    clashoff                 关闭代理,
-    clashui                  面板地址,
-    clashstatus              内核状况,
-    clashtun     [on|off]    Tun 模式,
-    clashmixin   [-e|-r]     Mixin 配置,
-    clashsecret  [secret]    Web 密钥,
-    clashupdate  [auto|log]  更新订阅,
+    clash      COMMAND  [OPTION]
+    mihomo     COMMAND  [OPTION]
+    clashctl   COMMAND  [OPTION]
+    mihomoctl  COMMAND  [OPTION】
+
+Commands:
+    on                   开启代理
+    off                  关闭代理
+    ui                   面板地址
+    status               内核状况
+    tun      [on|off]    Tun 模式
+    mixin    [-e|-r]     Mixin 配置
+    secret   [SECRET]    Web 密钥
+    update   [auto|log]  更新订阅
+
 EOF
-    )"
+        ;;
+    esac
 }
+
+function mihomoctl() {
+    clashctl "$@"
+}
+
+function clash() {
+    clashctl "$@"
+}
+
+function mihomo() {
+    clashctl "$@"
+}
+

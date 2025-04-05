@@ -1,7 +1,7 @@
-#!/bin/bash
+# shellcheck disable=SC2148
 # shellcheck disable=SC1091
-. script/common.sh
-. script/clashctl.sh
+. script/common.sh >&/dev/null
+. script/clashctl.sh >&/dev/null
 
 _valid_env
 
@@ -18,11 +18,11 @@ _get_kernel
 
 _set_bin "$RESOURCES_BIN_DIR"
 _valid_config "$RESOURCES_CONFIG" || {
-    prompt=$(_okcat '✈️ ' '输入订阅链接：')
-    read -p "$prompt" -r url
+    echo -n "$(_okcat '✈️ ' '输入订阅：')"
+    read -r url
     _okcat '⏳' '正在下载...'
     _download_config "$RESOURCES_CONFIG" "$url" || _error_quit "下载失败: 请将配置内容写入 $RESOURCES_CONFIG 后重新安装"
-    _valid_config "$RESOURCES_CONFIG" || _error_quit "配置无效，请检查：$RESOURCES_CONFIG"
+    _valid_config "$RESOURCES_CONFIG" || _error_quit "配置无效，请检查配置：$RESOURCES_CONFIG，转换日志：$BIN_SUBCONVERTER_LOG"
 }
 _okcat '✅' '配置可用'
 mkdir "$CLASH_BASE_DIR"
@@ -51,6 +51,7 @@ EOF
 systemctl daemon-reload
 systemctl enable "$BIN_KERNEL_NAME" >&/dev/null || _failcat '💥' "设置自启失败" && _okcat '🚀' "已设置开机自启"
 
-clashon && _okcat '🎉' 'enjoy 🎉'
 clashui
+_okcat '🎉' 'enjoy 🎉'
 clash
+_quit

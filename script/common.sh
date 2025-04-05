@@ -1,8 +1,8 @@
-#!/bin/bash
+# shellcheck disable=SC2148
 # shellcheck disable=SC2034
 # shellcheck disable=SC2155
 [ -n "$BASH_VERSION" ] && set +o noglob
-[ -n "$ZSH_VERSION" ] && setopt glob
+[ -n "$ZSH_VERSION" ] && setopt glob no_nomatch
 
 URL_GH_PROXY='https://gh-proxy.com/'
 URL_CLASH_UI="http://board.zash.run.place"
@@ -15,10 +15,10 @@ RESOURCES_CONFIG="${RESOURCES_BASE_DIR}/config.yaml"
 RESOURCES_CONFIG_MIXIN="${RESOURCES_BASE_DIR}/mixin.yaml"
 
 ZIP_BASE_DIR="${RESOURCES_BASE_DIR}/zip"
-ZIP_CLASH="${ZIP_BASE_DIR}/clash*.gz"
-ZIP_MIHOMO="${ZIP_BASE_DIR}/mihomo*.gz"
-ZIP_YQ="${ZIP_BASE_DIR}/yq*.tar.gz"
-ZIP_SUBCONVERTER="${ZIP_BASE_DIR}/subconverter*.tar.gz"
+ZIP_CLASH=$(echo ${ZIP_BASE_DIR}/clash*)
+ZIP_MIHOMO=$(echo ${ZIP_BASE_DIR}/mihomo*)
+ZIP_YQ=$(echo ${ZIP_BASE_DIR}/yq*)
+ZIP_SUBCONVERTER=$(echo ${ZIP_BASE_DIR}/subconverter*)
 ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
 
 CLASH_BASE_DIR='/opt/clash'
@@ -31,24 +31,26 @@ CLASH_CONFIG_RUNTIME="${CLASH_BASE_DIR}/runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_BASE_DIR}/clashupdate.log"
 
 _set_var() {
-    # 定时任务路径
-    {
-        local os_info=$(cat /etc/os-release)
-        echo "$os_info" | grep -iqsE "rhel|centos" && {
-            CLASH_CRON_TAB="/var/spool/cron/root"
-        }
-        echo "$os_info" | grep -iqsE "debian|ubuntu" && {
-            CLASH_CRON_TAB="/var/spool/cron/crontabs/root"
-        }
+    local user=$USER
+    local home=$HOME
+    [ -n "$SUDO_USER" ] && {
+        user=$SUDO_USER
+        home=$(awk -F: -v user="$SUDO_USER" '$1==user{print $6}' /etc/passwd)
     }
     # rc文件路径
-    {
-        local home=$HOME
-        [ -n "$SUDO_USER" ] && home=$(awk -F: -v user="$SUDO_USER" '$1==user{print $6}' /etc/passwd)
-
-        BASH_RC_ROOT='/root/.bashrc'
-        BASH_RC_USER="${home}/.bashrc"
+    [ -n "$BASH_VERSION" ] && {
+        _SHELL=bash
+        SHELL_RC="${home}/.bashrc"
     }
+    [ -n "$ZSH_VERSION" ] && {
+        _SHELL=zsh
+        SHELL_RC="${home}/.zshrc"
+    }
+
+    # 定时任务路径
+    local os_info=$(cat /etc/os-release)
+    echo "$os_info" | grep -iqsE "rhel|centos" && CLASH_CRON_TAB="/var/spool/cron/$user"
+    echo "$os_info" | grep -iqsE "debian|ubuntu" && CLASH_CRON_TAB="/var/spool/cron/crontabs/$user"
 }
 _set_var
 
@@ -77,18 +79,14 @@ _set_bin
 
 # shellcheck disable=SC2086
 _set_rc() {
-    [ "$BASH_RC_ROOT" = "$BASH_RC_USER" ] && unset BASH_RC_USER
-
     [ "$1" = "unset" ] && {
-        sed -i "\|$CLASH_SCRIPT_DIR|d" $BASH_RC_ROOT $BASH_RC_USER
+        sed -i "\|$CLASH_SCRIPT_DIR|d" $SHELL_RC
         return
     }
 
-    [ -n "$(tail -n 1 "$BASH_RC_ROOT")" ] && echo >>"$BASH_RC_ROOT"
-    [ -n "$(tail -n 1 "$BASH_RC_USER" >&/dev/null)" ] && echo >>"$BASH_RC_USER"
-
+    [ -n "$(tail -n 1 "$SHELL_RC")" ] && echo >>"$SHELL_RC"
     echo "source $CLASH_SCRIPT_DIR/common.sh && source $CLASH_SCRIPT_DIR/clashctl.sh" |
-        tee -a $BASH_RC_ROOT $BASH_RC_USER >&/dev/null
+        tee -a $SHELL_RC >&/dev/null
 }
 
 # 默认集成、安装mihomo内核
@@ -184,6 +182,12 @@ function _failcat() {
     _get_color_msg "$color" "$msg" >&2 && return 1
 }
 
+function _quit() {
+    local user=root
+    [ -n "$SUDO_USER" ] && user=$SUDO_USER
+    sudo -u "$user" "$_SHELL"
+}
+
 function _error_quit() {
     [ $# -gt 0 ] && {
         local color=#f92f60
@@ -192,7 +196,7 @@ function _error_quit() {
         local msg="${emoji} $1"
         _get_color_msg "$color" "$msg"
     }
-    exec $SHELL
+    _quit
 }
 
 _is_bind() {
@@ -212,18 +216,17 @@ function _is_root() {
 
 function _valid_env() {
     _is_root || _error_quit "需要 root 或 sudo 权限执行"
-    [ "$(ps -p $$ -o comm=)" != "bash" ] && _error_quit "当前终端不是 bash"
+    [ -n "$ZSH_VERSION" ] && [ -n "$BASH_VERSION" ] && _error_quit "仅支持：bash、zsh"
     [ "$(ps -p 1 -o comm=)" != "systemd" ] && _error_quit "系统不具备 systemd"
 }
 
 function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
-        local test_cmd="$BIN_KERNEL -d $(dirname "$1") -f $1 -t"
-        local fail_msg
-        fail_msg=$($test_cmd) || {
-            $test_cmd
-            echo "$fail_msg" | grep -qs "unsupport proxy type" && _error_quit "不支持的代理协议，请安装 mihomo 内核"
-        }
+        local msg is_valid
+        msg=$($BIN_KERNEL -d "$(dirname "$1")" -f "$1" -t)
+        is_valid=$?
+        echo "$msg" | grep -qs "unsupport proxy type" && _error_quit "不支持的代理协议，请安装 mihomo 内核"
+        return $is_valid
     }
 }
 
