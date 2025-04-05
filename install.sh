@@ -8,13 +8,12 @@ _valid_env
 [ -d "$CLASH_BASE_DIR" ] && _error_quit "请先执行卸载脚本,以清除安装路径：$CLASH_BASE_DIR"
 
 _get_kernel
+
+/bin/install -D <(gzip -dc "$ZIP_KERNEL") "${RESOURCES_BIN_DIR}/$BIN_KERNEL_NAME"
+tar -xf "$ZIP_SUBCONVERTER" -C "$RESOURCES_BIN_DIR"
+tar -xf "$ZIP_YQ" -C "${RESOURCES_BIN_DIR}"
 # shellcheck disable=SC2086
-{
-    /bin/install -D <(gzip -dc $ZIP_KERNEL) "${RESOURCES_BIN_DIR}/$BIN_KERNEL_NAME"
-    tar -xf $ZIP_SUBCONVERTER -C "$RESOURCES_BIN_DIR"
-    tar -xf $ZIP_YQ -C "${RESOURCES_BIN_DIR}"
-    /bin/mv -f ${RESOURCES_BIN_DIR}/yq_* ${RESOURCES_BIN_DIR}/yq
-}
+/bin/mv -f ${RESOURCES_BIN_DIR}/yq_* "${RESOURCES_BIN_DIR}/yq"
 
 _set_bin "$RESOURCES_BIN_DIR"
 _valid_config "$RESOURCES_CONFIG" || {

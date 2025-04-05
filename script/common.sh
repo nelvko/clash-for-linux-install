@@ -77,33 +77,31 @@ _set_bin() {
 }
 _set_bin
 
-# shellcheck disable=SC2086
 _set_rc() {
     [ "$1" = "unset" ] && {
-        sed -i "\|$CLASH_SCRIPT_DIR|d" $SHELL_RC
+        sed -i "\|$CLASH_SCRIPT_DIR|d" "$SHELL_RC" 2>/dev/null
         return
     }
 
-    [ -n "$(tail -n 1 "$SHELL_RC")" ] && echo >>"$SHELL_RC"
+    [ -f "$SHELL_RC" ] && [ -n "$(tail -n 1 "$SHELL_RC")" ] && echo >>"$SHELL_RC"
     echo "source $CLASH_SCRIPT_DIR/common.sh && source $CLASH_SCRIPT_DIR/clashctl.sh" |
-        tee -a $SHELL_RC >&/dev/null
+        tee -a "$SHELL_RC" >&/dev/null
 }
 
 # 默认集成、安装mihomo内核
 # 移除/删除mihomo：下载安装clash内核
-# shellcheck disable=SC2086
 function _get_kernel() {
-    [ -f $ZIP_CLASH ] && {
+    [ -f "$ZIP_CLASH" ] && {
         ZIP_KERNEL=$ZIP_CLASH
         BIN_KERNEL=$BIN_CLASH
     }
 
-    [ -f $ZIP_MIHOMO ] && {
+    [ -f "$ZIP_MIHOMO" ] && {
         ZIP_KERNEL=$ZIP_MIHOMO
         BIN_KERNEL=$BIN_MIHOMO
     }
 
-    [ ! -f $ZIP_MIHOMO ] && [ ! -f $ZIP_CLASH ] && {
+    [ ! -f "$ZIP_MIHOMO" ] && [ ! -f "$ZIP_CLASH" ] && {
         local arch=$(uname -m)
         _failcat "${ZIP_BASE_DIR}：未检测到可用的内核压缩包"
         _download_clash "$arch"
@@ -116,7 +114,7 @@ function _get_kernel() {
 }
 
 _get_random_port() {
-    local randomPort=$((RANDOM % 64512 + 1024))
+    local randomPort=$(shuf -i 1024-65535 -n 1)
     ! _is_bind "$randomPort" && { echo "$randomPort" && return; }
     _get_random_port
 }
@@ -130,26 +128,20 @@ function _get_kernel_port() {
     UI_PORT=${ext_port:-9090}
 
     # 端口占用场景
-    local port
-    for port in $MIXED_PORT $UI_PORT; do
-        _is_already_in_use "$port" "$BIN_KERNEL_NAME" && {
-            [ "$port" = "$MIXED_PORT" ] && {
-                local newPort=$(_get_random_port)
-                local msg="端口占用：${MIXED_PORT} 🎲 随机分配：$newPort"
-                sudo "$BIN_YQ" -i ".mixed-port = $newPort" $CLASH_CONFIG_RUNTIME
-                MIXED_PORT=$newPort
-                _failcat '🎯' "$msg"
-                continue
-            }
-            [ "$port" = "$UI_PORT" ] && {
-                newPort=$(_get_random_port)
-                msg="端口占用：${UI_PORT} 🎲 随机分配：$newPort"
-                sudo "$BIN_YQ" -i ".external-controller = \"0.0.0.0:$newPort\"" $CLASH_CONFIG_RUNTIME
-                UI_PORT=$newPort
-                _failcat '🎯' "$msg"
-            }
-        }
-    done
+    _is_already_in_use "$MIXED_PORT" "$BIN_KERNEL_NAME" && {
+        local newPort=$(_get_random_port)
+        local msg="端口占用：${MIXED_PORT} 🎲 随机分配：$newPort"
+        sudo "$BIN_YQ" -i ".mixed-port = $newPort" $CLASH_CONFIG_RUNTIME
+        MIXED_PORT=$newPort
+        _failcat '🎯' "$msg"
+    }
+    _is_already_in_use "$UI_PORT" "$BIN_KERNEL_NAME" && {
+        local newPort=$(_get_random_port)
+        local msg="端口占用：${UI_PORT} 🎲 随机分配：$newPort"
+        sudo "$BIN_YQ" -i ".external-controller = \"0.0.0.0:$newPort\"" $CLASH_CONFIG_RUNTIME
+        UI_PORT=$newPort
+        _failcat '🎯' "$msg"
+    }
 }
 
 function _get_color() {
