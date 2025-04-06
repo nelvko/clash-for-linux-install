@@ -1,17 +1,21 @@
 # Linux 一键安装 Clash
 
+![GitHub License](https://img.shields.io/github/license/nelvko/clash-for-linux-install)
+![GitHub top language](https://img.shields.io/github/languages/top/nelvko/clash-for-linux-install)
+![GitHub Repo stars](https://img.shields.io/github/stars/nelvko/clash-for-linux-install)
+
 ![preview](resources/preview.png)
 
 - 默认安装 `mihomo` 内核，[可选安装](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ#%E5%AE%89%E8%A3%85-clash-%E5%86%85%E6%A0%B8) `clash`。
-- 自动进行本地订阅转换。
+- 自动使用 [subconverter](https://github.com/tindy2013/subconverter) 进行本地订阅转换。
 - 多架构支持，适配主流 `Linux` 发行版：`CentOS 7.6`、`Debian 12`、`Ubuntu 24.04.1 LTS`。
 
 ## 快速开始
 
 ### 环境要求
 
-- 需要 `root` 或 `sudo` 权限。
-- 具备 `bash` 和 `systemd` 的系统环境。
+- 用户权限：`root`、`sudo`。（无权限可参考：[#91](https://github.com/nelvko/clash-for-linux-install/issues/91)）
+- `shell` 支持：`bash`、`zsh`。
 
 ### 一键安装
 
@@ -20,32 +24,38 @@
 ```bash
 git clone --branch master --depth 1 https://gh-proxy.com/https://github.com/nelvko/clash-for-linux-install.git \
   && cd clash-for-linux-install \
-  && sudo bash -c '. install.sh; exec bash'
+  && sudo bash install.sh
 ```
 
 > 如遇问题，请在查阅[常见问题](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)及 [issue](https://github.com/nelvko/clash-for-linux-install/issues?q=is%3Aissue) 未果后进行反馈。
 
 - 上述克隆命令使用了[加速前缀](https://gh-proxy.com/)，如失效请更换其他[可用链接](https://ghproxy.link/)。
-- 默认通过远程订阅获取配置进行安装，本地配置安装详见：[issue#39](https://github.com/nelvko/clash-for-linux-install/issues/39)
+- 默认通过远程订阅获取配置进行安装，本地配置安装详见：[#39](https://github.com/nelvko/clash-for-linux-install/issues/39)
 - 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
-- 验证是否连通外网：`wget www.google.com`
 
 ### 命令一览
 
 执行 `clash` 列出开箱即用的快捷命令。
 
+> 兼容多种风格
+
 ```bash
 $ clash
 Usage:
-    clash                    命令一览
-    clashon                  开启代理
-    clashoff                 关闭代理
-    clashui                  面板地址
-    clashstatus              内核状况
-    clashtun     [on|off]    Tun 模式
-    clashmixin   [-e|-r]     Mixin 配置
-    clashsecret  [secret]    Web 密钥
-    clashupdate  [auto|log]  更新订阅
+    clash     COMMAND [OPTION]
+    mihomo    COMMAND [OPTION]
+    clashctl  COMMAND [OPTION]
+    mihomoctl COMMAND [OPTION]
+
+Commands:
+    on                   开启代理
+    off                  关闭代理
+    ui                   面板地址
+    status               内核状况
+    tun      [on|off]    Tun 模式
+    mixin    [-e|-r]     Mixin 配置
+    secret   [SECRET]    Web 密钥
+    update   [auto|log]  更新订阅
 ```
 
 ### 优雅启停
@@ -128,13 +138,13 @@ $ clashtun on
 
 ```bash
 $ clashmixin
-😼 查看 mixin 配置（less）
+😼 less 查看 mixin 配置
 
 $ clashmixin -e
-😼 编辑 mixin 配置（vim）
+😼 vim 编辑 mixin 配置
 
 $ clashmixin -r
-😼 查看 运行时 配置（less）
+😼 less 查看 运行时 配置
 ```
 
 - 作用：用来存储自定义配置，防止更新订阅后覆盖丢失自定义配置内容。
@@ -143,10 +153,8 @@ $ clashmixin -r
 
 ### 卸载
 
-以下为通用命令，`root` 用户可直接使用： `. uninstall.sh`。
-
 ```bash
-sudo bash -c '. uninstall.sh; exec bash'
+sudo bash uninstall.sh
 ```
 
 ## 常见问题
