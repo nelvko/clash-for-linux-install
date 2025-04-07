@@ -16,8 +16,8 @@ tun:
     - tcp://any:53
   strict-route: true
   exclude-interface:
-    - docker0
-    - podman0 
+    # - docker0
+    # - podman0 
 
 # DNS 配置
 dns:
