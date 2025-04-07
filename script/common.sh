@@ -188,7 +188,7 @@ function _error_quit() {
         local msg="${emoji} $1"
         _get_color_msg "$color" "$msg"
     }
-    _quit
+    exit >&/dev/null
 }
 
 _is_bind() {

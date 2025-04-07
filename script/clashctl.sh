@@ -77,8 +77,14 @@ function clashui() {
 }
 
 _merge_config_restart() {
-    _valid_config "$CLASH_CONFIG_MIXIN" || _error_quit "验证失败：请检查 Mixin 配置"
-    sudo "$BIN_YQ" -n "load(\"$CLASH_CONFIG_RAW\") * load(\"$CLASH_CONFIG_MIXIN\")" | sudo tee "$CLASH_CONFIG_RUNTIME" >&/dev/null && clashrestart
+    local backup="/tmp/rt.backup"
+    sudo cat "$CLASH_CONFIG_RUNTIME" 2>/dev/null | sudo tee $backup >&/dev/null
+    sudo "$BIN_YQ" -n "load(\"$CLASH_CONFIG_RAW\") * load(\"$CLASH_CONFIG_MIXIN\")" | sudo tee "$CLASH_CONFIG_RUNTIME" >&/dev/null
+    _valid_config "$CLASH_CONFIG_RUNTIME" || {
+        sudo cat $backup | sudo tee "$CLASH_CONFIG_RUNTIME" >&/dev/null
+        _error_quit "验证失败：请检查 Mixin 配置"
+    }
+    clashrestart
 }
 
 function clashsecret() {
