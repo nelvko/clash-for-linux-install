@@ -84,7 +84,7 @@ _set_rc() {
     }
 
     [ -f "$SHELL_RC" ] && [ -n "$(tail -n 1 "$SHELL_RC")" ] && echo >>"$SHELL_RC"
-    echo "source $CLASH_SCRIPT_DIR/common.sh && source $CLASH_SCRIPT_DIR/clashctl.sh" |
+    echo "source $CLASH_SCRIPT_DIR/common.sh && source $CLASH_SCRIPT_DIR/clashctl.sh && watch_proxy" |
         tee -a "$SHELL_RC" >&/dev/null
 }
 
@@ -214,11 +214,12 @@ function _valid_env() {
 
 function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
-        local msg is_valid
-        msg=$($BIN_KERNEL -d "$(dirname "$1")" -f "$1" -t)
-        is_valid=$?
-        echo "$msg" | grep -qs "unsupport proxy type" && _error_quit "不支持的代理协议，请安装 mihomo 内核"
-        return $is_valid
+        local cmd msg
+        cmd="$BIN_KERNEL -d $(dirname "$1") -f $1 -t"
+        msg=$(eval "$cmd") || {
+            eval "$cmd"
+            echo "$msg" | grep -qs "unsupport proxy type" && _error_quit "不支持的代理协议，请安装 mihomo 内核"
+        }
     }
 }
 

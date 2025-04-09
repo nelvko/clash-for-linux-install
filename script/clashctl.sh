@@ -22,8 +22,10 @@ function clashon() {
     export NO_PROXY=$no_proxy
 }
 
-systemctl is-active "$BIN_KERNEL_NAME" >&/dev/null && [ -z "$http_proxy" ] && {
-    _is_root || _failcat '未检测到代理变量，可执行 clashon 开启代理环境' && clashon
+watch_proxy() {
+    systemctl is-active "$BIN_KERNEL_NAME" >&/dev/null && [ -z "$http_proxy" ] && {
+        _is_root || _failcat '未检测到代理变量，可执行 clashon 开启代理环境' && clashon
+    }
 }
 
 function clashoff() {
