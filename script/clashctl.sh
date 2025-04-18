@@ -46,7 +46,7 @@ clashrestart() {
     { clashoff && clashon; } >&/dev/null
 }
 
-clashstatus() {
+function clashstatus() {
     sudo systemctl status "$BIN_KERNEL_NAME" "$@"
 }
 
@@ -173,10 +173,10 @@ function clashupdate() {
     # 如果是自动更新模式，则设置定时任务
     [ "$is_auto" = true ] && {
         sudo grep -qs 'clashupdate' "$CLASH_CRON_TAB" || echo "0 0 */2 * * . $SHELL_RC;clashupdate $url" | sudo tee -a "$CLASH_CRON_TAB" >&/dev/null
-        _okcat "定时任务设置成功" && return 0
+        _okcat "已设置定时更新订阅" && return 0
     }
 
-    _okcat '👌' "备份配置：$CLASH_CONFIG_RAW_BAK"
+    _okcat '👌' "正在下载：原配置已备份..."
     sudo cat "$CLASH_CONFIG_RAW" | sudo tee "$CLASH_CONFIG_RAW_BAK" >&/dev/null
 
     _rollback() {
@@ -277,4 +277,3 @@ function clash() {
 function mihomo() {
     clashctl "$@"
 }
-

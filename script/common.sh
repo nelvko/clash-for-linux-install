@@ -67,11 +67,11 @@ _set_bin() {
     BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
     BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
 
-    [ -f "$BIN_MIHOMO" ] && {
-        BIN_KERNEL=$BIN_MIHOMO
-    }
     [ -f "$BIN_CLASH" ] && {
         BIN_KERNEL=$BIN_CLASH
+    }
+    [ -f "$BIN_MIHOMO" ] && {
+        BIN_KERNEL=$BIN_MIHOMO
     }
     BIN_KERNEL_NAME=$(basename "$BIN_KERNEL")
 }
@@ -144,7 +144,7 @@ function _get_kernel_port() {
     }
 }
 
-function _get_color() {
+_get_color() {
     local hex="${1#\#}"
     local r=$((16#${hex:0:2}))
     local g=$((16#${hex:2:2}))
@@ -263,48 +263,48 @@ _download_clash() {
         _error_quit "下载失败：请自行下载对应版本至 ${ZIP_BASE_DIR} 目录下：https://downloads.clash.wiki/ClashPremium/"
 }
 
-function _download_config() {
-    _download_raw_config() {
-        local dest=$1
-        local url=$2
-        local agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
-        sudo curl \
-            --silent \
-            --show-error \
-            --insecure \
-            --connect-timeout 4 \
-            --retry 1 \
+_download_raw_config() {
+    local dest=$1
+    local url=$2
+    local agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
+    sudo curl \
+        --silent \
+        --show-error \
+        --insecure \
+        --connect-timeout 4 \
+        --retry 1 \
+        --user-agent "$agent" \
+        --output "$dest" \
+        "$url" ||
+        sudo wget \
+            --no-verbose \
+            --no-check-certificate \
+            --timeout 3 \
+            --tries 1 \
             --user-agent "$agent" \
-            --output "$dest" \
-            "$url" ||
-            sudo wget \
-                --no-verbose \
-                --no-check-certificate \
-                --timeout 3 \
-                --tries 1 \
-                --user-agent "$agent" \
-                --output-document "$dest" \
-                "$url"
-    }
-    _download_convert_config() {
-        local dest=$1
-        local url=$2
-        _start_convert
-        local convert_url=$(
-            target='clash'
-            base_url="http://127.0.0.1:${BIN_SUBCONVERTER_PORT}/sub"
-            curl \
-                --get \
-                --silent \
-                --output /dev/null \
-                --data-urlencode "target=$target" \
-                --data-urlencode "url=$url" \
-                --write-out '%{url_effective}' \
-                "$base_url"
-        )
-        _download_raw_config "$dest" "$convert_url"
-        _stop_convert
-    }
+            --output-document "$dest" \
+            "$url"
+}
+_download_convert_config() {
+    local dest=$1
+    local url=$2
+    _start_convert
+    local convert_url=$(
+        target='clash'
+        base_url="http://127.0.0.1:${BIN_SUBCONVERTER_PORT}/sub"
+        curl \
+            --get \
+            --silent \
+            --output /dev/null \
+            --data-urlencode "target=$target" \
+            --data-urlencode "url=$url" \
+            --write-out '%{url_effective}' \
+            "$base_url"
+    )
+    _download_raw_config "$dest" "$convert_url"
+    _stop_convert
+}
+function _download_config() {
     local dest=$1
     local url=$2
     [ "${url:0:4}" = 'file' ] && return 0
