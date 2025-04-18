@@ -37,7 +37,7 @@ git clone --branch master --depth 1 https://gh-proxy.com/https://github.com/nelv
 
 执行 `clash` 列出开箱即用的快捷命令。
 
-> 兼容多种风格
+> 兼容多种命令风格
 
 ```bash
 $ clash
@@ -102,22 +102,22 @@ $ clashsecret
 - 通过浏览器打开 Web 控制台，实现可视化操作：切换节点、查看日志等。
 - 控制台密钥默认为空，若暴露到公网使用建议更新密钥。
 
-### 订阅更新
+### 更新订阅
 
 ```bash
 $ clashupdate https://example.com
-👌 备份配置：/opt/clash/config.yaml.bak
+👌 正在下载：原配置已备份...
 🍃 下载成功：内核验证配置...
 🍃 订阅更新成功
 
 $ clashupdate auto [url]
-😼 定时任务设置成功
+😼 已设置定时更新订阅
 
 $ clashupdate log
 ✅ [2025-02-23 22:45:23] 订阅更新成功：https://example.com
 ```
 
-- `clashupdate` 会记忆安装和更新成功时的订阅，后续执行无需再指定订阅 `url`。
+- `clashupdate` 会记住上次更新成功的订阅链接，后续执行无需再指定。
 - 可通过 `crontab -e` 修改定时更新频率及订阅链接。
 - 通过配置文件进行更新：[pr#24](https://github.com/nelvko/clash-for-linux-install/pull/24#issuecomment-2565054701)
 
@@ -133,6 +133,7 @@ $ clashtun on
 
 - 作用：实现本机及 `Docker` 等容器的所有流量路由到 `clash` 代理、DNS 劫持等。
 - 原理：[clash-verge-rev](https://www.clashverge.dev/guide/term.html#tun)、 [clash.wiki](https://clash.wiki/premium/tun-device.html)。
+- 注意事项：[#100](https://github.com/nelvko/clash-for-linux-install/issues/100#issuecomment-2782680205)
 
 ### `Mixin` 配置
 
@@ -147,7 +148,7 @@ $ clashmixin -r
 😼 less 查看 运行时 配置
 ```
 
-- 作用：用来存储自定义配置，防止更新订阅后覆盖丢失自定义配置内容。
+- 将自定义配置写在 `Mixin` 而不是原配置中，可避免更新订阅后丢失自定义配置。
 - 运行时配置是订阅配置和 `Mixin` 配置的并集。
 - 相同配置项优先级：`Mixin` 配置 > 订阅配置。
 
@@ -170,6 +171,16 @@ sudo bash uninstall.sh
 - [subconverter v0.9.0：本地订阅转换](https://github.com/tindy2013/subconverter)
 - [yacd v0.3.8：Web 控制台](https://github.com/haishanh/yacd)
 - [yq v4.45.1：处理 yaml](https://github.com/mikefarah/yq)
+
+## Star History
+
+<a href="https://www.star-history.com/#nelvko/clash-for-linux-install&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=nelvko/clash-for-linux-install&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=nelvko/clash-for-linux-install&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=nelvko/clash-for-linux-install&type=Date" />
+ </picture>
+</a>
 
 ## Thanks
 
