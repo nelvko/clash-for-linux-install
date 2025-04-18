@@ -172,7 +172,7 @@ function clashupdate() {
 
     # 如果是自动更新模式，则设置定时任务
     [ "$is_auto" = true ] && {
-        sudo grep -qs 'clashupdate' "$CLASH_CRON_TAB" || echo "0 0 */2 * * . $BASH_RC_ROOT;clashupdate $url" | sudo tee -a "$CLASH_CRON_TAB" >&/dev/null
+        sudo grep -qs 'clashupdate' "$CLASH_CRON_TAB" || echo "0 0 */2 * * . $SHELL_RC;clashupdate $url" | sudo tee -a "$CLASH_CRON_TAB" >&/dev/null
         _okcat "定时任务设置成功" && return 0
     }
 
