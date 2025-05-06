@@ -1,7 +1,12 @@
 # Web 控制台配置
-external-controller: '0.0.0.0:9090'
+external-controller: "0.0.0.0:9090"
 external-ui: public
-secret: 
+secret:
+
+# 代理服务器配置
+allow-lan: false # 默认关闭，若开启务必设置用户验证以防暴露公网后被滥用
+authentication: # 对应代理地址：http_proxy=http://username:password@127.0.0.1:7890
+  # - "username:password" # 用户验证
 
 # tun 配置
 tun:
@@ -17,7 +22,7 @@ tun:
   strict-route: true
   exclude-interface:
     # - docker0
-    # - podman0 
+    # - podman0
 
 # DNS 配置
 dns:
