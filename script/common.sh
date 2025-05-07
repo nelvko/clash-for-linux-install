@@ -321,7 +321,7 @@ _start_convert() {
         local newPort=$(_get_random_port)
         _failcat '🎯' "端口占用：$BIN_SUBCONVERTER_PORT 🎲 随机分配：$newPort"
         [ ! -e "$BIN_SUBCONVERTER_CONFIG" ] && {
-            sudo /bin/mv -f "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
+            sudo /bin/cp -f "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
         }
         sudo "$BIN_YQ" -i ".server.port = $newPort" "$BIN_SUBCONVERTER_CONFIG"
         BIN_SUBCONVERTER_PORT=$newPort
