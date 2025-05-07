@@ -5,8 +5,8 @@ secret:
 
 # 代理服务器配置
 allow-lan: false # 默认关闭，若开启务必设置用户验证以防暴露公网后被滥用
-authentication: # 对应代理地址：http_proxy=http://username:password@127.0.0.1:7890
-  # - "username:password" # 用户验证
+authentication: 
+  # - "username:password" # 用户验证（clashon默认填充验证信息）
 
 # tun 配置
 tun:

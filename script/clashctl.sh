@@ -6,8 +6,11 @@ function clashon() {
     sudo systemctl start "$BIN_KERNEL_NAME" && _okcat '已开启代理环境' ||
         _failcat '启动失败: 执行 "clashstatus" 查看日志' || return 1
 
-    local http_proxy_addr="http://127.0.0.1:${MIXED_PORT}"
-    local socks_proxy_addr="socks5://127.0.0.1:${MIXED_PORT}"
+    local auth=$(sudo "$BIN_YQ" '.authentication[0] // ""' "$CLASH_CONFIG_RUNTIME")
+    [ -n "$auth" ] && auth=$auth@
+
+    local http_proxy_addr="http://${auth}127.0.0.1:${MIXED_PORT}"
+    local socks_proxy_addr="socks5h://${auth}127.0.0.1:${MIXED_PORT}"
     local no_proxy_addr="localhost,127.0.0.1,::1"
 
     export http_proxy=$http_proxy_addr
