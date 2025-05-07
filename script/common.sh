@@ -119,15 +119,10 @@ _get_random_port() {
     _get_random_port
 }
 
-function _get_kernel_port() {
+function _get_proxy_port() {
     local mixed_port=$(sudo "$BIN_YQ" '.mixed-port // ""' $CLASH_CONFIG_RUNTIME)
-    local ext_addr=$(sudo "$BIN_YQ" '.external-controller // ""' $CLASH_CONFIG_RUNTIME)
-    local ext_port=${ext_addr##*:}
-
     MIXED_PORT=${mixed_port:-7890}
-    UI_PORT=${ext_port:-9090}
 
-    # 端口占用场景
     _is_already_in_use "$MIXED_PORT" "$BIN_KERNEL_NAME" && {
         local newPort=$(_get_random_port)
         local msg="端口占用：${MIXED_PORT} 🎲 随机分配：$newPort"
@@ -135,6 +130,13 @@ function _get_kernel_port() {
         MIXED_PORT=$newPort
         _failcat '🎯' "$msg"
     }
+}
+
+function _get_ui_port() {
+    local ext_addr=$(sudo "$BIN_YQ" '.external-controller // ""' $CLASH_CONFIG_RUNTIME)
+    local ext_port=${ext_addr##*:}
+    UI_PORT=${ext_port:-9090}
+
     _is_already_in_use "$UI_PORT" "$BIN_KERNEL_NAME" && {
         local newPort=$(_get_random_port)
         local msg="端口占用：${UI_PORT} 🎲 随机分配：$newPort"

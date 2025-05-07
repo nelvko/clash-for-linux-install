@@ -2,7 +2,7 @@
 # shellcheck disable=SC2155
 
 function clashon() {
-    _get_kernel_port
+    _get_proxy_port
     sudo systemctl start "$BIN_KERNEL_NAME" && _okcat '已开启代理环境' ||
         _failcat '启动失败: 执行 "clashstatus" 查看日志' || return 1
 
@@ -56,7 +56,7 @@ function clashstatus() {
 function clashui() {
     # 防止tun模式强制走代理获取不到真实公网ip
     clashoff >&/dev/null
-    _get_kernel_port
+    _get_ui_port
     # 公网ip
     # ifconfig.me
     local query_url='api64.ipify.org'
