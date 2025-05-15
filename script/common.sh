@@ -14,11 +14,13 @@ RESOURCES_BIN_DIR="${RESOURCES_BASE_DIR}/bin"
 RESOURCES_CONFIG="${RESOURCES_BASE_DIR}/config.yaml"
 RESOURCES_CONFIG_MIXIN="${RESOURCES_BASE_DIR}/mixin.yaml"
 
+OS_ARCH=$(uname -m)
+
 ZIP_BASE_DIR="${RESOURCES_BASE_DIR}/zip"
 ZIP_CLASH=$(echo ${ZIP_BASE_DIR}/clash*)
-ZIP_MIHOMO=$(echo ${ZIP_BASE_DIR}/mihomo*)
-ZIP_YQ=$(echo ${ZIP_BASE_DIR}/yq*)
-ZIP_SUBCONVERTER=$(echo ${ZIP_BASE_DIR}/subconverter*)
+ZIP_MIHOMO=$(echo ${ZIP_BASE_DIR}/mihomo-linux-${OS_ARCH}-v1.19.8.gz)
+ZIP_YQ=$(echo ${ZIP_BASE_DIR}/yq_linux_${OS_ARCH}.tar.gz)
+ZIP_SUBCONVERTER=$(echo ${ZIP_BASE_DIR}/subconverter_${OS_ARCH}.tar.gz)
 ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
 
 CLASH_BASE_DIR='/opt/clash'
