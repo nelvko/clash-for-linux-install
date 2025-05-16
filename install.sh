@@ -34,21 +34,8 @@ tar -xf "$ZIP_UI" -C "$CLASH_BASE_DIR"
 _set_rc
 _set_bin
 _merge_config_restart
-cat <<EOF >"/etc/systemd/system/${BIN_KERNEL_NAME}.service"
-[Unit]
-Description=$BIN_KERNEL_NAME Daemon, A[nother] Clash Kernel.
 
-[Service]
-Type=simple
-Restart=always
-ExecStart=${BIN_KERNEL} -d ${CLASH_BASE_DIR} -f ${CLASH_CONFIG_RUNTIME}
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable "$BIN_KERNEL_NAME" >&/dev/null || _failcat '💥' "设置自启失败" && _okcat '🚀' "已设置开机自启"
+. script/preflight.sh
 
 clashui
 _okcat '🎉' 'enjoy 🎉'

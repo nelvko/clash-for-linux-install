@@ -1,0 +1,10 @@
+[Unit]
+Description=placeholder_kernel Daemon, A[nother] Clash Kernel.
+
+[Service]
+Type=simple
+Restart=always
+ExecStart=placeholder_cmd
+
+[Install]
+WantedBy=multi-user.target

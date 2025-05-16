@@ -1,0 +1,13 @@
+services:
+  mihomo:
+    image: metacubex/mihomo 
+    container_name: mihomo
+    restart: always
+    volumes:
+      - /opt/clash/runtime.yaml:/root/.config/mihomo/config.yaml
+      # - ./ui:/ui:ro # 仪表盘 Volume 映射
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    network_mode: "host"

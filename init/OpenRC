@@ -1,0 +1,40 @@
+#!/sbin/openrc-run
+# shellcheck disable=SC2034
+
+# 服务元数据
+name="Clash Proxy Service"
+description="Control the Clash proxy daemon"
+
+command="/usr/local/bin/clash"
+command_args="-d /etc/clash -f /etc/clash/config.yaml"
+pidfile="/var/run/clash.pid"
+
+command_background=true
+
+# 依赖关系
+depend() {
+    after network localmount
+    need net
+}
+
+
+# 自定义启动前检查
+checkconfig() {
+    if [ ! -f "/etc/clash/config.yaml" ]; then
+        eerror "Clash config file /etc/clash/config.yaml not found!"
+        return 1
+    fi
+}
+
+# 启动操作
+start_pre() {
+    checkconfig || return $?
+}
+
+# 停止操作（可选自定义）
+#stop_post() {
+#    rm -f "${pidfile}"
+#}
+
+# 日志管理（可选）
+#logger="logger -t clash"
