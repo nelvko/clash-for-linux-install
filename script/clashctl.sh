@@ -175,7 +175,7 @@ function clashupdate() {
 
     # 如果是自动更新模式，则设置定时任务
     [ "$is_auto" = true ] && {
-        sudo grep -qs 'clashupdate' "$CLASH_CRON_TAB" || echo "0 0 */2 * * $_SHELL -i -c '. $SHELL_RC;clashupdate $url'" | sudo tee -a "$CLASH_CRON_TAB" >&/dev/null
+        sudo grep -qs 'clashupdate' "$CLASH_CRON_TAB" || echo "0 0 */2 * * $EXEC_SHELL -i -c 'clashupdate $url'" | sudo tee -a "$CLASH_CRON_TAB" >&/dev/null
         _okcat "已设置定时更新订阅" && return 0
     }
 
@@ -248,21 +248,12 @@ function clashctl() {
     *)
         cat <<EOF
 
-Usage:
-    clash      COMMAND  [OPTION]
-    mihomo     COMMAND  [OPTION]
-    clashctl   COMMAND  [OPTION]
-    mihomoctl  COMMAND  [OPTION】
+  $BIN_KERNEL_NAME
 
-Commands:
-    on                   开启代理
-    off                  关闭代理
-    ui                   面板地址
-    status               内核状况
-    tun      [on|off]    Tun 模式
-    mixin    [-e|-r]     Mixin 配置
-    secret   [SECRET]    Web 密钥
-    update   [auto|log]  更新订阅
+  $KERNEL_DESC
+  更多信息：https://github.com/nelvko/clash-for-linux-install.
+
+
 
 EOF
         ;;
@@ -280,3 +271,19 @@ function clash() {
 function mihomo() {
     clashctl "$@"
 }
+#   - 开启代理环境
+#     clashon
+#   - 关闭代理环境
+#     clashoff
+#   - 打印 Web 控制台信息
+#     clashui
+#   - 查看代理内核状况
+#     clashstatus
+#   - 开启/关闭 Tun 模式
+#     clashtun on|off
+#   - 编辑 Mixin 配置
+#     clashmixin [-e|-r]
+#   - set Web 密钥
+#     clashsecret [SECRET]
+#   - 更新订阅
+#     clashupdate [auto|log] [URL]

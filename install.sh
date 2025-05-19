@@ -34,10 +34,10 @@ tar -xf "$ZIP_UI" -C "$CLASH_BASE_DIR"
 _set_rc
 _set_bin
 _merge_config_restart
-
-. script/preflight.sh
+. script/preflight.sh >&/dev/null
+setup_init
 
 clashui
 _okcat '🎉' 'enjoy 🎉'
-clash
+# clash
 _quit
