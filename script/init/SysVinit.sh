@@ -1,5 +1,4 @@
 ### BEGIN INIT INFO
-
 # Provides: placeholder_kernel_name
 # Required-Start: $network $local_fs $remote_fs
 # Required-Stop: $network $local_fs $remote_fs
@@ -9,34 +8,38 @@
 # Description: placeholder_kernel_desc
 ### END INIT INFO
 
-start() {
-  placeholder_cmd_full >>placeholder_log_file 2>&1 &
-  echo $! >placeholder_pid_file
-}
-
-stop() {
-  kill -9 "$(cat placeholder_pid_file)" && rm -f placeholder_pid_file
-}
-
-status() {
-  less placeholder_log_file
-}
-
 case "$1" in
 start)
-  start
+  is_active >&/dev/null && return 0
+  placeholder_cmd_full >placeholder_log_file 2>&1 &
+  echo $! >placeholder_pid_file
   ;;
 stop)
-  stop
+  pid=$(cat placeholder_pid_file 2>/dev/null)
+  [ -n "$pid" ] && kill -9 "$pid"
+  rm -f placeholder_pid_file
   ;;
 status)
-  status
+  echo -n "$(date +"%Y-%m-%d %H:%M:%S") " >>placeholder_log_file
+  is_active >>placeholder_log_file
+  less placeholder_log_file
   ;;
 restart | reload)
-  stop
+  $0 stop
   sleep 0.3
-  start
+  $0 start
   ;;
+is-active)
+  pid=$(cat placeholder_pid_file 2>/dev/null)
+  [ -n "$pid" ] && {
+    echo "😼 placeholder_kernel_name is running with PID: $pid"
+    return 0
+  }
+  echo "😾 placeholder_kernel_name is not running."
+  return 1
+  ;;
+enable) ;;
+disable) ;;
 *)
   echo "Usage: $0 {start|stop|restart}"
   ;;

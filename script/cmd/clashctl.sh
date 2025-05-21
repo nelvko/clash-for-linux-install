@@ -1,4 +1,5 @@
-# shellcheck disable=SC2148
+#!/usr/bin/env bash
+
 # shellcheck disable=SC2155
 
 function clashon() {
@@ -18,8 +19,8 @@ function clashon() {
     export HTTP_PROXY=$http_proxy
     export HTTPS_PROXY=$http_proxy
 
-    export all_proxy=$socks_proxy_addr
-    export ALL_PROXY=$all_proxy
+    # export all_proxy=$socks_proxy_addr
+    # export ALL_PROXY=$all_proxy
 
     export no_proxy=$no_proxy_addr
     export NO_PROXY=$no_proxy
@@ -46,7 +47,7 @@ function clashoff() {
 }
 
 clashrestart() {
-    { clashoff && clashon; } >&/dev/null
+    placeholder_restart >&/dev/null
 }
 
 function clashstatus() {
@@ -128,7 +129,7 @@ _tunon() {
     sudo "$BIN_YQ" -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
     _merge_config_restart
     sleep 0.5s
-    sudo journalctl -u "$BIN_KERNEL_NAME" --since "1 min ago" | grep -E -m1 'unsupported kernel version|Start TUN listening error' && {
+    sudo journalctl -u "$KERNEL_NAME" --since "1 min ago" | grep -E -m1 'unsupported kernel version|Start TUN listening error' && {
         _tunoff >&/dev/null
         _error_quit '不支持的内核版本'
     }
@@ -248,12 +249,33 @@ function clashctl() {
     *)
         cat <<EOF
 
-  $BIN_KERNEL_NAME
-
+  $KERNEL_NAME
   $KERNEL_DESC
   更多信息：https://github.com/nelvko/clash-for-linux-install.
 
+  - 开启代理环境
+    clashon
 
+  - 关闭代理环境
+    clashoff
+
+  - 打印 Web 控制台信息
+    clashui
+
+  - 查看代理内核状况
+    clashstatus
+
+  - 开启/关闭 Tun 模式
+    clashtun [on|off]
+
+  - 编辑 Mixin 配置
+    clashmixin [-e|-r]
+
+  - 查看/设置 Web 密钥
+    clashsecret [SECRET]
+
+  - 更新订阅,设置
+    clashupdate [auto|log] [URL]
 
 EOF
         ;;
@@ -271,19 +293,3 @@ function clash() {
 function mihomo() {
     clashctl "$@"
 }
-#   - 开启代理环境
-#     clashon
-#   - 关闭代理环境
-#     clashoff
-#   - 打印 Web 控制台信息
-#     clashui
-#   - 查看代理内核状况
-#     clashstatus
-#   - 开启/关闭 Tun 模式
-#     clashtun on|off
-#   - 编辑 Mixin 配置
-#     clashmixin [-e|-r]
-#   - set Web 密钥
-#     clashsecret [SECRET]
-#   - 更新订阅
-#     clashupdate [auto|log] [URL]

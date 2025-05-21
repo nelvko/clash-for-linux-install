@@ -4,7 +4,6 @@
 # 服务元数据
 name="placeholder_kernel_name"
 description="placeholder_kernel_desc"
-
 command="placeholder_cmd_path"
 command_args="placeholder_cmd_args"
 pidfile="placeholder_pid_file"

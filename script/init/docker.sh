@@ -4,7 +4,7 @@
 
 start='docker start $CONTAINER_ID_KERNEL'
 is_active='docker inspect -f {{.State.Running}} $CONTAINER_ID_KERNEL'
-stop="docker stop $BIN_KERNEL_NAME"
+stop="docker stop $KERNEL_NAME"
 status='docker stats $CONTAINER_ID_KERNEL'
 CONTAINER_ID_SUBCONVERTER=$(docker run -d --restart=always -p "${BIN_SUBCONVERTER_PORT}":25500 tindy2013/subconverter:latest)
 yq() {

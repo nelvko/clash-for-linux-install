@@ -1,4 +1,5 @@
-# shellcheck disable=SC2148
+#!/usr/bin/env bash
+
 # shellcheck disable=SC2034
 # shellcheck disable=SC2155
 
@@ -10,10 +11,11 @@
 URL_GH_PROXY='https://gh-proxy.com/'
 URL_CLASH_UI="http://board.zash.run.place"
 
-SCRIPT_BASE_DIR='./script'
+SCRIPT_BASE_DIR='script'
+SCRIPT_CMD_DIR="${SCRIPT_BASE_DIR}/cmd"
 SCRIPT_INIT_DIR="${SCRIPT_BASE_DIR}/init"
 
-RESOURCES_BASE_DIR='./resources'
+RESOURCES_BASE_DIR='resources'
 RESOURCES_BIN_DIR="${RESOURCES_BASE_DIR}/bin"
 RESOURCES_CONFIG="${RESOURCES_BASE_DIR}/config.yaml"
 RESOURCES_CONFIG_MIXIN="${RESOURCES_BASE_DIR}/mixin.yaml"
@@ -26,13 +28,14 @@ ZIP_SUBCONVERTER=$(echo ${ZIP_BASE_DIR}/subconverter*)
 ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
 
 CLASH_BASE_DIR='/opt/clash'
-CLASH_SCRIPT_DIR="${CLASH_BASE_DIR}/$(basename $SCRIPT_BASE_DIR)"
-CLASH_CONFIG_URL="${CLASH_BASE_DIR}/url"
-CLASH_CONFIG_RAW="${CLASH_BASE_DIR}/$(basename $RESOURCES_CONFIG)"
+CLASH_RESOURCES_DIR="${CLASH_BASE_DIR}/$RESOURCES_BASE_DIR"
+CLASH_CMD_DIR="${CLASH_BASE_DIR}/$SCRIPT_CMD_DIR"
+CLASH_CONFIG_URL="${CLASH_RESOURCES_DIR}/url"
+CLASH_CONFIG_RAW="${CLASH_BASE_DIR}/$RESOURCES_CONFIG"
 CLASH_CONFIG_RAW_BAK="${CLASH_CONFIG_RAW}.bak"
-CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/$(basename $RESOURCES_CONFIG_MIXIN)"
-CLASH_CONFIG_RUNTIME="${CLASH_BASE_DIR}/runtime.yaml"
-CLASH_UPDATE_LOG="${CLASH_BASE_DIR}/clashupdate.log"
+CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/$RESOURCES_CONFIG_MIXIN"
+CLASH_CONFIG_RUNTIME="${CLASH_RESOURCES_DIR}/runtime.yaml"
+CLASH_UPDATE_LOG="${CLASH_RESOURCES_DIR}/clashupdate.log"
 
 _set_var() {
     local user=$USER
@@ -72,7 +75,7 @@ _set_var
 
 # shellcheck disable=SC2120
 _set_bin() {
-    local bin_base_dir="${CLASH_BASE_DIR}/bin"
+    local bin_base_dir="${CLASH_BASE_DIR}/$RESOURCES_BIN_DIR"
     [ -n "$1" ] && bin_base_dir=$1
     BIN_CLASH="${bin_base_dir}/clash"
     BIN_MIHOMO="${bin_base_dir}/mihomo"
@@ -89,43 +92,19 @@ _set_bin() {
     [ -f "$BIN_MIHOMO" ] && {
         BIN_KERNEL=$BIN_MIHOMO
     }
-    BIN_KERNEL_NAME=$(basename "$BIN_KERNEL")
+    KERNEL_NAME=$(basename "$BIN_KERNEL")
 }
 _set_bin
 
 _set_rc() {
     [ "$1" = "unset" ] && {
-        sed -i "\|$CLASH_SCRIPT_DIR|d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
+        # sed -i "\|$CLASH_CMD_DIR|d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
+        sed -i "\|clashctl|d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
         return
     }
 
-    echo "source $CLASH_SCRIPT_DIR/common.sh && source $CLASH_SCRIPT_DIR/clashctl.sh && watch_proxy" |
+    echo "source $CLASH_CMD_DIR/common.sh && source $CLASH_CMD_DIR/clashctl.sh && watch_proxy" |
         tee -a "$SHELL_RC_BASH" "$SHELL_RC_ZSH" >&/dev/null
-}
-
-# 默认集成、安装mihomo内核
-# 移除/删除mihomo：下载安装clash内核
-function _get_kernel() {
-    [ -f "$ZIP_CLASH" ] && {
-        ZIP_KERNEL=$ZIP_CLASH
-        BIN_KERNEL=$BIN_CLASH
-    }
-
-    [ -f "$ZIP_MIHOMO" ] && {
-        ZIP_KERNEL=$ZIP_MIHOMO
-        BIN_KERNEL=$BIN_MIHOMO
-    }
-
-    [ ! -f "$ZIP_MIHOMO" ] && [ ! -f "$ZIP_CLASH" ] && {
-        local arch=$(uname -m)
-        _failcat "${ZIP_BASE_DIR}：未检测到可用的内核压缩包"
-        _download_clash "$arch"
-        ZIP_KERNEL=$ZIP_CLASH
-        BIN_KERNEL=$BIN_CLASH
-    }
-
-    BIN_KERNEL_NAME=$(basename "$BIN_KERNEL")
-    _okcat "安装内核：$BIN_KERNEL_NAME"
 }
 
 _get_random_port() {
@@ -138,7 +117,7 @@ function _get_proxy_port() {
     local mixed_port=$(sudo "$BIN_YQ" '.mixed-port // ""' $CLASH_CONFIG_RUNTIME)
     MIXED_PORT=${mixed_port:-7890}
 
-    _is_already_in_use "$MIXED_PORT" "$BIN_KERNEL_NAME" && {
+    _is_already_in_use "$MIXED_PORT" "$KERNEL_NAME" && {
         local newPort=$(_get_random_port)
         local msg="端口占用：${MIXED_PORT} 🎲 随机分配：$newPort"
         sudo "$BIN_YQ" -i ".mixed-port = $newPort" $CLASH_CONFIG_RUNTIME
@@ -152,7 +131,7 @@ function _get_ui_port() {
     local ext_port=${ext_addr##*:}
     UI_PORT=${ext_port:-9090}
 
-    _is_already_in_use "$UI_PORT" "$BIN_KERNEL_NAME" && {
+    _is_already_in_use "$UI_PORT" "$KERNEL_NAME" && {
         local newPort=$(_get_random_port)
         local msg="端口占用：${UI_PORT} 🎲 随机分配：$newPort"
         sudo "$BIN_YQ" -i ".external-controller = \"0.0.0.0:$newPort\"" $CLASH_CONFIG_RUNTIME
@@ -194,7 +173,7 @@ function _failcat() {
 function _quit() {
     local user=root
     [ -n "$SUDO_USER" ] && user=$SUDO_USER
-    sudo -u "$user" "$EXEC_SHELL"
+    sudo -u "$user" $EXEC_SHELL -i
 }
 
 function _error_quit() {
@@ -223,12 +202,6 @@ function _is_root() {
     [ "$(whoami)" = "root" ]
 }
 
-function _valid_env() {
-    _is_root || _error_quit "需要 root 或 sudo 权限执行"
-    [ -n "$ZSH_VERSION" ] && [ -n "$BASH_VERSION" ] && _error_quit "仅支持：bash、zsh"
-    [ "$(ps -p 1 -o comm=)" != "systemd" ] && _error_quit "系统不具备 systemd"
-}
-
 function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
         local cmd msg
@@ -240,50 +213,10 @@ function _valid_config() {
     }
 }
 
-_download_clash() {
-    local arch=$1
-    local url sha256sum
-    case "$arch" in
-    x86_64)
-        url=https://downloads.clash.wiki/ClashPremium/clash-linux-amd64-2023.08.17.gz
-        sha256sum='92380f053f083e3794c1681583be013a57b160292d1d9e1056e7fa1c2d948747'
-        ;;
-    *86*)
-        url=https://downloads.clash.wiki/ClashPremium/clash-linux-386-2023.08.17.gz
-        sha256sum='254125efa731ade3c1bf7cfd83ae09a824e1361592ccd7c0cccd2a266dcb92b5'
-        ;;
-    armv*)
-        url=https://downloads.clash.wiki/ClashPremium/clash-linux-armv5-2023.08.17.gz
-        sha256sum='622f5e774847782b6d54066f0716114a088f143f9bdd37edf3394ae8253062e8'
-        ;;
-    aarch64)
-        url=https://downloads.clash.wiki/ClashPremium/clash-linux-arm64-2023.08.17.gz
-        sha256sum='c45b39bb241e270ae5f4498e2af75cecc0f03c9db3c0db5e55c8c4919f01afdd'
-        ;;
-    *)
-        _error_quit "未知的架构版本：$arch，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录下：https://downloads.clash.wiki/ClashPremium/"
-        ;;
-    esac
-
-    _okcat '⏳' "正在下载：clash：${arch} 架构..."
-    local clash_zip="${ZIP_BASE_DIR}/$(basename $url)"
-    curl \
-        --progress-bar \
-        --show-error \
-        --fail \
-        --insecure \
-        --connect-timeout 15 \
-        --retry 1 \
-        --output "$clash_zip" \
-        "$url"
-    echo $sha256sum "$clash_zip" | sha256sum -c ||
-        _error_quit "下载失败：请自行下载对应版本至 ${ZIP_BASE_DIR} 目录下：https://downloads.clash.wiki/ClashPremium/"
-}
-
 _download_raw_config() {
     local dest=$1
     local url=$2
-    local agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
+    local agent='clash-verge/v2.0.4'
     sudo curl \
         --silent \
         --show-error \

@@ -1,14 +1,16 @@
-# shellcheck disable=SC2148
+#!/usr/bin/env bash
+
 # shellcheck disable=SC1091
-. script/common.sh >&/dev/null
-. script/clashctl.sh >&/dev/null
-. script/preflight.sh
+. script/cmd/common.sh >&/dev/null
+. script/cmd/clashctl.sh >&/dev/null
+. script/preflight.sh >&/dev/null
 
 _valid_env
 
 clashoff >&/dev/null
 
-unset_int
+_get_init
+_set_init unset >&/dev/null
 
 rm -rf "$CLASH_BASE_DIR"
 sed -i '/clashupdate/d' "$CLASH_CRON_TAB" >&/dev/null
