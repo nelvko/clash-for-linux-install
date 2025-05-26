@@ -8,6 +8,7 @@ URL_GH_PROXY='https://gh-proxy.com/'
 URL_CLASH_UI="http://board.zash.run.place"
 
 SCRIPT_BASE_DIR='./script'
+SCRIPT_FISH="${SCRIPT_BASE_DIR}/clashctl.fish"
 
 RESOURCES_BASE_DIR='./resources'
 RESOURCES_BIN_DIR="${RESOURCES_BASE_DIR}/bin"
@@ -37,14 +38,26 @@ _set_var() {
         user=$SUDO_USER
         home=$(awk -F: -v user="$SUDO_USER" '$1==user{print $6}' /etc/passwd)
     }
-    # rc文件路径
+
     [ -n "$BASH_VERSION" ] && {
         _SHELL=bash
-        SHELL_RC="${home}/.bashrc"
     }
     [ -n "$ZSH_VERSION" ] && {
         _SHELL=zsh
-        SHELL_RC="${home}/.zshrc"
+    }
+    [ -n "$fish_version" ] && {
+        _SHELL=fish
+    }
+
+    # rc文件路径
+    command -v bash >&/dev/null && {
+        SHELL_RC_BASH="${home}/.bashrc"
+    }
+    command -v zsh >&/dev/null && {
+        SHELL_RC_ZSH="${home}/.zshrc"
+    }
+    command -v fish >&/dev/null && {
+        SHELL_RC_FISH="${home}/.config/fish/conf.d/clashctl.fish"
     }
 
     # 定时任务路径
@@ -79,13 +92,14 @@ _set_bin
 
 _set_rc() {
     [ "$1" = "unset" ] && {
-        sed -i "\|$CLASH_SCRIPT_DIR|d" "$SHELL_RC" 2>/dev/null
+        sed -i "\|$CLASH_SCRIPT_DIR|d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
+        rm -f "$SHELL_RC_FISH" 2>/dev/null
         return
     }
 
-    [ -f "$SHELL_RC" ] && [ -n "$(tail -n 1 "$SHELL_RC")" ] && echo >>"$SHELL_RC"
     echo "source $CLASH_SCRIPT_DIR/common.sh && source $CLASH_SCRIPT_DIR/clashctl.sh && watch_proxy" |
-        tee -a "$SHELL_RC" >&/dev/null
+        tee -a "$SHELL_RC_BASH" "$SHELL_RC_ZSH" >&/dev/null
+    [ -e "$(dirname "$SHELL_RC_FISH")" ] && /bin/install $SCRIPT_FISH "$SHELL_RC_FISH"
 }
 
 # 默认集成、安装mihomo内核
@@ -179,7 +193,7 @@ function _failcat() {
 function _quit() {
     local user=root
     [ -n "$SUDO_USER" ] && user=$SUDO_USER
-    sudo -u "$user" "$_SHELL"
+    exec sudo -u "$user" -- "$_SHELL" -i
 }
 
 function _error_quit() {
@@ -190,7 +204,7 @@ function _error_quit() {
         local msg="${emoji} $1"
         _get_color_msg "$color" "$msg"
     }
-    exec $_SHELL
+    exec $_SHELL -i
 }
 
 _is_bind() {
@@ -332,7 +346,7 @@ _start_convert() {
     # 子shell运行，屏蔽kill时的输出
     (sudo "$BIN_SUBCONVERTER" 2>&1 | sudo tee "$BIN_SUBCONVERTER_LOG" >/dev/null &)
     while ! _is_bind "$BIN_SUBCONVERTER_PORT" >&/dev/null; do
-        sleep 0.05s
+        sleep 1s
         local now=$(date +%s)
         [ $((now - start)) -gt 1 ] && _error_quit "订阅转换服务未启动，请检查日志：$BIN_SUBCONVERTER_LOG"
     done
