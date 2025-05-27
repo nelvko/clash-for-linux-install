@@ -99,7 +99,7 @@ _set_rc() {
 
     echo "source $CLASH_SCRIPT_DIR/common.sh && source $CLASH_SCRIPT_DIR/clashctl.sh && watch_proxy" |
         tee -a "$SHELL_RC_BASH" "$SHELL_RC_ZSH" >&/dev/null
-    [ -e "$(dirname "$SHELL_RC_FISH")" ] && /bin/install $SCRIPT_FISH "$SHELL_RC_FISH"
+    [ -n "$SHELL_RC_FISH" ] && /bin/install $SCRIPT_FISH "$SHELL_RC_FISH"
 }
 
 # 默认集成、安装mihomo内核
