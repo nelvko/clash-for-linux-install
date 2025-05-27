@@ -61,7 +61,7 @@ _set_var() {
     }
 
     # 定时任务路径
-    local os_info=$(cat /etc/os-release)
+    local os_info=$(cat /etc/os-release 2>/dev/null || lsb_release -a)
     case "${os_info}" in
     rhel | centos)
         CLASH_CRON_TAB="/var/spool/cron/$user"

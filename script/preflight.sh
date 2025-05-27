@@ -105,11 +105,11 @@ _set_init() {
     local cmd_arg="-d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME}"
     local cmd_full="${BIN_KERNEL} -d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME}"
 
-    local file_pid="/var/run/${KERNEL_NAME}.pid"
-    local file_log="/var/log/${KERNEL_NAME}.log"
+    local file_pid="${CLASH_RESOURCES_DIR}/pid"
+    local file_log="${CLASH_RESOURCES_DIR}/log"
     local KERNEL_DESC="$KERNEL_NAME Daemon, A[nother] Clash Kernel."
 
-    /bin/install -m +x "$service_src" "$service_target"
+    /usr/bin/install -m +x "$service_src" "$service_target"
     $service_install
     $service_enable && _okcat 已设置开机自启
     sed -i \

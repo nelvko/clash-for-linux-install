@@ -13,7 +13,7 @@ _get_init
 
 _okcat "安装内核：$KERNEL_NAME"
 
-/bin/install -D <(gzip -dc "$ZIP_KERNEL") "${RESOURCES_BIN_DIR}/$KERNEL_NAME"
+/usr/bin/install -D <(gzip -dc "$ZIP_KERNEL") "${RESOURCES_BIN_DIR}/$KERNEL_NAME"
 tar -xf "$ZIP_SUBCONVERTER" -C "$RESOURCES_BIN_DIR"
 tar -xf "$ZIP_YQ" -C "${RESOURCES_BIN_DIR}"
 # shellcheck disable=SC2086
