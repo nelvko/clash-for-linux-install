@@ -12,8 +12,9 @@ URL_GH_PROXY='https://gh-proxy.com/'
 URL_CLASH_UI="http://board.zash.run.place"
 
 SCRIPT_BASE_DIR='script'
-SCRIPT_CMD_DIR="${SCRIPT_BASE_DIR}/cmd"
 SCRIPT_INIT_DIR="${SCRIPT_BASE_DIR}/init"
+SCRIPT_CMD_DIR="${SCRIPT_BASE_DIR}/cmd"
+SCRIPT_FISH="${SCRIPT_CMD_DIR}/clashctl.fish"
 
 RESOURCES_BASE_DIR='resources'
 RESOURCES_BIN_DIR="${RESOURCES_BASE_DIR}/bin"
@@ -51,16 +52,20 @@ _set_var() {
     [ -n "$ZSH_VERSION" ] && {
         EXEC_SHELL=zsh
     }
+    [ -n "$fish_version" ] && {
+        EXEC_SHELL=fish
+    }
 
-    # rc文件路径
     command -v bash >&/dev/null && {
         SHELL_RC_BASH="${home}/.bashrc"
     }
     command -v zsh >&/dev/null && {
         SHELL_RC_ZSH="${home}/.zshrc"
     }
+    command -v fish >&/dev/null && {
+        SHELL_RC_FISH="${home}/.config/fish/conf.d/clashctl.fish"
+    }
 
-    # 定时任务路径
     local os_info=$(cat /etc/os-release 2>/dev/null || lsb_release -a)
     case "${os_info}" in
     rhel | centos)
@@ -98,13 +103,14 @@ _set_bin
 
 _set_rc() {
     [ "$1" = "unset" ] && {
-        # sed -i "\|$CLASH_CMD_DIR|d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
-        sed -i "\|clashctl|d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
+        sed -i "\|$CLASH_CMD_DIR|d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
+        rm -f "$SHELL_RC_FISH" 2>/dev/null
         return
     }
 
     echo "source $CLASH_CMD_DIR/common.sh && source $CLASH_CMD_DIR/clashctl.sh && watch_proxy" |
         tee -a "$SHELL_RC_BASH" "$SHELL_RC_ZSH" >&/dev/null
+    [ -e "$(dirname "$SHELL_RC_FISH")" ] && /usr/bin/install $SCRIPT_FISH "$SHELL_RC_FISH"
 }
 
 _get_random_port() {
@@ -173,7 +179,7 @@ function _failcat() {
 function _quit() {
     local user=root
     [ -n "$SUDO_USER" ] && user=$SUDO_USER
-    sudo -u "$user" $EXEC_SHELL -i
+    exec sudo -u "$user" -- "$EXEC_SHELL" -i
 }
 
 function _error_quit() {
@@ -184,7 +190,7 @@ function _error_quit() {
         local msg="${emoji} $1"
         _get_color_msg "$color" "$msg"
     }
-    exec $EXEC_SHELL
+    exec $EXEC_SHELL -i
 }
 
 _is_bind() {
@@ -280,7 +286,7 @@ _start_convert() {
     # 子shell运行，屏蔽kill时的输出
     (sudo "$BIN_SUBCONVERTER" 2>&1 | sudo tee "$BIN_SUBCONVERTER_LOG" >/dev/null &)
     while ! _is_bind "$BIN_SUBCONVERTER_PORT" >&/dev/null; do
-        sleep 0.05s
+        sleep 1s
         local now=$(date +%s)
         [ $((now - start)) -gt 1 ] && _error_quit "订阅转换服务未启动，请检查日志：$BIN_SUBCONVERTER_LOG"
     done

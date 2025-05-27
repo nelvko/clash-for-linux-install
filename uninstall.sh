@@ -13,6 +13,7 @@ _get_init
 _set_init unset >&/dev/null
 
 rm -rf "$CLASH_BASE_DIR"
+rm -rf "$RESOURCES_BIN_DIR"
 sed -i '/clashupdate/d' "$CLASH_CRON_TAB" >&/dev/null
 _set_rc unset
 

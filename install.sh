@@ -37,9 +37,9 @@ echo "$url" >"$CLASH_CONFIG_URL"
 _set_rc
 _set_bin
 _set_init
-_merge_config_restart
+_merge_config
 
 clashui
 _okcat '🎉' 'enjoy 🎉'
-# clash
+clash
 _quit

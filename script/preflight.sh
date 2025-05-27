@@ -40,8 +40,12 @@ _get_init() {
         service_src="${SCRIPT_INIT_DIR}/systemd.sh"
         service_target="/etc/systemd/system/${KERNEL_NAME}.service"
 
-        service_enable="systemctl enable $KERNEL_NAME >&/dev/null;systemctl daemon-reload"
-        service_disable="systemctl disable $KERNEL_NAME >&/dev/null;systemctl daemon-reload"
+        service_install="/usr/bin/install -m +x $service_src $service_target"
+        service_uninstall="rm -f $service_target"
+        service_reload="systemctl daemon-reload"
+
+        service_enable="systemctl enable $KERNEL_NAME"
+        service_disable="systemctl disable $KERNEL_NAME"
 
         service_start="systemctl start $KERNEL_NAME"
         service_is_active="systemctl is-active $KERNEL_NAME"
@@ -55,17 +59,17 @@ _get_init() {
 
         command -v chkconfig >&/dev/null && {
             service_install="chkconfig --add $KERNEL_NAME"
-            service_remove="chkconfig --del $KERNEL_NAME"
+            service_uninstall="chkconfig --del $KERNEL_NAME"
 
-            service_enable="chkconfig "$KERNEL_NAME" on"
-            service_disable="chkconfig "$KERNEL_NAME" off"
+            service_enable="chkconfig $KERNEL_NAME on"
+            service_disable="chkconfig $KERNEL_NAME off"
         }
         command -v update-rc.d >&/dev/null && {
-            service_install="update-rc.d "$KERNEL_NAME" defaults"
-            service_remove="update-rc.d "$KERNEL_NAME" remove"
+            service_install="update-rc.d $KERNEL_NAME defaults"
+            service_uninstall="update-rc.d $KERNEL_NAME remove"
 
-            service_enable="update-rc.d "$KERNEL_NAME" enable"
-            service_disable="update-rc.d "$KERNEL_NAME" disable"
+            service_enable="update-rc.d $KERNEL_NAME enable"
+            service_disable="update-rc.d $KERNEL_NAME disable"
         }
 
         service_start="service $KERNEL_NAME start"
@@ -95,11 +99,13 @@ _get_init() {
 
 _set_init() {
     [ "$1" = "unset" ] && {
-        rm -f "$service_target" >&/dev/null
-        $service_disable
-        $service_remove
+        $service_disable >&/dev/null
+        $service_uninstall
+        $service_reload
         return
     }
+    
+    $service_install
 
     local cmd_path="${BIN_KERNEL}"
     local cmd_arg="-d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME}"
@@ -109,9 +115,6 @@ _set_init() {
     local file_log="${CLASH_RESOURCES_DIR}/log"
     local KERNEL_DESC="$KERNEL_NAME Daemon, A[nother] Clash Kernel."
 
-    /usr/bin/install -m +x "$service_src" "$service_target"
-    $service_install
-    $service_enable && _okcat 已设置开机自启
     sed -i \
         -e "s|placeholder_cmd_path|$cmd_path|g" \
         -e "s|placeholder_cmd_args|$cmd_arg|g" \
@@ -129,6 +132,9 @@ _set_init() {
         -e "s|placeholder_restart|$service_restart|g" \
         -e "s|placeholder_is_active|$service_is_active|g" \
         "$CLASH_CMD_DIR/clashctl.sh"
+
+    $service_reload
+    $service_enable >&/dev/null && _okcat '🚀' '已设置开机自启'
 }
 
 _download_clash() {
