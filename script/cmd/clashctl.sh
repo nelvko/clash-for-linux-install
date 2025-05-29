@@ -12,7 +12,7 @@ function clashon() {
     _get_proxy_port
 
     local auth=$(sudo "$BIN_YQ" '.authentication[0] // ""' "$CLASH_CONFIG_RUNTIME")
-    [ -n "$auth" ] && auth=$auth@
+    [ -n "$auth" ] && auth="${auth}@"
 
     local http_proxy_addr="http://${auth}127.0.0.1:${MIXED_PORT}"
     local socks_proxy_addr="socks5h://${auth}127.0.0.1:${MIXED_PORT}"
