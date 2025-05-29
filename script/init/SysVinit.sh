@@ -8,20 +8,25 @@
 # Description: placeholder_kernel_desc
 ### END INIT INFO
 
+pidfile="placeholder_pid_file"
+logfile="placeholder_log_file"
+cmd="placeholder_cmd_full"
+
 case "$1" in
 start)
   $0 is-active >&/dev/null && exit 0
-  placeholder_cmd_full >placeholder_log_file 2>&1 && echo $! >placeholder_pid_file
+  $cmd >&$logfile &
+  echo $! >$pidfile
   ;;
 stop)
-  pid=$(cat placeholder_pid_file 2>/dev/null)
+  pid=$(cat $pidfile 2>/dev/null)
   [ -n "$pid" ] && kill -9 "$pid"
-  rm -f placeholder_pid_file
+  rm -f $pidfile
   ;;
 status)
-  echo -n "$(date +"%Y-%m-%d %H:%M:%S") " >>placeholder_log_file
-  $0 is-active >>placeholder_log_file
-  less placeholder_log_file
+  echo -n "$(date +"%Y-%m-%d %H:%M:%S") " >>$logfile
+  $0 is-active >>$logfile
+  less $logfile
   ;;
 restart | reload)
   $0 stop
@@ -29,12 +34,13 @@ restart | reload)
   $0 start
   ;;
 is-active)
-  pid=$(cat placeholder_pid_file 2>/dev/null)
-  [ -n "$pid" ] && {
-    echo "😼 placeholder_kernel_name is running with PID: $pid"
+  pid=$(cat $pidfile 2>/dev/null)
+  isStart=$(ps ax | awk '{ print $1 }' | grep -e "^${pid}$")
+  [ -n "$isStart" ] && {
+    echo "placeholder_kernel_name is running with PID: $pid"
     exit 0
   }
-  echo "😾 placeholder_kernel_name is not running."
+  echo "placeholder_kernel_name is not running."
   exit 1
   ;;
 enable) ;;

@@ -40,7 +40,6 @@ _get_init() {
         service_src="${SCRIPT_INIT_DIR}/systemd.sh"
         service_target="/etc/systemd/system/${KERNEL_NAME}.service"
 
-        service_install="/usr/bin/install -m +x $service_src $service_target"
         service_uninstall="rm -f $service_target"
         service_reload="systemctl daemon-reload"
 
@@ -104,7 +103,8 @@ _set_init() {
         $service_reload
         return
     }
-    
+
+    /usr/bin/install -m +x "$service_src" "$service_target"
     $service_install
 
     local cmd_path="${BIN_KERNEL}"
@@ -135,6 +135,32 @@ _set_init() {
 
     $service_reload
     $service_enable >&/dev/null && _okcat '🚀' '已设置开机自启'
+}
+
+_set_rc() {
+    local home=$HOME
+    [ -n "$SUDO_USER" ] && {
+        home=$(awk -F: -v user="$SUDO_USER" '$1==user{print $6}' /etc/passwd)
+    }
+    command -v bash >&/dev/null && {
+        SHELL_RC_BASH="${home}/.bashrc"
+    }
+    command -v zsh >&/dev/null && {
+        SHELL_RC_ZSH="${home}/.zshrc"
+    }
+    command -v fish >&/dev/null && {
+        SHELL_RC_FISH="${home}/.config/fish/conf.d/clashctl.fish"
+    }
+
+    [ "$1" = "unset" ] && {
+        sed -i "\|$CLASH_CMD_DIR|d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
+        rm -f "$SHELL_RC_FISH" 2>/dev/null
+        return
+    }
+
+    echo "source $CLASH_CMD_DIR/common.sh && source $CLASH_CMD_DIR/clashctl.sh && watch_proxy" |
+        tee -a "$SHELL_RC_BASH" "$SHELL_RC_ZSH" >&/dev/null
+    [ -n "$SHELL_RC_FISH" ] && /usr/bin/install "$SCRIPT_FISH" "$SHELL_RC_FISH"
 }
 
 _download_clash() {

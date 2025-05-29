@@ -3,10 +3,17 @@
 # shellcheck disable=SC2034
 # shellcheck disable=SC2155
 
-# set -e
-
-[ -n "$BASH_VERSION" ] && set +o noglob
-[ -n "$ZSH_VERSION" ] && setopt glob no_nomatch
+[ -n "$BASH_VERSION" ] && {
+    EXEC_SHELL=bash
+    set +o noglob
+}
+[ -n "$ZSH_VERSION" ] && {
+    EXEC_SHELL=zsh
+    setopt glob no_nomatch
+}
+[ -n "$fish_version" ] && {
+    EXEC_SHELL=fish
+}
 
 URL_GH_PROXY='https://gh-proxy.com/'
 URL_CLASH_UI="http://board.zash.run.place"
@@ -38,46 +45,6 @@ CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/$RESOURCES_CONFIG_MIXIN"
 CLASH_CONFIG_RUNTIME="${CLASH_RESOURCES_DIR}/runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_RESOURCES_DIR}/clashupdate.log"
 
-_set_var() {
-    local user=$USER
-    local home=$HOME
-    [ -n "$SUDO_USER" ] && {
-        user=$SUDO_USER
-        home=$(awk -F: -v user="$SUDO_USER" '$1==user{print $6}' /etc/passwd)
-    }
-
-    [ -n "$BASH_VERSION" ] && {
-        EXEC_SHELL=bash
-    }
-    [ -n "$ZSH_VERSION" ] && {
-        EXEC_SHELL=zsh
-    }
-    [ -n "$fish_version" ] && {
-        EXEC_SHELL=fish
-    }
-
-    command -v bash >&/dev/null && {
-        SHELL_RC_BASH="${home}/.bashrc"
-    }
-    command -v zsh >&/dev/null && {
-        SHELL_RC_ZSH="${home}/.zshrc"
-    }
-    command -v fish >&/dev/null && {
-        SHELL_RC_FISH="${home}/.config/fish/conf.d/clashctl.fish"
-    }
-
-    local os_info=$(cat /etc/os-release 2>/dev/null || lsb_release -a)
-    case "${os_info}" in
-    rhel | centos)
-        CLASH_CRON_TAB="/var/spool/cron/$user"
-        ;;
-    debian | ubuntu)
-        CLASH_CRON_TAB="/var/spool/cron/crontabs/$user"
-        ;;
-    esac
-}
-_set_var
-
 # shellcheck disable=SC2120
 _set_bin() {
     local bin_base_dir="${CLASH_BASE_DIR}/$RESOURCES_BIN_DIR"
@@ -100,18 +67,6 @@ _set_bin() {
     KERNEL_NAME=$(basename "$BIN_KERNEL")
 }
 _set_bin
-
-_set_rc() {
-    [ "$1" = "unset" ] && {
-        sed -i "\|$CLASH_CMD_DIR|d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
-        rm -f "$SHELL_RC_FISH" 2>/dev/null
-        return
-    }
-
-    echo "source $CLASH_CMD_DIR/common.sh && source $CLASH_CMD_DIR/clashctl.sh && watch_proxy" |
-        tee -a "$SHELL_RC_BASH" "$SHELL_RC_ZSH" >&/dev/null
-    [ -e "$(dirname "$SHELL_RC_FISH")" ] && /usr/bin/install $SCRIPT_FISH "$SHELL_RC_FISH"
-}
 
 _get_random_port() {
     local randomPort=$(shuf -i 1024-65535 -n 1)

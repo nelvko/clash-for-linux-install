@@ -3,9 +3,13 @@
 # shellcheck disable=SC2155
 
 function clashon() {
+    placeholder_is_active >&/dev/null || {
+        sudo placeholder_start || {
+            _failcat '启动失败: 执行 "clashstatus" 查看日志'
+            return 1
+        }
+    }
     _get_proxy_port
-    sudo placeholder_start && _okcat '已开启代理环境' ||
-        _failcat '启动失败: 执行 "clashstatus" 查看日志' || return 1
 
     local auth=$(sudo "$BIN_YQ" '.authentication[0] // ""' "$CLASH_CONFIG_RUNTIME")
     [ -n "$auth" ] && auth=$auth@
@@ -19,15 +23,16 @@ function clashon() {
     export HTTP_PROXY=$http_proxy
     export HTTPS_PROXY=$http_proxy
 
-    # export all_proxy=$socks_proxy_addr
-    # export ALL_PROXY=$all_proxy
+    export all_proxy=$socks_proxy_addr
+    export ALL_PROXY=$all_proxy
 
     export no_proxy=$no_proxy_addr
     export NO_PROXY=$no_proxy
+    _okcat '已开启代理环境'
 }
-
+#  && [ "${0:0:1}" = "-" ]
 watch_proxy() {
-    placeholder_is_active >&/dev/null && [ -z "$http_proxy" ] && {
+    [ -z "$http_proxy" ] && {
         _is_root || _failcat '未检测到代理变量，可执行 clashon 开启代理环境' && clashon
     }
 }
@@ -180,7 +185,12 @@ function clashupdate() {
 
     # 如果是自动更新模式，则设置定时任务
     [ "$is_auto" = true ] && {
-        sudo grep -qs 'clashupdate' "$CLASH_CRON_TAB" || echo "0 0 */2 * * $EXEC_SHELL -i -c 'clashupdate $url'" | sudo tee -a "$CLASH_CRON_TAB" >&/dev/null
+        crontab -l | sudo grep -qs 'clashupdate' || {
+            (
+                crontab -l 2>/dev/null
+                echo "0 0 */2 * * $EXEC_SHELL -i -c 'clashupdate $url'"
+            ) | crontab
+        }
         _okcat "已设置定时更新订阅" && return 0
     }
 
