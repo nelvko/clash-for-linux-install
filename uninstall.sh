@@ -12,7 +12,7 @@ clashoff >&/dev/null
 _get_init
 _set_init unset >&/dev/null
 _set_rc unset
-crontab -l 2>/dev/null | grep -v "clashupdate" | crontab
+crontab -l 2>/dev/null | grep -v "clashupdate" | crontab -
 
 rm -rf "$CLASH_BASE_DIR"
 rm -rf "$RESOURCES_BIN_DIR"

@@ -29,6 +29,62 @@ _get_kernel() {
     KERNEL_NAME=$(basename "$BIN_KERNEL")
 }
 
+_openrc() {
+    service_src="${SCRIPT_INIT_DIR}/OpenRC.sh"
+    service_target="/etc/init.d/$KERNEL_NAME"
+
+    service_enable="rc-update add $KERNEL_NAME default"
+    service_disable="rc-update del $KERNEL_NAME default"
+
+    service_start="rc-service $KERNEL_NAME start"
+    service_is_active="rc-service $KERNEL_NAME status"
+    service_stop="rc-service $KERNEL_NAME stop"
+    service_restart="rc-service $KERNEL_NAME restart"
+    service_status="rc-service $KERNEL_NAME status"
+}
+
+_sysvinit() {
+    service_src="${SCRIPT_INIT_DIR}/SysVinit.sh"
+    service_target="/etc/init.d/$KERNEL_NAME"
+
+    command -v chkconfig >&/dev/null && {
+        service_add="chkconfig --add $KERNEL_NAME"
+        service_del="chkconfig --del $KERNEL_NAME"
+
+        service_enable="chkconfig $KERNEL_NAME on"
+        service_disable="chkconfig $KERNEL_NAME off"
+    }
+    command -v update-rc.d >&/dev/null && {
+        service_add="update-rc.d $KERNEL_NAME defaults"
+        service_del="update-rc.d $KERNEL_NAME remove"
+
+        service_enable="update-rc.d $KERNEL_NAME enable"
+        service_disable="update-rc.d $KERNEL_NAME disable"
+    }
+
+    service_start="service $KERNEL_NAME start"
+    service_is_active="service $KERNEL_NAME is-active"
+    service_stop="service $KERNEL_NAME stop"
+    service_restart="service $KERNEL_NAME restart"
+    service_status="service $KERNEL_NAME status"
+}
+
+_systemd() {
+    service_src="${SCRIPT_INIT_DIR}/systemd.sh"
+    service_target="/etc/systemd/system/${KERNEL_NAME}.service"
+
+    service_reload="systemctl daemon-reload"
+
+    service_enable="systemctl enable $KERNEL_NAME"
+    service_disable="systemctl disable $KERNEL_NAME"
+
+    service_start="systemctl start $KERNEL_NAME"
+    service_is_active="systemctl is-active $KERNEL_NAME"
+    service_stop="systemctl stop $KERNEL_NAME"
+    service_restart="systemctl restart $KERNEL_NAME"
+    service_status="systemctl status $KERNEL_NAME"
+}
+
 _get_init() {
     init_type=$(cat /proc/1/comm 2>/dev/null)
     [ -z "$init_type" ] && {
@@ -37,58 +93,10 @@ _get_init() {
 
     case "${init_type}" in
     systemd)
-        service_src="${SCRIPT_INIT_DIR}/systemd.sh"
-        service_target="/etc/systemd/system/${KERNEL_NAME}.service"
-
-        service_uninstall="rm -f $service_target"
-        service_reload="systemctl daemon-reload"
-
-        service_enable="systemctl enable $KERNEL_NAME"
-        service_disable="systemctl disable $KERNEL_NAME"
-
-        service_start="systemctl start $KERNEL_NAME"
-        service_is_active="systemctl is-active $KERNEL_NAME"
-        service_stop="systemctl stop $KERNEL_NAME"
-        service_restart="systemctl restart $KERNEL_NAME"
-        service_status="systemctl status $KERNEL_NAME"
+        _systemd
         ;;
     init)
-        service_src="${SCRIPT_INIT_DIR}/SysVinit.sh"
-        service_target="/etc/init.d/$KERNEL_NAME"
-
-        command -v chkconfig >&/dev/null && {
-            service_install="chkconfig --add $KERNEL_NAME"
-            service_uninstall="chkconfig --del $KERNEL_NAME"
-
-            service_enable="chkconfig $KERNEL_NAME on"
-            service_disable="chkconfig $KERNEL_NAME off"
-        }
-        command -v update-rc.d >&/dev/null && {
-            service_install="update-rc.d $KERNEL_NAME defaults"
-            service_uninstall="update-rc.d $KERNEL_NAME remove"
-
-            service_enable="update-rc.d $KERNEL_NAME enable"
-            service_disable="update-rc.d $KERNEL_NAME disable"
-        }
-
-        service_start="service $KERNEL_NAME start"
-        service_is_active="service $KERNEL_NAME is-active"
-        service_stop="service $KERNEL_NAME stop"
-        service_restart="service $KERNEL_NAME restart"
-        service_status="service $KERNEL_NAME status"
-        ;;
-    openrc)
-        service_src="${SCRIPT_INIT_DIR}/OpenRC.sh"
-        service_target="/etc/init.d/$KERNEL_NAME"
-
-        service_enable="rc-update add $KERNEL_NAME default"
-        service_disable="rc-update del $KERNEL_NAME default"
-
-        service_start="rc-service $KERNEL_NAME start"
-        service_is_active="rc-service $KERNEL_NAME status"
-        service_stop="rc-service $KERNEL_NAME stop"
-        service_restart="rc-service $KERNEL_NAME restart"
-        service_status="rc-service $KERNEL_NAME status"
+        [ "$(basename $(readlink -f /sbin/init))" = "busybox" ] && _openrc || _sysvinit
         ;;
     *)
         _error_quit "不支持的 init 系统：$init_type，请反馈作者适配"
@@ -99,21 +107,22 @@ _get_init() {
 _set_init() {
     [ "$1" = "unset" ] && {
         $service_disable >&/dev/null
-        $service_uninstall
+        $service_del
+        rm -f "$service_target"
         $service_reload
         return
     }
 
     /usr/bin/install -m +x "$service_src" "$service_target"
-    $service_install
+    $service_add
+
+    local file_pid="/run/${KERNEL_NAME}.pid"
+    local file_log="/var/log/${KERNEL_NAME}.log"
+    local KERNEL_DESC="$KERNEL_NAME Daemon, A[nother] Clash Kernel."
 
     local cmd_path="${BIN_KERNEL}"
     local cmd_arg="-d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME}"
     local cmd_full="${BIN_KERNEL} -d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME}"
-
-    local file_pid="${CLASH_RESOURCES_DIR}/pid"
-    local file_log="${CLASH_RESOURCES_DIR}/log"
-    local KERNEL_DESC="$KERNEL_NAME Daemon, A[nother] Clash Kernel."
 
     sed -i \
         -e "s|placeholder_cmd_path|$cmd_path|g" \

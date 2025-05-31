@@ -150,7 +150,7 @@ function _error_quit() {
 
 _is_bind() {
     local port=$1
-    { sudo ss -tulnp || sudo netstat -tulnp; } | grep ":${port}\b"
+    { sudo ss -tulnp 2>/dev/null || sudo netstat -tulnp; } | grep ":${port}\b"
 }
 
 _is_already_in_use() {

@@ -4,7 +4,7 @@
 
 function clashon() {
     placeholder_is_active >&/dev/null || {
-        sudo placeholder_start || {
+        sudo placeholder_start >/dev/null || {
             _failcat '启动失败: 执行 "clashstatus" 查看日志'
             return 1
         }
@@ -38,7 +38,7 @@ watch_proxy() {
 }
 
 function clashoff() {
-    sudo placeholder_stop && _okcat '已关闭代理环境' ||
+    sudo placeholder_stop >/dev/null && _okcat '已关闭代理环境' ||
         _failcat '关闭失败: 执行 "clashstatus" 查看日志' || return 1
 
     unset http_proxy
@@ -69,9 +69,9 @@ function clashui() {
     local public_ip=$(curl -s --noproxy "*" --connect-timeout 2 $query_url)
     local public_address="http://${public_ip:-公网}:${UI_PORT}/ui"
     # 内网ip
-    # ip route get 1.1.1.1 | grep -oP 'src \K\S+'
-    local local_ip=$(hostname -I | awk '{print $1}')
-    local local_address="http://${local_ip}:${UI_PORT}/ui"
+    local local_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7}' ||
+        hostname -I 2>/dev/null | awk '{print $1}')
+    local local_address="http://${local_ip:-内网}:${UI_PORT}/ui"
     printf "\n"
     printf "╔═══════════════════════════════════════════════╗\n"
     printf "║                %s                  ║\n" "$(_okcat 'Web 控制台')"
@@ -185,11 +185,12 @@ function clashupdate() {
 
     # 如果是自动更新模式，则设置定时任务
     [ "$is_auto" = true ] && {
+        command -v crontab1 >/dev/null || _error_quit "未安装 crontab，请先安装 cron 服务"
         crontab -l | sudo grep -qs 'clashupdate' || {
             (
                 crontab -l 2>/dev/null
                 echo "0 0 */2 * * $EXEC_SHELL -i -c 'clashupdate $url'"
-            ) | crontab
+            ) | crontab -
         }
         _okcat "已设置定时更新订阅" && return 0
     }
@@ -263,33 +264,31 @@ function clashctl() {
     *)
         cat <<EOF
 
-  $KERNEL_NAME
-  $KERNEL_DESC
+  clashctl | mihomoctl
+
+  优雅地使用基于 ${KERNEL_NAME} 的代理环境.
   更多信息：https://github.com/nelvko/clash-for-linux-install.
 
-  - 开启代理环境
-    clashon
-
-  - 关闭代理环境
-    clashoff
+  - 开启/关闭代理环境
+    clash <on|off>
 
   - 打印 Web 控制台信息
-    clashui
-
-  - 查看代理内核状况
-    clashstatus
-
-  - 开启/关闭 Tun 模式
-    clashtun [on|off]
-
-  - 编辑 Mixin 配置
-    clashmixin [-e|-r]
+    clash ui
 
   - 查看/设置 Web 密钥
-    clashsecret [SECRET]
+    clash secret [SECRET]
 
-  - 更新订阅,设置
-    clashupdate [auto|log] [URL]
+  - 查看代理内核状况
+    clash status
+
+  - 查看/设置 Tun 模式
+    clash tun [on|off]
+
+  - 查看/编辑 Mixin 配置
+    clash mixin [-e|-r]
+
+  - 更新订阅、查看订阅更新日志
+    clash update [auto|log] [URL]
 
 EOF
         ;;
