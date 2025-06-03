@@ -24,16 +24,8 @@ SCRIPT_CMD_DIR="${SCRIPT_BASE_DIR}/cmd"
 SCRIPT_FISH="${SCRIPT_CMD_DIR}/clashctl.fish"
 
 RESOURCES_BASE_DIR='resources'
-RESOURCES_BIN_DIR="${RESOURCES_BASE_DIR}/bin"
 RESOURCES_CONFIG="${RESOURCES_BASE_DIR}/config.yaml"
 RESOURCES_CONFIG_MIXIN="${RESOURCES_BASE_DIR}/mixin.yaml"
-
-ZIP_BASE_DIR="${RESOURCES_BASE_DIR}/zip"
-ZIP_CLASH=$(echo ${ZIP_BASE_DIR}/clash*)
-ZIP_MIHOMO=$(echo ${ZIP_BASE_DIR}/mihomo*)
-ZIP_YQ=$(echo ${ZIP_BASE_DIR}/yq*)
-ZIP_SUBCONVERTER=$(echo ${ZIP_BASE_DIR}/subconverter*)
-ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
 
 CLASH_BASE_DIR='/opt/clash'
 CLASH_RESOURCES_DIR="${CLASH_BASE_DIR}/$RESOURCES_BASE_DIR"
@@ -45,28 +37,16 @@ CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/$RESOURCES_CONFIG_MIXIN"
 CLASH_CONFIG_RUNTIME="${CLASH_RESOURCES_DIR}/runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_RESOURCES_DIR}/clashupdate.log"
 
-# shellcheck disable=SC2120
-_set_bin() {
-    local bin_base_dir="${CLASH_BASE_DIR}/$RESOURCES_BIN_DIR"
-    [ -n "$1" ] && bin_base_dir=$1
-    BIN_CLASH="${bin_base_dir}/clash"
-    BIN_MIHOMO="${bin_base_dir}/mihomo"
-    BIN_YQ="${bin_base_dir}/yq"
-    BIN_SUBCONVERTER_DIR="${bin_base_dir}/subconverter"
-    BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
-    BIN_SUBCONVERTER_PORT="25500"
-    BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
-    BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
-
-    [ -f "$BIN_CLASH" ] && {
-        BIN_KERNEL=$BIN_CLASH
-    }
-    [ -f "$BIN_MIHOMO" ] && {
-        BIN_KERNEL=$BIN_MIHOMO
-    }
-    KERNEL_NAME=$(basename "$BIN_KERNEL")
-}
-_set_bin
+BIN_BASE_DIR="${CLASH_BASE_DIR}/bin"
+BIN_CLASH="${BIN_BASE_DIR}/clash"
+BIN_MIHOMO="${BIN_BASE_DIR}/mihomo"
+BIN_KERNEL="${BIN_BASE_DIR}/placeholder_bin_kernel"
+BIN_YQ="${BIN_BASE_DIR}/yq"
+BIN_SUBCONVERTER_DIR="${BIN_BASE_DIR}/subconverter"
+BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
+BIN_SUBCONVERTER_PORT="25500"
+BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
+BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
 
 _get_random_port() {
     local randomPort=$(shuf -i 1024-65535 -n 1)

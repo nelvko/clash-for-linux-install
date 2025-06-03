@@ -266,7 +266,7 @@ function clashctl() {
 
   clashctl | mihomoctl
 
-  优雅地使用基于 ${KERNEL_NAME} 的代理环境.
+  优雅地使用基于 placeholder_kernel_name 的代理环境.
   更多信息：https://github.com/nelvko/clash-for-linux-install.
 
   - 开启/关闭代理环境

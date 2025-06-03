@@ -6,20 +6,19 @@
 . script/preflight.sh >&/dev/null
 
 _valid_env
-_get_kernel
+_get_kernel "$@"
 _get_init
 
 [ -d "$CLASH_BASE_DIR" ] && _error_quit "请先执行卸载脚本,以清除安装路径：$CLASH_BASE_DIR"
 
 _okcat "安装内核：$KERNEL_NAME"
 
-/usr/bin/install -D <(gzip -dc "$ZIP_KERNEL") "${RESOURCES_BIN_DIR}/$KERNEL_NAME"
-tar -xf "$ZIP_SUBCONVERTER" -C "$RESOURCES_BIN_DIR"
-tar -xf "$ZIP_YQ" -C "${RESOURCES_BIN_DIR}"
+/usr/bin/install -D <(gzip -dc "$ZIP_KERNEL") "$BIN_KERNEL"
+tar -xf "$ZIP_SUBCONVERTER" -C "$BIN_BASE_DIR"
+tar -xf "$ZIP_YQ" -C "${BIN_BASE_DIR}"
 # shellcheck disable=SC2086
-/bin/mv -f ${RESOURCES_BIN_DIR}/yq_* "${RESOURCES_BIN_DIR}/yq"
+/bin/mv -f ${BIN_BASE_DIR}/yq_* "${BIN_BASE_DIR}/yq"
 
-_set_bin "$RESOURCES_BIN_DIR"
 _valid_config "$RESOURCES_CONFIG" || {
     echo -n "$(_okcat '✈️ ' '输入订阅：')"
     read -r url
@@ -28,14 +27,12 @@ _valid_config "$RESOURCES_CONFIG" || {
     _valid_config "$RESOURCES_CONFIG" || _error_quit "配置无效，请检查配置：$RESOURCES_CONFIG，转换日志：$BIN_SUBCONVERTER_LOG"
 }
 _okcat '✅' '配置可用'
-mkdir "$CLASH_BASE_DIR"
 
 /bin/ls . | xargs -I {} /bin/cp -rf "$(pwd)/{}" "$CLASH_BASE_DIR"
 tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"
 echo "$url" >"$CLASH_CONFIG_URL"
 
 _set_rc
-_set_bin
 _set_init
 _merge_config
 

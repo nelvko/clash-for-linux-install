@@ -1,31 +1,37 @@
 #!/usr/bin/env bash
 
+# shellcheck disable=SC2034
+# shellcheck disable=SC2153
+ZIP_BASE_DIR="${RESOURCES_BASE_DIR}/zip"
+ZIP_CLASH=$(echo "${ZIP_BASE_DIR}"/clash*)
+ZIP_MIHOMO=$(echo "${ZIP_BASE_DIR}"/mihomo*)
+ZIP_YQ=$(echo "${ZIP_BASE_DIR}"/yq*)
+ZIP_SUBCONVERTER=$(echo "${ZIP_BASE_DIR}"/subconverter*)
+ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
+is_unset=$1
+
 _valid_env() {
     _is_root || _error_quit "需要 root 或 sudo 权限执行"
     [ -n "$ZSH_VERSION" ] && [ -n "$BASH_VERSION" ] && _error_quit "仅支持：bash、zsh"
 }
 
 _get_kernel() {
-    [ -f "$ZIP_CLASH" ] && {
-        ZIP_KERNEL=$ZIP_CLASH
-        BIN_KERNEL=$BIN_CLASH
+    [ -n "$is_unset" ] && {
+        KERNEL_NAME=$(basename "${BIN_MIHOMO:-$BIN_CLASH}")
+        return
     }
 
-    [ -f "$ZIP_MIHOMO" ] && {
-        ZIP_KERNEL=$ZIP_MIHOMO
-        BIN_KERNEL=$BIN_MIHOMO
-    }
-
-    [ ! -f "$ZIP_MIHOMO" ] && [ ! -f "$ZIP_CLASH" ] && {
-        # shellcheck disable=SC2155
-        local arch=$(uname -m)
-        _failcat "${ZIP_BASE_DIR}：未检测到可用的内核压缩包"
-        _download_clash "$arch"
-        # shellcheck disable=SC2034
-        ZIP_KERNEL=$ZIP_CLASH
-        BIN_KERNEL=$BIN_CLASH
-    }
-
+    ZIP_KERNEL=$ZIP_MIHOMO
+    BIN_KERNEL=$BIN_MIHOMO
+    for arg in "$@"; do
+        case "$arg" in
+        clash)
+            [ ! -f "$ZIP_CLASH" ] && _download_clash "$(uname -m)"
+            ZIP_KERNEL=$(echo "${ZIP_BASE_DIR}"/clash*)
+            BIN_KERNEL=$BIN_CLASH
+            ;;
+        esac
+    done
     KERNEL_NAME=$(basename "$BIN_KERNEL")
 }
 
@@ -105,7 +111,7 @@ _get_init() {
 }
 
 _set_init() {
-    [ "$1" = "unset" ] && {
+    [ -n "$is_unset" ] && {
         $service_disable >&/dev/null
         $service_del
         rm -f "$service_target"
@@ -135,19 +141,21 @@ _set_init() {
         "$service_target"
 
     sed -i \
+        -e "s|placeholder_kernel_name|$KERNEL_NAME|g" \
+        -e "s|placeholder_bin_kernel|$BIN_KERNEL|g" \
         -e "s|placeholder_start|$service_start|g" \
         -e "s|placeholder_status|$service_status|g" \
         -e "s|placeholder_stop|$service_stop|g" \
         -e "s|placeholder_restart|$service_restart|g" \
         -e "s|placeholder_is_active|$service_is_active|g" \
-        "$CLASH_CMD_DIR/clashctl.sh"
+        "$CLASH_CMD_DIR/clashctl.sh" "$CLASH_CMD_DIR/common.sh"
 
     $service_reload
     $service_enable >&/dev/null && _okcat '🚀' '已设置开机自启'
 }
 
 _set_rc() {
-    local home=$HOME
+    home=$HOME
     [ -n "$SUDO_USER" ] && {
         home=$(awk -F: -v user="$SUDO_USER" '$1==user{print $6}' /etc/passwd)
     }
@@ -161,7 +169,7 @@ _set_rc() {
         SHELL_RC_FISH="${home}/.config/fish/conf.d/clashctl.fish"
     }
 
-    [ "$1" = "unset" ] && {
+    [ -n "$is_unset" ] && {
         sed -i "\|$CLASH_CMD_DIR|d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
         rm -f "$SHELL_RC_FISH" 2>/dev/null
         return
@@ -198,7 +206,7 @@ _download_clash() {
     esac
 
     _okcat '⏳' "正在下载：clash：${arch} 架构..."
-    local clash_zip="${ZIP_BASE_DIR}/$(basename $url)"
+    clash_zip="${ZIP_BASE_DIR}/$(basename $url)"
     curl \
         --progress-bar \
         --show-error \
