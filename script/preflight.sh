@@ -111,10 +111,15 @@ _get_init() {
 }
 
 _set_init() {
+    file_pid="/run/${KERNEL_NAME}.pid"
+    file_log="/var/log/${KERNEL_NAME}.log"
+    
     [ -n "$is_unset" ] && {
         $service_disable >&/dev/null
         $service_del
         rm -f "$service_target"
+        rm -f "$file_pid"
+        rm -f "$file_log"
         $service_reload
         return
     }

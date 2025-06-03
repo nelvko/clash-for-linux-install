@@ -5,7 +5,7 @@
 function clashon() {
     placeholder_is_active >&/dev/null || {
         sudo placeholder_start >/dev/null || {
-            _failcat '启动失败: 执行 "clashstatus" 查看日志'
+            _failcat '启动失败: 执行 clashstatus 查看日志'
             return 1
         }
     }
@@ -30,7 +30,7 @@ function clashon() {
     export NO_PROXY=$no_proxy
     _okcat '已开启代理环境'
 }
-#  && [ "${0:0:1}" = "-" ]
+
 watch_proxy() {
     [ -z "$http_proxy" ] && {
         _is_root || _failcat '未检测到代理变量，可执行 clashon 开启代理环境' && clashon
@@ -39,7 +39,7 @@ watch_proxy() {
 
 function clashoff() {
     sudo placeholder_stop >/dev/null && _okcat '已关闭代理环境' ||
-        _failcat '关闭失败: 执行 "clashstatus" 查看日志' || return 1
+        _failcat '关闭失败: 执行 clashstatus 查看日志' || return 1
 
     unset http_proxy
     unset https_proxy
