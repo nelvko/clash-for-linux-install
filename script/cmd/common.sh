@@ -54,7 +54,7 @@ export MIXED_PORT=7890
 export UI_PORT=9090
 
 # BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
-BIN_SUBCONVERTER="docker-compose up subconverter -d"
+BIN_SUBCONVERTER="docker-compose up -d subconverter"
 BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
 
 _get_random_port() {
