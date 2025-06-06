@@ -34,7 +34,7 @@ _valid_config "$RESOURCES_CONFIG" || {
 }
 _okcat '✅' '配置可用'
 
-mkdir -p /opt/clash
+mkdir -p "$CLASH_BASE_DIR"
 /bin/ls . | xargs -I {} /bin/cp -rf "$(pwd)/{}" "$CLASH_BASE_DIR"
 tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"
 echo "$url" >"$CLASH_CONFIG_URL"
