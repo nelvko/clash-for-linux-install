@@ -1,6 +1,10 @@
 services:
   mihomo:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - URL_CR_PROXY=${URL_CR_PROXY}
     image: nelvko/proxy-kernel
     container_name: mihomo
     restart: always
