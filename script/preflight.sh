@@ -2,6 +2,9 @@
 
 # shellcheck disable=SC2034
 # shellcheck disable=SC2153
+set +o noglob >&/dev/null
+setopt glob no_nomatch >&/dev/null
+
 ZIP_BASE_DIR="${RESOURCES_BASE_DIR}/zip"
 ZIP_CLASH=$(echo "${ZIP_BASE_DIR}"/clash*)
 ZIP_MIHOMO=$(echo "${ZIP_BASE_DIR}"/mihomo*)

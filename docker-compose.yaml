@@ -17,7 +17,7 @@ services:
     network_mode: "host"
 
   web:
-    image: haishanh/yacd
+    image: ${URL_CR_PROXY}haishanh/yacd
     restart: always
     depends_on:
         - mihomo
@@ -26,9 +26,10 @@ services:
     container_name: web
 
   subconverter:
-    image: tindy2013/subconverter
+    image: ${URL_CR_PROXY}tindy2013/subconverter
     container_name: subconverter
     restart: always
-    network_mode: "bridge"
     ports:
       - ${BIN_SUBCONVERTER_PORT}:25500
+    network_mode: "bridge"
+    

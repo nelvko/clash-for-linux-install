@@ -3,20 +3,8 @@
 # shellcheck disable=SC2034
 # shellcheck disable=SC2155
 
-[ -n "$BASH_VERSION" ] && {
-    EXEC_SHELL=bash
-    set +o noglob
-}
-[ -n "$ZSH_VERSION" ] && {
-    EXEC_SHELL=zsh
-    setopt glob no_nomatch
-}
-[ -n "$fish_version" ] && {
-    EXEC_SHELL=fish
-}
-
 URL_GH_PROXY='https://gh-proxy.com/'
-URL_CR_PROXY='docker.gh-proxy.com/'
+export URL_CR_PROXY='docker.gh-proxy.com/'
 URL_CLASH_UI="http://board.zash.run.place"
 
 SCRIPT_BASE_DIR='script'
@@ -44,10 +32,20 @@ BIN_MIHOMO="${BIN_BASE_DIR}/mihomo"
 BIN_KERNEL="${BIN_BASE_DIR}/placeholder_bin_kernel"
 BIN_YQ="${BIN_BASE_DIR}/yq"
 
-yq() {
-    docker run --rm -i -v "${PWD}":/workdir "${URL_CR_PROXY}"mikefarah/yq "$@"
+[ -n "$BASH_VERSION" ] && {
+    EXEC_SHELL=bash
 }
-BIN_YQ="yq"
+[ -n "$ZSH_VERSION" ] && {
+    EXEC_SHELL=zsh
+}
+[ -n "$fish_version" ] && {
+    EXEC_SHELL=fish
+}
+
+yq1() {
+    docker run --rm -i -u "$(id -u):$(id -u)" -v "${CLASH_BASE_DIR}":${CLASH_BASE_DIR} "${URL_CR_PROXY}"mikefarah/yq "$@"
+}
+BIN_YQ="yq1"
 
 BIN_SUBCONVERTER_DIR="${BIN_BASE_DIR}/subconverter"
 BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
@@ -66,27 +64,27 @@ _get_random_port() {
 }
 
 function _get_proxy_port() {
-    local mixed_port=$(sudo "$BIN_YQ" '.mixed-port // ""' $CLASH_CONFIG_RUNTIME)
+    local mixed_port=$("$BIN_YQ" '.mixed-port // ""' $CLASH_CONFIG_RUNTIME)
     MIXED_PORT=${mixed_port:-7890}
 
     _is_already_in_use "$MIXED_PORT" "$KERNEL_NAME" && {
         local newPort=$(_get_random_port)
         local msg="端口占用：${MIXED_PORT} 🎲 随机分配：$newPort"
-        sudo "$BIN_YQ" -i ".mixed-port = $newPort" $CLASH_CONFIG_RUNTIME
+        "$BIN_YQ" -i ".mixed-port = $newPort" $CLASH_CONFIG_RUNTIME
         MIXED_PORT=$newPort
         _failcat '🎯' "$msg"
     }
 }
 
 function _get_ui_port() {
-    local ext_addr=$(sudo "$BIN_YQ" '.external-controller // ""' $CLASH_CONFIG_RUNTIME)
+    local ext_addr=$("$BIN_YQ" '.external-controller // ""' $CLASH_CONFIG_RUNTIME)
     local ext_port=${ext_addr##*:}
     UI_PORT=${ext_port:-9090}
 
     _is_already_in_use "$UI_PORT" "$KERNEL_NAME" && {
         local newPort=$(_get_random_port)
         local msg="端口占用：${UI_PORT} 🎲 随机分配：$newPort"
-        sudo "$BIN_YQ" -i ".external-controller = \"0.0.0.0:$newPort\"" $CLASH_CONFIG_RUNTIME
+        "$BIN_YQ" -i ".external-controller = \"0.0.0.0:$newPort\"" $CLASH_CONFIG_RUNTIME
         UI_PORT=$newPort
         _failcat '🎯' "$msg"
     }
@@ -158,7 +156,7 @@ function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
         local cmd msg
         cmd="$BIN_KERNEL -d $(dirname "$1") -f $1 -t"
-        cmd="docker run --rm metacubex/mihomo  -d $(dirname "$1") -f $1 -t"
+        cmd="docker run --rm ${URL_CR_PROXY}metacubex/mihomo  -d $(dirname "$1") -f $1 -t"
         msg=$(eval "$cmd") || {
             eval "$cmd"
             echo "$msg" | grep -qs "unsupport proxy type" && _error_quit "不支持的代理协议，请安装 mihomo 内核"
@@ -223,7 +221,7 @@ _start_convert() {
     _is_already_in_use $BIN_SUBCONVERTER_PORT 'subconverter' && {
         local newPort=$(_get_random_port)
         _failcat '🎯' "端口占用：$BIN_SUBCONVERTER_PORT 🎲 随机分配：$newPort"
-        sudo "$BIN_YQ" -i ".server.port = $newPort" "$BIN_SUBCONVERTER_CONFIG" 2>/dev/null
+        "$BIN_YQ" -i ".server.port = $newPort" "$BIN_SUBCONVERTER_CONFIG" 2>/dev/null
         BIN_SUBCONVERTER_PORT=$newPort
     }
     local start=$(date +%s)
