@@ -2,9 +2,11 @@
 external-controller: "0.0.0.0:9090"
 external-ui: public
 secret:
-
+# mixed-port: 8888
 # 代理服务器配置
-allow-lan: false # 默认关闭，若开启务必设置用户验证以防暴露公网后被滥用
+# allow-lan: false # 默认关闭，若开启务必设置用户验证以防暴露公网后被滥用
+bind-address: '*'
+allow-lan: true
 authentication: 
   # - "username:password" # 用户验证（clashon默认填充验证信息）
 
@@ -14,7 +16,7 @@ tun:
   stack: system
   auto-route: true
   auto-redir: true # clash
-  auto-redirect: true # mihomo
+  # auto-redirect: true # mihomo
   auto-detect-interface: true
   dns-hijack:
     - any:53

@@ -16,6 +16,7 @@
 }
 
 URL_GH_PROXY='https://gh-proxy.com/'
+URL_CR_PROXY='docker.gh-proxy.com/'
 URL_CLASH_UI="http://board.zash.run.place"
 
 SCRIPT_BASE_DIR='script'
@@ -42,10 +43,20 @@ BIN_CLASH="${BIN_BASE_DIR}/clash"
 BIN_MIHOMO="${BIN_BASE_DIR}/mihomo"
 BIN_KERNEL="${BIN_BASE_DIR}/placeholder_bin_kernel"
 BIN_YQ="${BIN_BASE_DIR}/yq"
+
+yq() {
+    docker run --rm -i -v "${PWD}":/workdir "${URL_CR_PROXY}"mikefarah/yq "$@"
+}
+BIN_YQ="yq"
+
 BIN_SUBCONVERTER_DIR="${BIN_BASE_DIR}/subconverter"
 BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
-BIN_SUBCONVERTER_PORT="25500"
-BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
+export BIN_SUBCONVERTER_PORT="25500"
+export MIXED_PORT=7890
+export UI_PORT=9090
+
+# BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
+BIN_SUBCONVERTER="docker-compose up subconverter -d"
 BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
 
 _get_random_port() {
@@ -147,6 +158,7 @@ function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
         local cmd msg
         cmd="$BIN_KERNEL -d $(dirname "$1") -f $1 -t"
+        cmd="docker run --rm metacubex/mihomo  -d $(dirname "$1") -f $1 -t"
         msg=$(eval "$cmd") || {
             eval "$cmd"
             echo "$msg" | grep -qs "unsupport proxy type" && _error_quit "不支持的代理协议，请安装 mihomo 内核"
@@ -211,15 +223,13 @@ _start_convert() {
     _is_already_in_use $BIN_SUBCONVERTER_PORT 'subconverter' && {
         local newPort=$(_get_random_port)
         _failcat '🎯' "端口占用：$BIN_SUBCONVERTER_PORT 🎲 随机分配：$newPort"
-        [ ! -e "$BIN_SUBCONVERTER_CONFIG" ] && {
-            sudo /bin/cp -f "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
-        }
-        sudo "$BIN_YQ" -i ".server.port = $newPort" "$BIN_SUBCONVERTER_CONFIG"
+        sudo "$BIN_YQ" -i ".server.port = $newPort" "$BIN_SUBCONVERTER_CONFIG" 2>/dev/null
         BIN_SUBCONVERTER_PORT=$newPort
     }
     local start=$(date +%s)
     # 子shell运行，屏蔽kill时的输出
-    (sudo "$BIN_SUBCONVERTER" 2>&1 | sudo tee "$BIN_SUBCONVERTER_LOG" >/dev/null &)
+    # (sudo "$BIN_SUBCONVERTER" 2>&1 | sudo tee "$BIN_SUBCONVERTER_LOG" >/dev/null &)
+    $BIN_SUBCONVERTER
     while ! _is_bind "$BIN_SUBCONVERTER_PORT" >&/dev/null; do
         sleep 1s
         local now=$(date +%s)

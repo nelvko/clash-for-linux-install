@@ -8,7 +8,8 @@ ZIP_MIHOMO=$(echo "${ZIP_BASE_DIR}"/mihomo*)
 ZIP_YQ=$(echo "${ZIP_BASE_DIR}"/yq*)
 ZIP_SUBCONVERTER=$(echo "${ZIP_BASE_DIR}"/subconverter*)
 ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
-is_unset=$1
+
+[ "$1" = 'unset' ] && is_unset=true
 
 _valid_env() {
     _is_root || _error_quit "需要 root 或 sudo 权限执行"
@@ -16,11 +17,10 @@ _valid_env() {
 }
 
 _get_kernel() {
-    [ -n "$is_unset" ] && {
+    [ "$is_unset" = true ] && {
         KERNEL_NAME=$(basename "${BIN_MIHOMO:-$BIN_CLASH}")
         return
     }
-
     ZIP_KERNEL=$ZIP_MIHOMO
     BIN_KERNEL=$BIN_MIHOMO
     for arg in "$@"; do
@@ -29,6 +29,12 @@ _get_kernel() {
             [ ! -f "$ZIP_CLASH" ] && _download_clash "$(uname -m)"
             ZIP_KERNEL=$(echo "${ZIP_BASE_DIR}"/clash*)
             BIN_KERNEL=$BIN_CLASH
+            ;;
+        docker)
+            container='docker'
+            ;;
+        podman)
+            container='podman'
             ;;
         esac
     done
@@ -92,6 +98,7 @@ _systemd() {
 }
 
 _get_init() {
+    [ -n "$container" ] && return
     init_type=$(cat /proc/1/comm 2>/dev/null)
     [ -z "$init_type" ] && {
         init_type=$(ps -p 1 -o comm= 2>/dev/null)
@@ -110,11 +117,34 @@ _get_init() {
     esac
 }
 
+_set_container() {
+    service_start='docker start mihomo'
+    service_restart='docker restart mihomo'
+    service_is_active='docker inspect -f {{.State.Running}} mihomo 2>/dev/null | grep -q true'
+    service_stop="docker stop mihomo"
+    service_status='docker stats mihomo'
+
+    sed -i \
+        -e "s|placeholder_kernel_name|$KERNEL_NAME|g" \
+        -e "s|placeholder_bin_kernel|$BIN_KERNEL|g" \
+        -e "s|placeholder_start|$service_start|g" \
+        -e "s|placeholder_status|$service_status|g" \
+        -e "s|placeholder_stop|$service_stop|g" \
+        -e "s|placeholder_restart|$service_restart|g" \
+        -e "s#placeholder_is_active#$service_is_active#g" \
+        "$CLASH_CMD_DIR/clashctl.sh" "$CLASH_CMD_DIR/common.sh"
+
+}
 _set_init() {
+    [ -n "$container" ] && {
+        _set_container
+        return
+    }
+
     file_pid="/run/${KERNEL_NAME}.pid"
     file_log="/var/log/${KERNEL_NAME}.log"
-    
-    [ -n "$is_unset" ] && {
+
+    [ "$is_unset" = true ] && {
         $service_disable >&/dev/null
         $service_del
         rm -f "$service_target"
@@ -174,7 +204,7 @@ _set_rc() {
         SHELL_RC_FISH="${home}/.config/fish/conf.d/clashctl.fish"
     }
 
-    [ -n "$is_unset" ] && {
+    [ "$is_unset" = true ] && {
         sed -i "\|$CLASH_CMD_DIR|d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
         rm -f "$SHELL_RC_FISH" 2>/dev/null
         return
