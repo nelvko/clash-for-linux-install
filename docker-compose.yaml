@@ -1,16 +1,8 @@
 services:
   mihomo:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        - URL_CR_PROXY=${URL_CR_PROXY}
-    image: nelvko/proxy-kernel
+    image: ${URL_CR_PROXY}metacubex/mihomo
     container_name: mihomo
     restart: always
-    # ports:
-    #   - ${MIXED_PORT}:${MIXED_PORT}
-    #   - ${UI_PORT}:${UI_PORT}
     volumes:
       - /opt/clash/resources/runtime.yaml:/root/.config/mihomo/config.yaml:ro
       # - /opt/clash/resources/public:/root/.config/mihomo/public:ro
@@ -19,15 +11,32 @@ services:
     devices:
       - /dev/net/tun
     network_mode: "host"
-
-  web:
-    image: ${URL_CR_PROXY}haishanh/yacd
+    profiles:
+      - mihomo
+  clash:
+    image: ${URL_CR_PROXY}dreamacro/clash-premium
+    container_name: clash
     restart: always
-    depends_on:
-        - mihomo
-    ports:
-      - ${UI_PORT}:80
-    container_name: web
+    volumes:
+      - /opt/clash/resources/runtime.yaml:/root/.config/clash/config.yaml:ro
+      - /opt/clash/resources/public:/root/.config/clash/public:ro
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    network_mode: "host"
+    profiles:
+      - clash
+  # dashboard:
+  #   image: ${URL_CR_PROXY}haishanh/yacd
+  #   restart: always
+  #   # depends_on:
+  #   #   - mihomo
+  #   #   - clash
+  #   ports:
+  #     - ${UI_PORT}:80
+  #   container_name: yacd
+  #   network_mode: "bridge"
 
   subconverter:
     image: ${URL_CR_PROXY}tindy2013/subconverter

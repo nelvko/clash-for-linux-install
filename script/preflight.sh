@@ -26,22 +26,44 @@ _get_kernel() {
     }
     ZIP_KERNEL=$ZIP_MIHOMO
     BIN_KERNEL=$BIN_MIHOMO
-    for arg in "$@"; do
-        case "$arg" in
-        clash)
-            [ ! -f "$ZIP_CLASH" ] && _download_clash "$(uname -m)"
-            ZIP_KERNEL=$(echo "${ZIP_BASE_DIR}"/clash*)
-            BIN_KERNEL=$BIN_CLASH
-            ;;
-        docker)
-            container='docker'
-            ;;
-        podman)
-            container='podman'
-            ;;
-        esac
-    done
     KERNEL_NAME=$(basename "$BIN_KERNEL")
+
+    echo "$*" | grep -qs docker && {
+        container='docker'
+    }
+
+    echo "$*" | grep docker | grep -qs clash && {
+        container='docker'
+        BIN_KERNEL=$BIN_CLASH
+        KERNEL_NAME=$(basename "$BIN_KERNEL")
+        return
+    }
+
+    echo "$*" | grep -qs clash && {
+        [ ! -f "$ZIP_CLASH" ] && _download_clash "$(uname -m)"
+        ZIP_KERNEL=$(echo "${ZIP_BASE_DIR}"/clash*)
+        BIN_KERNEL=$BIN_CLASH
+        KERNEL_NAME=$(basename "$BIN_KERNEL")
+
+        return
+    }
+
+    # for arg in "$@"; do
+    #     case "$arg" in
+    #     clash)
+    #         [ ! -f "$ZIP_CLASH" ] && _download_clash "$(uname -m)"
+    #         ZIP_KERNEL=$(echo "${ZIP_BASE_DIR}"/clash*)
+    #         BIN_KERNEL=$BIN_CLASH
+    #         ;;
+    #     docker)
+    #         container='docker'
+    #         ;;
+    #     podman)
+    #         container='podman'
+    #         ;;
+    #     esac
+    # done
+    # KERNEL_NAME=$(basename "$BIN_KERNEL")
 }
 
 _openrc() {
@@ -121,13 +143,25 @@ _get_init() {
 }
 
 _set_container() {
-    service_start='docker start mihomo'
-    service_restart='docker restart mihomo'
-    service_is_active='docker inspect -f {{.State.Running}} mihomo 2>/dev/null | grep -q true'
-    service_stop="docker stop mihomo"
-    service_status='docker stats mihomo'
+    service_start="docker start $KERNEL_NAME"
+    service_restart="docker restart $KERNEL_NAME"
+    service_is_active="docker inspect -f {{.State.Running}} $KERNEL_NAME 2>/dev/null | grep -q true"
+    service_stop="docker stop $KERNEL_NAME"
+    service_status="docker logs $KERNEL_NAME"
 
+    BIN_BASE_DIR="${CLASH_BASE_DIR}/bin"
+    BIN_CLASH="${BIN_BASE_DIR}/clash"
+    BIN_MIHOMO="${BIN_BASE_DIR}/mihomo"
+
+    bin=$(
+        cat <<EOF
+BIN_KERNEL="$BIN_KERNEL"
+BIN_YQ="${BIN_BASE_DIR}/yq"
+EOF
+    )
     sed -i \
+        -e "s|placeholder_bin|$bin|g" \
+        \
         -e "s|placeholder_kernel_name|$KERNEL_NAME|g" \
         -e "s|placeholder_bin_kernel|$BIN_KERNEL|g" \
         -e "s|placeholder_start|$service_start|g" \
@@ -208,7 +242,7 @@ _set_rc() {
     }
 
     [ "$is_unset" = true ] && {
-        sed -i "\|$CLASH_CMD_DIR|d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
+        sed -i "\|clashctl.sh|d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
         rm -f "$SHELL_RC_FISH" 2>/dev/null
         return
     }

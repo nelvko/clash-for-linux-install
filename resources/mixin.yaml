@@ -2,7 +2,7 @@
 external-controller: "0.0.0.0:9090"
 external-ui: public
 secret:
-# mixed-port: 8888
+  
 # 代理服务器配置
 # allow-lan: false # 默认关闭，若开启务必设置用户验证以防暴露公网后被滥用
 bind-address: '*'

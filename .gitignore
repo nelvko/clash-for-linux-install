@@ -2,4 +2,8 @@
 .vscode
 config.yaml
 resources/bin/**
+test.sh
+
+
+
 !.gitkeep

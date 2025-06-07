@@ -30,6 +30,7 @@ BIN_BASE_DIR="${CLASH_BASE_DIR}/bin"
 BIN_CLASH="${BIN_BASE_DIR}/clash"
 BIN_MIHOMO="${BIN_BASE_DIR}/mihomo"
 BIN_KERNEL="${BIN_BASE_DIR}/placeholder_bin_kernel"
+KERNEL_NAME="placeholder_kernel_name"
 BIN_YQ="${BIN_BASE_DIR}/yq"
 
 [ -n "$BASH_VERSION" ] && {
@@ -62,14 +63,16 @@ _get_random_port() {
     ! _is_bind "$randomPort" && { echo "$randomPort" && return; }
     _get_random_port
 }
-
+_format_port() {
+    printf %-5d "$1"
+}
 function _get_proxy_port() {
     local mixed_port=$("$BIN_YQ" '.mixed-port // ""' $CLASH_CONFIG_RUNTIME)
     MIXED_PORT=${mixed_port:-7890}
 
     _is_already_in_use "$MIXED_PORT" "$KERNEL_NAME" && {
         local newPort=$(_get_random_port)
-        local msg="端口占用：${MIXED_PORT} 🎲 随机分配：$newPort"
+        local msg="端口占用：$(_format_port "$MIXED_PORT") 🎲 随机分配：$newPort"
         "$BIN_YQ" -i ".mixed-port = $newPort" $CLASH_CONFIG_RUNTIME
         MIXED_PORT=$newPort
         _failcat '🎯' "$msg"
@@ -83,10 +86,19 @@ function _get_ui_port() {
 
     _is_already_in_use "$UI_PORT" "$KERNEL_NAME" && {
         local newPort=$(_get_random_port)
-        local msg="端口占用：${UI_PORT} 🎲 随机分配：$newPort"
+        local msg="端口占用：$(_format_port "$UI_PORT") 🎲 随机分配：$newPort"
         "$BIN_YQ" -i ".external-controller = \"0.0.0.0:$newPort\"" $CLASH_CONFIG_RUNTIME
         UI_PORT=$newPort
         _failcat '🎯' "$msg"
+    }
+}
+
+function _get_subconverter_port() {
+    _is_already_in_use $BIN_SUBCONVERTER_PORT 'subconverter' && {
+        local newPort=$(_get_random_port)
+        _failcat '🎯' "端口占用：$(_format_port "$BIN_SUBCONVERTER_PORT") 🎲 随机分配：$newPort"
+        "$BIN_YQ" -i ".server.port = $newPort" "$BIN_SUBCONVERTER_CONFIG" 2>/dev/null
+        BIN_SUBCONVERTER_PORT=$newPort
     }
 }
 
@@ -139,13 +151,18 @@ function _error_quit() {
 
 _is_bind() {
     local port=$1
-    { sudo ss -tulnp 2>/dev/null || sudo netstat -tulnp; } | grep ":${port}\b"
+    { sudo ss -lnptu 2>/dev/null || sudo netstat -lnptu; } | grep ":${port}\b"
 }
 
 _is_already_in_use() {
     local port=$1
     local progress=$2
-    _is_bind "$port" | grep -qs -v "$progress"
+    _is_bind "$port" >&/dev/null && {
+        _is_bind "$port" | grep -qs "$progress" && return 1
+        docker ps --format '{{.Names}} {{.Ports}}' | grep "$port" | grep -qs "$progress" && return 1
+        return 0
+    }
+    return 1
 }
 
 function _is_root() {
@@ -155,8 +172,8 @@ function _is_root() {
 function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
         local cmd msg
-        cmd="$BIN_KERNEL -d $(dirname "$1") -f $1 -t"
-        cmd="docker run --rm ${URL_CR_PROXY}metacubex/mihomo  -d $(dirname "$1") -f $1 -t"
+        # cmd="$BIN_KERNEL -d $(dirname "$1") -f $1 -t"
+        cmd="docker run --rm -v $1:/root/.config/mihomo/config.yaml:ro ${URL_CR_PROXY}metacubex/mihomo -t"
         msg=$(eval "$cmd") || {
             eval "$cmd"
             echo "$msg" | grep -qs "unsupport proxy type" && _error_quit "不支持的代理协议，请安装 mihomo 内核"
@@ -167,7 +184,7 @@ function _valid_config() {
 _download_raw_config() {
     local dest=$1
     local url=$2
-    local agent='clash-verge/v2.0.4'
+    # local agent='clash-verge/v2.0.4'
     sudo curl \
         --silent \
         --show-error \
@@ -218,22 +235,18 @@ function _download_config() {
 }
 
 _start_convert() {
-    _is_already_in_use $BIN_SUBCONVERTER_PORT 'subconverter' && {
-        local newPort=$(_get_random_port)
-        _failcat '🎯' "端口占用：$BIN_SUBCONVERTER_PORT 🎲 随机分配：$newPort"
-        "$BIN_YQ" -i ".server.port = $newPort" "$BIN_SUBCONVERTER_CONFIG" 2>/dev/null
-        BIN_SUBCONVERTER_PORT=$newPort
-    }
-    local start=$(date +%s)
+    _get_subconverter_port
     # 子shell运行，屏蔽kill时的输出
     # (sudo "$BIN_SUBCONVERTER" 2>&1 | sudo tee "$BIN_SUBCONVERTER_LOG" >/dev/null &)
     $BIN_SUBCONVERTER
-    while ! _is_bind "$BIN_SUBCONVERTER_PORT" >&/dev/null; do
-        sleep 1s
+    local start=$(date +%s)
+    while ! curl "http://localhost:${BIN_SUBCONVERTER_PORT}/version" >&/dev/null; do
+        sleep 0.5s
         local now=$(date +%s)
-        [ $((now - start)) -gt 1 ] && _error_quit "订阅转换服务未启动，请检查日志：$BIN_SUBCONVERTER_LOG"
+        [ $((now - start)) -gt 2 ] && _error_quit "订阅转换服务未启动，请检查日志：$BIN_SUBCONVERTER_LOG"
     done
 }
 _stop_convert() {
-    pkill -9 -f "$BIN_SUBCONVERTER" >&/dev/null
+    # pkill -9 -f "$BIN_SUBCONVERTER" >&/dev/null
+    docker stop subconverter >/dev/null
 }

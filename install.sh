@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC1091
-. script/cmd/common.sh >&/dev/null
-. script/cmd/clashctl.sh >&/dev/null
-. script/preflight.sh >&/dev/null
+. script/cmd/common.sh
+. script/cmd/clashctl.sh
+. script/preflight.sh
 
 _valid_env
 _get_kernel "$@"
@@ -21,16 +21,12 @@ _okcat "安装内核：$KERNEL_NAME by ${init_type:-$container}"
     /bin/cp "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
 }
 
-[ -n "$container" ] && {
-    _start_convert
-}
-
-_valid_config "$RESOURCES_CONFIG" || {
+_valid_config "./$RESOURCES_CONFIG" || {
     echo -n "$(_okcat '✈️ ' '输入订阅：')"
     read -r url
     _okcat '⏳' '正在下载...'
-    _download_config "$RESOURCES_CONFIG" "$url" || _error_quit "下载失败: 请将配置内容写入 $RESOURCES_CONFIG 后重新安装"
-    _valid_config "$RESOURCES_CONFIG" || _error_quit "配置无效，请检查配置：$RESOURCES_CONFIG，转换日志：$BIN_SUBCONVERTER_LOG"
+    _download_config "./$RESOURCES_CONFIG" "$url" || _error_quit "下载失败: 请将配置内容写入 $RESOURCES_CONFIG 后重新安装"
+    _valid_config "./$RESOURCES_CONFIG" || _error_quit "配置无效，请检查配置：$RESOURCES_CONFIG，转换日志：$BIN_SUBCONVERTER_LOG"
 }
 _okcat '✅' '配置可用'
 
@@ -46,7 +42,8 @@ _merge_config
 [ -n "$container" ] && {
     _get_proxy_port
     _get_ui_port
-    docker-compose up -d
+    _get_subconverter_port
+    docker-compose --profile "$KERNEL_NAME" up -d
 }
 
 # clashui

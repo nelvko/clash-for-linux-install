@@ -3,14 +3,13 @@
 # shellcheck disable=SC2155
 
 function clashon() {
+    _get_proxy_port
     placeholder_is_active >&/dev/null || {
         sudo placeholder_start >/dev/null || {
             _failcat '启动失败: 执行 clashstatus 查看日志'
             return 1
         }
     }
-    _get_proxy_port
-
     local auth=$("$BIN_YQ" '.authentication[0] // ""' "$CLASH_CONFIG_RUNTIME")
     [ -n "$auth" ] && auth="${auth}@"
 

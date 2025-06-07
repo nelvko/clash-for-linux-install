@@ -1,11 +1,12 @@
-ARG URL_CR_PROXY
+ARG URL_CR_PROXY 
+ARG KERNEL_NAME
 
 FROM ${URL_CR_PROXY}metacubex/mihomo:latest
 
-ADD  https://downloads.clash.wiki/ClashPremium/clash-linux-amd64-2023.08.17.gz /clash.gz
+# ADD  https://downloads.clash.wiki/ClashPremium/clash-linux-amd64-2023.08.17.gz /clash.gz
 
-RUN gzip -dc /clash.gz > /clash && chmod +x /clash
+# RUN gzip -dc /clash.gz > /clash && chmod +x /clash
+run echo $URL_CR_PROXY
+ENTRYPOINT [ "/${KERNEL_NAME}" ]
 
-ENTRYPOINT [ "/mihomo" ]
-
-CMD [ "-d", "/root/.config/mihomo", "-f", "/root/.config/mihomo/config.yaml" ]
+CMD [ "-d", "/root/.config/${KERNEL_NAME}", "-f", "/root/.config/${KERNEL_NAME}/config.yaml" ]
