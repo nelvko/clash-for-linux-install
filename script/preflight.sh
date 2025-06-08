@@ -152,16 +152,15 @@ _set_container() {
     BIN_BASE_DIR="${CLASH_BASE_DIR}/bin"
     BIN_CLASH="${BIN_BASE_DIR}/clash"
     BIN_MIHOMO="${BIN_BASE_DIR}/mihomo"
+    # -e "s|placeholder_bin|$bin|g" \
 
-    bin=$(
-        cat <<EOF
-BIN_KERNEL="$BIN_KERNEL"
-BIN_YQ="${BIN_BASE_DIR}/yq"
-EOF
-    )
+    #     bin=$(
+    #         cat <<EOF
+    # BIN_KERNEL="$BIN_KERNEL"
+    # BIN_YQ="${BIN_BASE_DIR}/yq"
+    # EOF
+    # )
     sed -i \
-        -e "s|placeholder_bin|$bin|g" \
-        \
         -e "s|placeholder_kernel_name|$KERNEL_NAME|g" \
         -e "s|placeholder_bin_kernel|$BIN_KERNEL|g" \
         -e "s|placeholder_start|$service_start|g" \

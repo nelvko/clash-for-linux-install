@@ -55,7 +55,8 @@ export MIXED_PORT=7890
 export UI_PORT=9090
 
 # BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
-BIN_SUBCONVERTER="docker-compose up -d subconverter"
+BIN_SUBCONVERTER="docker-compose -f ${CLASH_BASE_DIR}/docker-compose.yaml  up -d subconverter"
+BIN_SUBCONVERTER="docker-compose -f docker-compose.yaml  up -d subconverter"
 BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
 
 _get_random_port() {
@@ -151,7 +152,7 @@ function _error_quit() {
 
 _is_bind() {
     local port=$1
-    { sudo ss -lnptu 2>/dev/null || sudo netstat -lnptu; } | grep ":${port}\b"
+    { sudo ss -anptu 2>/dev/null || sudo netstat -anptu; } | grep ":${port}\b"
 }
 
 _is_already_in_use() {
@@ -191,7 +192,6 @@ _download_raw_config() {
         --insecure \
         --connect-timeout 4 \
         --retry 1 \
-        --user-agent "$agent" \
         --output "$dest" \
         "$url" ||
         sudo wget \
@@ -199,7 +199,6 @@ _download_raw_config() {
             --no-check-certificate \
             --timeout 3 \
             --tries 1 \
-            --user-agent "$agent" \
             --output-document "$dest" \
             "$url"
 }
@@ -220,7 +219,7 @@ _download_convert_config() {
             "$base_url"
     )
     _download_raw_config "$dest" "$convert_url"
-    _stop_convert
+    # _stop_convert
 }
 function _download_config() {
     local dest=$1
