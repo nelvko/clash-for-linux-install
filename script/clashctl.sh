@@ -60,8 +60,6 @@ function clashstatus() {
 }
 
 function clashui() {
-    # 防止tun模式强制走代理获取不到真实公网ip
-    clashoff >&/dev/null
     _get_ui_port
     # 公网ip
     # ifconfig.me
@@ -84,7 +82,6 @@ function clashui() {
     printf "║                                               ║\n"
     printf "╚═══════════════════════════════════════════════╝\n"
     printf "\n"
-    clashon >&/dev/null
 }
 
 _merge_config_restart() {

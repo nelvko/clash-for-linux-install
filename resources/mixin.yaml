@@ -4,9 +4,13 @@ external-ui: public
 secret:
 
 # 代理服务器配置
-allow-lan: false # 默认关闭，若开启务必设置用户验证以防暴露公网后被滥用
-authentication: 
-  # - "username:password" # 用户验证（clashon默认填充验证信息）
+allow-lan: false # 若开启务必设置用户验证以防暴露公网后被滥用
+authentication:
+  # - "username:password" # 用户验证（clashon 会自动填充验证信息）
+
+# 自定义规则
+rules:
+  - DOMAIN,api64.ipify.org,DIRECT # 用于 clashui 获取真实公网 IP
 
 # tun 配置
 tun:
