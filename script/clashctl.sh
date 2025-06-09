@@ -3,8 +3,12 @@
 
 function clashon() {
     _get_proxy_port
-    sudo systemctl start "$BIN_KERNEL_NAME" && _okcat '已开启代理环境' ||
-        _failcat '启动失败: 执行 "clashstatus" 查看日志' || return 1
+    systemctl is-active "$BIN_KERNEL_NAME" >&/dev/null || {
+        sudo systemctl start "$BIN_KERNEL_NAME" >/dev/null || {
+            _failcat '启动失败: 执行 clashstatus 查看日志'
+            return 1
+        }
+    }
 
     local auth=$(sudo "$BIN_YQ" '.authentication[0] // ""' "$CLASH_CONFIG_RUNTIME")
     [ -n "$auth" ] && auth=$auth@
@@ -23,10 +27,12 @@ function clashon() {
 
     export no_proxy=$no_proxy_addr
     export NO_PROXY=$no_proxy
+
+    _okcat '已开启代理环境'
 }
 
 watch_proxy() {
-    systemctl is-active "$BIN_KERNEL_NAME" >&/dev/null && [ -z "$http_proxy" ] && {
+    [ -z "$http_proxy" ] && [[ $- == *i* ]] && {
         _is_root || _failcat '未检测到代理变量，可执行 clashon 开启代理环境' && clashon
     }
 }
