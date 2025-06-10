@@ -11,7 +11,8 @@ clashstatus \
 clashsecret \
 clashtun \
 clashmixin \
-clashupdate
+clashupdate \
+clashrestart
 
 set -gx fish_version $FISH_VERSION
 

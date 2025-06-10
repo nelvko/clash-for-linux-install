@@ -1,25 +1,19 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC1091
-. script/cmd/common.sh
 . script/cmd/clashctl.sh
 . script/preflight.sh
 
 _valid_env
 _get_kernel "$@"
-_get_init
+
+[ -z "$CONTAINER_TYPE" ] && _get_init
 
 [ -d "$CLASH_BASE_DIR" ] && _error_quit "请先执行卸载脚本,以清除安装路径：$CLASH_BASE_DIR"
 
-_okcat "安装内核：$KERNEL_NAME by ${init_type:-$container}"
+_okcat "安装内核：$KERNEL_NAME by ${INIT_TYPE:-$CONTAINER_TYPE}"
 
-[ -z "$container" ] && {
-    /usr/bin/install -D <(gzip -dc "$ZIP_KERNEL") "$BIN_KERNEL"
-    tar -xf "$ZIP_YQ" -C "${BIN_BASE_DIR}"
-    /bin/mv -f "${BIN_BASE_DIR}"/yq_* "${BIN_BASE_DIR}/yq"
-    tar -xf "$ZIP_SUBCONVERTER" -C "$BIN_BASE_DIR"
-    /bin/cp "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
-}
+_set_bin
 
 _valid_config "./$RESOURCES_CONFIG" || {
     echo -n "$(_okcat '✈️ ' '输入订阅：')"
@@ -31,15 +25,22 @@ _valid_config "./$RESOURCES_CONFIG" || {
 _okcat '✅' '配置可用'
 
 mkdir -p "$CLASH_BASE_DIR"
-/bin/ls . | xargs -I {} /bin/cp -rf "$(pwd)/{}" "$CLASH_BASE_DIR"
+/bin/cp -rf . "$CLASH_BASE_DIR"
 tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"
 echo "$url" >"$CLASH_CONFIG_URL"
 
+sed -i "/\$placeholder_bin/{
+    r /dev/stdin
+    d
+}" "$CLASH_CMD_DIR/common.sh" <<<"$bin_var"
 _set_rc
-_set_init
+
+[ -n "$INIT_TYPE" ] && _set_init
+[ -n "$CONTAINER_TYPE" ] && _set_container
+
 _merge_config
 
-[ -n "$container" ] && {
+[ -n "$CONTAINER_TYPE" ] && {
     _get_proxy_port
     _get_ui_port
     _get_subconverter_port

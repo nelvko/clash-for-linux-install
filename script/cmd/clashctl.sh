@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2155
+# shellcheck disable=SC1091
+
+SCRIPT_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
+. "$SCRIPT_DIR/common.sh"
+# echo "$SCRIPT_DIR/common.sh"
 
 function clashon() {
     _get_proxy_port
@@ -31,7 +37,8 @@ function clashon() {
 }
 
 watch_proxy() {
-    [ -z "$http_proxy" ] && {
+    [ -z "$http_proxy" ] && [[ $- == *i* ]] && { # 新开交互式shell时开启代理环境
+    # [[ "$0" == *-* ]] && { # 登录时开启代理环境
         _is_root || _failcat '未检测到代理变量，可执行 clashon 开启代理环境' && clashon
     }
 }
@@ -51,7 +58,7 @@ function clashoff() {
 }
 
 clashrestart() {
-    placeholder_restart >&/dev/null
+    placeholder_restart
 }
 
 function clashstatus() {
@@ -59,8 +66,6 @@ function clashstatus() {
 }
 
 function clashui() {
-    # 防止tun模式强制走代理获取不到真实公网ip
-    clashoff >&/dev/null
     _get_ui_port
     # 公网ip
     # ifconfig.me
@@ -83,7 +88,6 @@ function clashui() {
     printf "║                                               ║\n"
     printf "╚═══════════════════════════════════════════════╝\n"
     printf "\n"
-    clashon >&/dev/null
 }
 
 _merge_config() {
@@ -98,7 +102,7 @@ _merge_config() {
 
 _merge_config_restart() {
     _merge_config
-    clashrestart
+    clashrestart >&/dev/null
 }
 
 function clashsecret() {
@@ -128,7 +132,7 @@ _tunstatus() {
 
 _tunoff() {
     _tunstatus >/dev/null || return 0
-     "$BIN_YQ" -i '.tun.enable = false' "$CLASH_CONFIG_MIXIN"
+    "$BIN_YQ" -i '.tun.enable = false' "$CLASH_CONFIG_MIXIN"
     _merge_config_restart && _okcat "Tun 模式已关闭"
 }
 

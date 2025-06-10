@@ -20,50 +20,17 @@ _valid_env() {
 }
 
 _get_kernel() {
-    [ "$is_unset" = true ] && {
-        KERNEL_NAME=$(basename "${BIN_MIHOMO:-$BIN_CLASH}")
-        return
-    }
-    ZIP_KERNEL=$ZIP_MIHOMO
-    BIN_KERNEL=$BIN_MIHOMO
-    KERNEL_NAME=$(basename "$BIN_KERNEL")
-
-    echo "$*" | grep -qs docker && {
-        container='docker'
-    }
-
-    echo "$*" | grep docker | grep -qs clash && {
-        container='docker'
-        BIN_KERNEL=$BIN_CLASH
-        KERNEL_NAME=$(basename "$BIN_KERNEL")
-        return
-    }
-
-    echo "$*" | grep -qs clash && {
-        [ ! -f "$ZIP_CLASH" ] && _download_clash "$(uname -m)"
-        ZIP_KERNEL=$(echo "${ZIP_BASE_DIR}"/clash*)
-        BIN_KERNEL=$BIN_CLASH
-        KERNEL_NAME=$(basename "$BIN_KERNEL")
-
-        return
-    }
-
-    # for arg in "$@"; do
-    #     case "$arg" in
-    #     clash)
-    #         [ ! -f "$ZIP_CLASH" ] && _download_clash "$(uname -m)"
-    #         ZIP_KERNEL=$(echo "${ZIP_BASE_DIR}"/clash*)
-    #         BIN_KERNEL=$BIN_CLASH
-    #         ;;
-    #     docker)
-    #         container='docker'
-    #         ;;
-    #     podman)
-    #         container='podman'
-    #         ;;
-    #     esac
-    # done
-    # KERNEL_NAME=$(basename "$BIN_KERNEL")
+    case "${KERNEL_NAME}" in
+    clash)
+        [ -z "$CONTAINER_TYPE" ] && {
+            [ ! -f "$ZIP_CLASH" ] && _download_clash "$(uname -m)"
+            ZIP_KERNEL=$(echo "${ZIP_BASE_DIR}"/clash*)
+        }
+        ;;
+    mihomo | *)
+        ZIP_KERNEL=$ZIP_MIHOMO
+        ;;
+    esac
 }
 
 _openrc() {
@@ -123,13 +90,12 @@ _systemd() {
 }
 
 _get_init() {
-    [ -n "$container" ] && return
-    init_type=$(cat /proc/1/comm 2>/dev/null)
-    [ -z "$init_type" ] && {
-        init_type=$(ps -p 1 -o comm= 2>/dev/null)
+    INIT_TYPE=$(cat /proc/1/comm 2>/dev/null)
+    [ -z "$INIT_TYPE" ] && {
+        INIT_TYPE=$(ps -p 1 -o comm= 2>/dev/null)
     }
 
-    case "${init_type}" in
+    case "${INIT_TYPE}" in
     systemd)
         _systemd
         ;;
@@ -137,9 +103,55 @@ _get_init() {
         [ "$(basename $(readlink -f /sbin/init))" = "busybox" ] && _openrc || _sysvinit
         ;;
     *)
-        _error_quit "不支持的 init 系统：$init_type，请反馈作者适配"
+        _error_quit "不支持的 init 系统：$INIT_TYPE 请反馈作者适配"
         ;;
     esac
+}
+
+_set_bin() {
+    [ -z "$CONTAINER_TYPE" ] && {
+        bin_var=$(
+            cat <<'EOF'
+valid_config_cmd='$BIN_KERNEL -d $(dirname $1) -f $1 -t'
+BIN_BASE_DIR="${CLASH_BASE_DIR}/bin"
+BIN_KERNEL="${BIN_BASE_DIR}/$KERNEL_NAME"
+BIN_YQ="${BIN_BASE_DIR}/yq"
+BIN_SUBCONVERTER_DIR="${BIN_BASE_DIR}/subconverter"
+BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
+BIN_SUBCONVERTER_START="(sudo $BIN_SUBCONVERTER 2>&1 | sudo tee $BIN_SUBCONVERTER_LOG >/dev/null &)"
+BIN_SUBCONVERTER_STOP="pkill -9 -f $BIN_SUBCONVERTER >&/dev/null"
+BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
+BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
+EOF
+        )
+
+        eval "$bin_var"
+        /usr/bin/install -D <(gzip -dc "$ZIP_KERNEL") "$BIN_KERNEL"
+        tar -xf "$ZIP_YQ" -C "${BIN_BASE_DIR}"
+        /bin/mv -f "${BIN_BASE_DIR}"/yq_* "${BIN_BASE_DIR}/yq"
+        tar -xf "$ZIP_SUBCONVERTER" -C "$BIN_BASE_DIR"
+        /bin/cp "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
+
+    }
+
+    [ -n "$CONTAINER_TYPE" ] && {
+
+        bin_var=$(
+            cat <<'EOF'
+        valid_config_cmd="docker run --rm -v $1:/root/.config/mihomo/config.yaml:ro ${URL_CR_PROXY}metacubex/mihomo -t"
+
+        yq1() {
+            docker run --rm -i -u "$(id -u):$(id -u)" -v "${CLASH_BASE_DIR}":"${CLASH_BASE_DIR}" "${URL_CR_PROXY}"mikefarah/yq "$@"
+        }
+        BIN_YQ="yq1"
+        BIN_SUBCONVERTER_START="docker-compose -f docker-compose.yaml  up -d subconverter"
+        BIN_SUBCONVERTER_STOP="docker stop subconverter >/dev/null"
+EOF
+        )
+        eval "$bin_var"
+
+    }
+
 }
 
 _set_container() {
@@ -149,17 +161,6 @@ _set_container() {
     service_stop="docker stop $KERNEL_NAME"
     service_status="docker logs $KERNEL_NAME"
 
-    BIN_BASE_DIR="${CLASH_BASE_DIR}/bin"
-    BIN_CLASH="${BIN_BASE_DIR}/clash"
-    BIN_MIHOMO="${BIN_BASE_DIR}/mihomo"
-    # -e "s|placeholder_bin|$bin|g" \
-
-    #     bin=$(
-    #         cat <<EOF
-    # BIN_KERNEL="$BIN_KERNEL"
-    # BIN_YQ="${BIN_BASE_DIR}/yq"
-    # EOF
-    # )
     sed -i \
         -e "s|placeholder_kernel_name|$KERNEL_NAME|g" \
         -e "s|placeholder_bin_kernel|$BIN_KERNEL|g" \
@@ -172,11 +173,6 @@ _set_container() {
 
 }
 _set_init() {
-    [ -n "$container" ] && {
-        _set_container
-        return
-    }
-
     file_pid="/run/${KERNEL_NAME}.pid"
     file_log="/var/log/${KERNEL_NAME}.log"
 
@@ -246,7 +242,7 @@ _set_rc() {
         return
     }
 
-    echo "source $CLASH_CMD_DIR/common.sh && source $CLASH_CMD_DIR/clashctl.sh && watch_proxy" |
+    echo "source $CLASH_CMD_DIR/clashctl.sh && watch_proxy" |
         tee -a "$SHELL_RC_BASH" "$SHELL_RC_ZSH" >&/dev/null
     [ -n "$SHELL_RC_FISH" ] && /usr/bin/install "$SCRIPT_FISH" "$SHELL_RC_FISH"
 }
