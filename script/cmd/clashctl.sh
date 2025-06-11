@@ -3,10 +3,13 @@
 # shellcheck disable=SC2155
 # shellcheck disable=SC1091
 
-SCRIPT_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+SCRIPT_PATH=$(
+  [ -n "$BASH_SOURCE" ] && readlink -f "$BASH_SOURCE"
+  [ -n "${ZSH_VERSION-}" ] && readlink -f "${(%):-%N}"
+)
+# SCRIPT_PATH=$(readlink -f "${BASH_SOURCE[0]}")
 SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
 . "$SCRIPT_DIR/common.sh"
-# echo "$SCRIPT_DIR/common.sh"
 
 function clashon() {
     _get_proxy_port
@@ -269,7 +272,7 @@ function clashctl() {
 
   clashctl | mihomoctl
 
-  优雅地使用基于 placeholder_kernel_name 的代理环境.
+  优雅地使用基于 $KERNEL_NAME 的代理环境.
   更多信息：https://github.com/nelvko/clash-for-linux-install.
 
   - 开启/关闭代理环境

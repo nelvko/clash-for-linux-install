@@ -14,7 +14,7 @@ _get_kernel "$@"
 _okcat "安装内核：$KERNEL_NAME by ${INIT_TYPE:-$CONTAINER_TYPE}"
 
 _set_bin
-
+docker-compose up -d subconverter
 _valid_config "$(pwd)/$RESOURCES_CONFIG" || {
     echo -n "$(_okcat '✈️ ' '输入订阅：')"
     read -r url

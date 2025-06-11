@@ -29,8 +29,6 @@ export BIN_SUBCONVERTER_PORT=25500
 export MIXED_PORT=7890
 export UI_PORT=9090
 
-# BIN_SUBCONVERTER="docker-compose -f ${CLASH_BASE_DIR}/docker-compose.yaml  up -d subconverter"
-
 [ -n "$BASH_VERSION" ] && {
     EXEC_SHELL=bash
 }
@@ -228,7 +226,7 @@ function _download_config() {
 
 _start_convert() {
     _get_subconverter_port
-    $BIN_SUBCONVERTER_START
+    $BIN_SUBCONVERTER_START >/dev/null
     local start=$(date +%s)
     while ! curl "http://localhost:${BIN_SUBCONVERTER_PORT}/version" >&/dev/null; do
         sleep 0.5s
@@ -237,5 +235,5 @@ _start_convert() {
     done
 }
 _stop_convert() {
-    $BIN_SUBCONVERTER_STOP
+    $BIN_SUBCONVERTER_STOP >/dev/null
 }

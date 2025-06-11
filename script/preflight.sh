@@ -142,8 +142,9 @@ yq1() {
     docker run --rm -i -u "$(id -u):$(id -u)" -v "${CLASH_BASE_DIR}":"${CLASH_BASE_DIR}" "${URL_CR_PROXY}"mikefarah/yq "$@"
 }
 BIN_YQ="yq1"
-BIN_SUBCONVERTER_START="docker-compose -f docker-compose.yaml  up -d subconverter"
-BIN_SUBCONVERTER_STOP="docker stop subconverter >/dev/null"
+BIN_SUBCONVERTER_START="docker start subconverter"
+BIN_SUBCONVERTER_STOP="docker stop subconverter"
+BIN_SUBCONVERTER_LOG="docker logs subconverter"
 EOF
         )
         eval "$bin_var"
@@ -158,7 +159,6 @@ _set_container() {
     service_status="docker logs $KERNEL_NAME"
 
     sed -i \
-        -e "s|placeholder_kernel_name|$KERNEL_NAME|g" \
         -e "s|placeholder_bin_kernel|$BIN_KERNEL|g" \
         -e "s|placeholder_start|$service_start|g" \
         -e "s|placeholder_status|$service_status|g" \
@@ -204,7 +204,6 @@ _set_init() {
         "$service_target"
 
     sed -i \
-        -e "s|placeholder_kernel_name|$KERNEL_NAME|g" \
         -e "s|placeholder_bin_kernel|$BIN_KERNEL|g" \
         -e "s|placeholder_start|$service_start|g" \
         -e "s|placeholder_status|$service_status|g" \
