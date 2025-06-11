@@ -26,8 +26,8 @@ _okcat '✅' '配置可用'
 
 mkdir -p "$CLASH_BASE_DIR"
 /bin/cp -rf . "$CLASH_BASE_DIR"
+_set_env CLASH_CONFIG_URL "$url"
 tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"
-echo "$url" >"$CLASH_CONFIG_URL"
 
 sed -i "/\$placeholder_bin/{
     r /dev/stdin

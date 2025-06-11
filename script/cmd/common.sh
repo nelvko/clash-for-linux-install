@@ -17,7 +17,6 @@ RESOURCES_CONFIG_MIXIN="${RESOURCES_BASE_DIR}/mixin.yaml"
 
 CLASH_RESOURCES_DIR="${CLASH_BASE_DIR}/$RESOURCES_BASE_DIR"
 CLASH_CMD_DIR="${CLASH_BASE_DIR}/$SCRIPT_CMD_DIR"
-CLASH_CONFIG_URL="${CLASH_RESOURCES_DIR}/url"
 CLASH_CONFIG_RAW="${CLASH_BASE_DIR}/$RESOURCES_CONFIG"
 CLASH_CONFIG_RAW_BAK="${CLASH_CONFIG_RAW}.bak"
 CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/$RESOURCES_CONFIG_MIXIN"
@@ -40,6 +39,19 @@ export UI_PORT=9090
 }
 [ -n "$fish_version" ] && {
     EXEC_SHELL=fish
+}
+
+_set_env() {
+    local key=$1
+    local value=$2
+    local env_path="${CLASH_BASE_DIR}/.env"
+
+    grep -qE "^${key}=" "$env_path" && {
+        value=${value//&/\\&}
+        sed -i "s|^${key}=.*|${key}=${value}|" "$env_path"
+        return $?
+    }
+    echo "${key}=${value}" >>"$env_path"
 }
 
 _get_random_port() {
@@ -166,7 +178,7 @@ function _valid_config() {
 _download_raw_config() {
     local dest=$1
     local url=$2
-    # local agent='clash-verge/v2.0.4'
+    local agent='clash-verge/v2.0.4'
     sudo curl \
         --silent \
         --show-error \

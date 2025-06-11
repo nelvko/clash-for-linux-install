@@ -163,7 +163,7 @@ function clashtun() {
 }
 
 function clashupdate() {
-    local url=$(cat "$CLASH_CONFIG_URL")
+    local url=$CLASH_CONFIG_URL
     local is_auto
 
     case "$1" in
@@ -212,7 +212,7 @@ function clashupdate() {
     _valid_config "$CLASH_CONFIG_RAW" || _rollback "转换失败：已回滚配置，转换日志：$BIN_SUBCONVERTER_LOG"
 
     _merge_config_restart && _okcat '🍃' '订阅更新成功'
-    echo "$url" | sudo tee "$CLASH_CONFIG_URL" >&/dev/null
+    _set_env CLASH_CONFIG_URL "$url"
     _okcat '✅' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新成功：$url" | sudo tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
 }
 

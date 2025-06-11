@@ -131,27 +131,23 @@ EOF
         /bin/mv -f "${BIN_BASE_DIR}"/yq_* "${BIN_BASE_DIR}/yq"
         tar -xf "$ZIP_SUBCONVERTER" -C "$BIN_BASE_DIR"
         /bin/cp "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
-
     }
 
     [ -n "$CONTAINER_TYPE" ] && {
 
         bin_var=$(
             cat <<'EOF'
-        valid_config_cmd="docker run --rm -v $1:/root/.config/mihomo/config.yaml:ro ${URL_CR_PROXY}metacubex/mihomo -t"
-
-        yq1() {
-            docker run --rm -i -u "$(id -u):$(id -u)" -v "${CLASH_BASE_DIR}":"${CLASH_BASE_DIR}" "${URL_CR_PROXY}"mikefarah/yq "$@"
-        }
-        BIN_YQ="yq1"
-        BIN_SUBCONVERTER_START="docker-compose -f docker-compose.yaml  up -d subconverter"
-        BIN_SUBCONVERTER_STOP="docker stop subconverter >/dev/null"
+valid_config_cmd='docker run --rm -v $1:/root/.config/mihomo/config.yaml:ro ${URL_CR_PROXY}metacubex/mihomo -t'
+yq1() {
+    docker run --rm -i -u "$(id -u):$(id -u)" -v "${CLASH_BASE_DIR}":"${CLASH_BASE_DIR}" "${URL_CR_PROXY}"mikefarah/yq "$@"
+}
+BIN_YQ="yq1"
+BIN_SUBCONVERTER_START="docker-compose -f docker-compose.yaml  up -d subconverter"
+BIN_SUBCONVERTER_STOP="docker stop subconverter >/dev/null"
 EOF
         )
         eval "$bin_var"
-
     }
-
 }
 
 _set_container() {
