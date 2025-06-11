@@ -47,7 +47,7 @@ _merge_config
     docker-compose --profile "$KERNEL_NAME" up -d
 }
 
-# clashui
+clashui
 _okcat '🎉' 'enjoy 🎉'
-# clash
+clash
 _quit
