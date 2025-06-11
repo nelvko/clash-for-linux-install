@@ -19,7 +19,7 @@ services:
     restart: always
     volumes:
       - ${CLASH_BASE_DIR}/resources/runtime.yaml:/root/.config/clash/config.yaml:ro
-      - ${CLASH_BASE_DIR}/resources/public:/root/.config/clash/public:ro
+      # - ${CLASH_BASE_DIR}/resources/public:/root/.config/clash/public:ro
     cap_add:
       - NET_ADMIN
     devices:
@@ -27,16 +27,13 @@ services:
     network_mode: "host"
     profiles:
       - clash
-  # dashboard:
-  #   image: ${URL_CR_PROXY}haishanh/yacd
-  #   restart: always
-  #   # depends_on:
-  #   #   - mihomo
-  #   #   - clash
-  #   ports:
-  #     - ${UI_PORT}:80
-  #   container_name: yacd
-  #   network_mode: "bridge"
+  dashboard:
+    image: ${URL_CR_PROXY}haishanh/yacd
+    restart: always
+    ports:
+      - ${UI_PORT}:80
+    container_name: yacd
+    network_mode: "bridge"
 
   subconverter:
     image: ${URL_CR_PROXY}tindy2013/subconverter
