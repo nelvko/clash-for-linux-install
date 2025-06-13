@@ -14,7 +14,6 @@ _get_kernel "$@"
 _okcat "安装内核：$KERNEL_NAME by ${INIT_TYPE:-$CONTAINER_TYPE}"
 
 _set_bin
-docker-compose up -d subconverter
 _valid_config "$(pwd)/$RESOURCES_CONFIG" || {
     echo -n "$(_okcat '✈️ ' '输入订阅：')"
     read -r url
@@ -39,13 +38,6 @@ _set_rc
 [ -n "$CONTAINER_TYPE" ] && _set_container
 
 _merge_config
-
-[ -n "$CONTAINER_TYPE" ] && {
-    _get_proxy_port
-    _get_ui_port
-    _get_subconverter_port
-    docker-compose --profile "$KERNEL_NAME" up -d
-}
 
 clashui
 _okcat '🎉' 'enjoy 🎉'

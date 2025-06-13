@@ -23,11 +23,8 @@ CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/$RESOURCES_CONFIG_MIXIN"
 CLASH_CONFIG_RUNTIME="${CLASH_RESOURCES_DIR}/runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_RESOURCES_DIR}/clashupdate.log"
 
+BIN_SUBCONVERTER_PORT=25500
 $placeholder_bin
-
-export BIN_SUBCONVERTER_PORT=25500
-export MIXED_PORT=7890
-export UI_PORT=9090
 
 [ -n "$BASH_VERSION" ] && {
     EXEC_SHELL=bash
@@ -176,13 +173,15 @@ function _valid_config() {
 _download_raw_config() {
     local dest=$1
     local url=$2
-    local agent='clash-verge/v2.0.4'
+    local agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
+
     sudo curl \
         --silent \
         --show-error \
         --insecure \
         --connect-timeout 4 \
         --retry 1 \
+        --user-agent "$agent" \
         --output "$dest" \
         "$url" ||
         sudo wget \
@@ -190,6 +189,7 @@ _download_raw_config() {
             --no-check-certificate \
             --timeout 3 \
             --tries 1 \
+            --user-agent "$agent" \
             --output-document "$dest" \
             "$url"
 }
@@ -210,7 +210,7 @@ _download_convert_config() {
             "$base_url"
     )
     _download_raw_config "$dest" "$convert_url"
-    # _stop_convert
+    _stop_convert
 }
 function _download_config() {
     local dest=$1
@@ -225,10 +225,12 @@ function _download_config() {
 }
 
 _start_convert() {
+    local test_cmd="curl http://localhost:${BIN_SUBCONVERTER_PORT}/version"
+    $test_cmd >&/dev/null && return 0
     _get_subconverter_port
     $BIN_SUBCONVERTER_START >/dev/null
     local start=$(date +%s)
-    while ! curl "http://localhost:${BIN_SUBCONVERTER_PORT}/version" >&/dev/null; do
+    while ! $test_cmd >&/dev/null; do
         sleep 0.5s
         local now=$(date +%s)
         [ $((now - start)) -gt 2 ] && _error_quit "订阅转换服务未启动，请检查日志：$BIN_SUBCONVERTER_LOG"

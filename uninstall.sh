@@ -14,10 +14,6 @@ clashoff >&/dev/null
     _set_init
 }
 
-[ -n "$CONTAINER_TYPE" ] && {
-    docker-compose --profile "$KERNEL_NAME" down
-}
-
 _set_rc
 crontab -l 2>/dev/null | grep -v "clashupdate" | crontab -
 

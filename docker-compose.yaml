@@ -4,8 +4,8 @@ services:
     container_name: mihomo
     restart: always
     volumes:
-      - ${CLASH_BASE_DIR}/resources/runtime.yaml:/root/.config/mihomo/config.yaml:ro
-      # - /opt/clash/resources/public:/root/.config/mihomo/public:ro
+      - ${CLASH_RESOURCES_DIR}/runtime.yaml:/root/.config/mihomo/config.yaml:ro
+      - ${CLASH_RESOURCES_DIR}/public:/root/.config/mihomo/public:ro
     cap_add:
       - NET_ADMIN
     devices:
@@ -18,8 +18,8 @@ services:
     container_name: clash
     restart: always
     volumes:
-      - ${CLASH_BASE_DIR}/resources/runtime.yaml:/root/.config/clash/config.yaml:ro
-      # - ${CLASH_BASE_DIR}/resources/public:/root/.config/clash/public:ro
+      - ${CLASH_RESOURCES_DIR}/runtime.yaml:/root/.config/clash/config.yaml:ro
+      # - ${CLASH_RESOURCES_DIR}/public:/root/.config/clash/public:ro
     cap_add:
       - NET_ADMIN
     devices:
@@ -27,19 +27,19 @@ services:
     network_mode: "host"
     profiles:
       - clash
-  dashboard:
-    image: ${URL_CR_PROXY}haishanh/yacd
-    restart: always
-    ports:
-      - ${UI_PORT}:80
-    container_name: yacd
-    network_mode: "bridge"
+  # dashboard:
+  #   image: ${URL_CR_PROXY}haishanh/yacd
+  #   restart: always
+  #   ports:
+  #     - ${UI_PORT}:80
+  #   container_name: yacd
+  #   network_mode: "bridge"
 
-  subconverter:
-    image: ${URL_CR_PROXY}tindy2013/subconverter
-    container_name: subconverter
-    restart: always
-    ports:
-      - ${BIN_SUBCONVERTER_PORT}:25500
-    network_mode: "bridge"
+  # subconverter:
+  #   image: ${URL_CR_PROXY}tindy2013/subconverter
+  #   container_name: subconverter
+  #   restart: always
+  #   ports:
+  #     - ${BIN_SUBCONVERTER_PORT}:25500
+  #   network_mode: "bridge"
     

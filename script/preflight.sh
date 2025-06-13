@@ -100,10 +100,14 @@ _get_init() {
         _systemd
         ;;
     init)
-        [ "$(basename $(readlink -f /sbin/init))" = "busybox" ] && _openrc || _sysvinit
+        [ "$(basename "$(readlink -f /sbin/init)")" = "busybox" ] && {
+            _openrc
+            return
+        }
+        _sysvinit
         ;;
     *)
-        _error_quit "不支持的 init 系统：$INIT_TYPE 请反馈作者适配"
+        _error_quit "不支持的 init 系统：${INIT_TYPE}，请反馈作者适配"
         ;;
     esac
 }
@@ -142,7 +146,7 @@ yq1() {
     docker run --rm -i -u "$(id -u):$(id -u)" -v "${CLASH_BASE_DIR}":"${CLASH_BASE_DIR}" "${URL_CR_PROXY}"mikefarah/yq "$@"
 }
 BIN_YQ="yq1"
-BIN_SUBCONVERTER_START="docker start subconverter"
+BIN_SUBCONVERTER_START="docker run --rm -d -p ${BIN_SUBCONVERTER_PORT}:25500 --network bridge --name subconverter ${URL_CR_PROXY}tindy2013/subconverter"
 BIN_SUBCONVERTER_STOP="docker stop subconverter"
 BIN_SUBCONVERTER_LOG="docker logs subconverter"
 EOF
@@ -152,7 +156,7 @@ EOF
 }
 
 _set_container() {
-    service_start="docker start $KERNEL_NAME"
+    service_start="docker run -d --rm --network host --name $KERNEL_NAME  -v $CLASH_CONFIG_RUNTIME:/root/.config/${KERNEL_NAME}/config.yaml:ro ${URL_CR_PROXY}metacubex/mihomo"
     service_restart="docker restart $KERNEL_NAME"
     service_is_active="docker inspect -f {{.State.Running}} $KERNEL_NAME 2>/dev/null | grep -q true"
     service_stop="docker stop $KERNEL_NAME"
