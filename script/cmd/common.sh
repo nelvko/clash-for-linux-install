@@ -173,7 +173,7 @@ function _valid_config() {
 _download_raw_config() {
     local dest=$1
     local url=$2
-    local agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
+    local agent='clash-verge/v2.0.4'
 
     sudo curl \
         --silent \
