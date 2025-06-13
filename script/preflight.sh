@@ -156,7 +156,14 @@ EOF
 }
 
 _set_container() {
-    service_start="docker run -d --rm --network host --name $KERNEL_NAME  -v $CLASH_CONFIG_RUNTIME:/root/.config/${KERNEL_NAME}/config.yaml:ro ${URL_CR_PROXY}metacubex/mihomo"
+    service_start="docker run \
+    -d \
+    --rm \
+    --network host \
+    --name $KERNEL_NAME  \
+    -v $CLASH_CONFIG_RUNTIME:/root/.config/${KERNEL_NAME}/config.yaml:ro \
+    -v $CLASH_RESOURCES_DIR:/root/.config/${KERNEL_NAME} \
+      ${URL_CR_PROXY}metacubex/mihomo"
     service_restart="docker restart $KERNEL_NAME"
     service_is_active="docker inspect -f {{.State.Running}} $KERNEL_NAME 2>/dev/null | grep -q true"
     service_stop="docker stop $KERNEL_NAME"
