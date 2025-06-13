@@ -9,7 +9,7 @@ _valid_env
 
 _get_kernel
 
-/bin/install -D <(gzip -dc "$ZIP_KERNEL") "${RESOURCES_BIN_DIR}/$BIN_KERNEL_NAME"
+/usr/bin/install -D <(gzip -dc "$ZIP_KERNEL") "${RESOURCES_BIN_DIR}/$BIN_KERNEL_NAME"
 tar -xf "$ZIP_SUBCONVERTER" -C "$RESOURCES_BIN_DIR"
 tar -xf "$ZIP_YQ" -C "${RESOURCES_BIN_DIR}"
 # shellcheck disable=SC2086
