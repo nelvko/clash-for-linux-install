@@ -61,7 +61,8 @@ function clashoff() {
 }
 
 clashrestart() {
-    placeholder_restart
+    clashoff >/dev/null
+    clashon
 }
 
 function clashstatus() {
@@ -145,7 +146,7 @@ _tunon() {
     "$BIN_YQ" -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
     _merge_config_restart
     sleep 0.5s
-    sudo journalctl -u "$KERNEL_NAME" --since "1 min ago" | grep -E -m1 'unsupported kernel version|Start TUN listening error' && {
+    placeholder_check_tun | grep -E -m1 'unsupported kernel version|Start TUN listening error' && {
         _tunoff >&/dev/null
         _error_quit '不支持的内核版本'
     }

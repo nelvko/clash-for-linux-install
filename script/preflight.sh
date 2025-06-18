@@ -20,6 +20,9 @@ _valid_env() {
 }
 
 _get_kernel() {
+    [[ $* == *docker* ]] && CONTAINER_TYPE=docker
+    [[ $* == *clash* ]] && KERNEL_NAME=clash
+
     case "${KERNEL_NAME}" in
     clash)
         [ -z "$CONTAINER_TYPE" ] && {
@@ -98,6 +101,7 @@ _get_init() {
     case "${INIT_TYPE}" in
     systemd)
         _systemd
+        service_check_tun="sudo journalctl -u $KERNEL_NAME --since '1 min ago'"
         ;;
     init)
         [ "$(basename "$(readlink -f /sbin/init)")" = "busybox" ] && {
@@ -105,6 +109,7 @@ _get_init() {
             return
         }
         _sysvinit
+        service_check_tun="clashstatus"
         ;;
     *)
         _error_quit "不支持的 init 系统：${INIT_TYPE}，请反馈作者适配"
@@ -168,6 +173,7 @@ _set_container() {
     service_is_active="docker inspect -f {{.State.Running}} $KERNEL_NAME 2>/dev/null | grep -q true"
     service_stop="docker stop $KERNEL_NAME"
     service_status="docker logs $KERNEL_NAME"
+    service_check_tun="clashstatus"
 
     sed -i \
         -e "s|placeholder_bin_kernel|$BIN_KERNEL|g" \
@@ -176,6 +182,7 @@ _set_container() {
         -e "s|placeholder_stop|$service_stop|g" \
         -e "s|placeholder_restart|$service_restart|g" \
         -e "s#placeholder_is_active#$service_is_active#g" \
+        -e "s|placeholder_check_tun|$service_check_tun|g" \
         "$CLASH_CMD_DIR/clashctl.sh" "$CLASH_CMD_DIR/common.sh"
 
 }
@@ -221,6 +228,7 @@ _set_init() {
         -e "s|placeholder_stop|$service_stop|g" \
         -e "s|placeholder_restart|$service_restart|g" \
         -e "s|placeholder_is_active|$service_is_active|g" \
+        -e "s|placeholder_check_tun|$service_check_tun|g" \
         "$CLASH_CMD_DIR/clashctl.sh" "$CLASH_CMD_DIR/common.sh"
 
     $service_reload
