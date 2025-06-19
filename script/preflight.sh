@@ -20,8 +20,12 @@ _valid_env() {
 }
 
 _get_kernel() {
+    KERNEL_IMAGE=$MIHOMO_IMAGE
     [[ $* == *docker* ]] && CONTAINER_TYPE=docker
-    [[ $* == *clash* ]] && KERNEL_NAME=clash
+    [[ $* == *clash* ]] && {
+        KERNEL_NAME=clash
+        KERNEL_IMAGE=$CLASH_IMAGE
+    }
 
     case "${KERNEL_NAME}" in
     clash)
@@ -146,7 +150,7 @@ EOF
 
         bin_var=$(
             cat <<'EOF'
-valid_config_cmd='docker run --rm -v $1:/root/.config/mihomo/config.yaml:ro ${URL_CR_PROXY}metacubex/mihomo -t'
+valid_config_cmd='docker run --rm -v $1:/root/.config/${KERNEL_NAME}/config.yaml:ro -v $(dirname $1):/root/.config/${KERNEL_NAME} ${URL_CR_PROXY}${KERNEL_IMAGE} -t'
 yq1() {
     docker run --rm -i -u "$(id -u):$(id -u)" -v "${CLASH_BASE_DIR}":"${CLASH_BASE_DIR}" "${URL_CR_PROXY}"mikefarah/yq "$@"
 }
@@ -168,7 +172,7 @@ _set_container() {
     --name $KERNEL_NAME  \
     -v $CLASH_CONFIG_RUNTIME:/root/.config/${KERNEL_NAME}/config.yaml:ro \
     -v $CLASH_RESOURCES_DIR:/root/.config/${KERNEL_NAME} \
-      ${URL_CR_PROXY}metacubex/mihomo"
+      ${URL_CR_PROXY}${KERNEL_IMAGE}"
     service_restart="docker restart $KERNEL_NAME"
     service_is_active="docker inspect -f {{.State.Running}} $KERNEL_NAME 2>/dev/null | grep -q true"
     service_stop="docker stop $KERNEL_NAME"

@@ -142,7 +142,7 @@ function _error_quit() {
 
 _is_bind() {
     local port=$1
-    { sudo ss -anptu 2>/dev/null || sudo netstat -anptu; } | grep ":${port}\b"
+    { sudo ss -lnptu 2>/dev/null || sudo netstat -lnptu; } | grep ":${port}\b"
 }
 
 _is_already_in_use() {
@@ -173,7 +173,7 @@ function _valid_config() {
 _download_raw_config() {
     local dest=$1
     local url=$2
-    local agent='clash-verge/v2.0.4'
+    local agent='firefox'
 
     sudo curl \
         --silent \
