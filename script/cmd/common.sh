@@ -173,7 +173,7 @@ function _valid_config() {
 _download_raw_config() {
     local dest=$1
     local url=$2
-    local agent='firefox'
+    local agent='clash-verge/v2.0.4'
 
     sudo curl \
         --silent \
@@ -225,10 +225,10 @@ function _download_config() {
 }
 
 _start_convert() {
+    _get_subconverter_port
     local test_cmd="curl http://localhost:${BIN_SUBCONVERTER_PORT}/version"
     $test_cmd >&/dev/null && return 0
-    _get_subconverter_port
-    $BIN_SUBCONVERTER_START >/dev/null
+    eval "$BIN_SUBCONVERTER_START >/dev/null"
     local start=$(date +%s)
     while ! $test_cmd >&/dev/null; do
         sleep 0.5s

@@ -15,20 +15,23 @@ _okcat "安装内核：$KERNEL_NAME by ${INIT_TYPE:-$CONTAINER_TYPE}"
 
 _set_bin
 _valid_config "$(pwd)/$RESOURCES_CONFIG" || {
-    echo -n "$(_okcat '✈️ ' '输入订阅：')"
-    read -r url
+    [ -z "$CLASH_CONFIG_URL" ] && {
+        echo -n "$(_okcat '✈️ ' '输入订阅：')"
+        read -r CLASH_CONFIG_URL
+    }
     _okcat '⏳' '正在下载...'
-    _download_config "$(pwd)/$RESOURCES_CONFIG" "$url" || _error_quit "下载失败: 请将配置内容写入 $RESOURCES_CONFIG 后重新安装"
+    _download_config "$(pwd)/$RESOURCES_CONFIG" "$CLASH_CONFIG_URL" || _error_quit "下载失败: 请将配置内容写入 $RESOURCES_CONFIG 后重新安装"
     _valid_config "$(pwd)/$RESOURCES_CONFIG" || _error_quit "配置无效，请检查配置：$RESOURCES_CONFIG，转换日志：$BIN_SUBCONVERTER_LOG"
 }
 _okcat '✅' '配置可用'
 
 mkdir -p "$CLASH_BASE_DIR"
 /bin/cp -rf . "$CLASH_BASE_DIR"
-_set_env CLASH_CONFIG_URL "$url"
+_set_env CLASH_CONFIG_URL "$CLASH_CONFIG_URL"
 [ -n "$*" ] && {
     _set_env CONTAINER_TYPE "$CONTAINER_TYPE"
     _set_env KERNEL_NAME "$KERNEL_NAME"
+    _set_env KERNEL_IMAGE "$KERNEL_IMAGE"
 }
 
 tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"

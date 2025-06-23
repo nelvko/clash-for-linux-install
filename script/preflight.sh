@@ -20,24 +20,20 @@ _valid_env() {
 }
 
 _get_kernel() {
+    KERNEL_NAME=mihomo
+    ZIP_KERNEL=$ZIP_MIHOMO
     KERNEL_IMAGE=$MIHOMO_IMAGE
+
     [[ $* == *docker* ]] && CONTAINER_TYPE=docker
+
     [[ $* == *clash* ]] && {
         KERNEL_NAME=clash
         KERNEL_IMAGE=$CLASH_IMAGE
-    }
-
-    case "${KERNEL_NAME}" in
-    clash)
         [ -z "$CONTAINER_TYPE" ] && {
             [ ! -f "$ZIP_CLASH" ] && _download_clash "$(uname -m)"
             ZIP_KERNEL=$(echo "${ZIP_BASE_DIR}"/clash*)
         }
-        ;;
-    mihomo | *)
-        ZIP_KERNEL=$ZIP_MIHOMO
-        ;;
-    esac
+    }
 }
 
 _openrc() {
@@ -131,13 +127,12 @@ BIN_KERNEL="${BIN_BASE_DIR}/$KERNEL_NAME"
 BIN_YQ="${BIN_BASE_DIR}/yq"
 BIN_SUBCONVERTER_DIR="${BIN_BASE_DIR}/subconverter"
 BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
-BIN_SUBCONVERTER_START="(sudo $BIN_SUBCONVERTER 2>&1 | sudo tee $BIN_SUBCONVERTER_LOG >/dev/null &)"
-BIN_SUBCONVERTER_STOP="pkill -9 -f $BIN_SUBCONVERTER >&/dev/null"
+BIN_SUBCONVERTER_START="($BIN_SUBCONVERTER 2>&1 | tee $BIN_SUBCONVERTER_LOG >/dev/null &)"
+BIN_SUBCONVERTER_STOP="pkill -9 -f $BIN_SUBCONVERTER"
 BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
 BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
 EOF
         )
-
         eval "$bin_var"
         /usr/bin/install -D <(gzip -dc "$ZIP_KERNEL") "$BIN_KERNEL"
         tar -xf "$ZIP_YQ" -C "${BIN_BASE_DIR}"
@@ -147,7 +142,6 @@ EOF
     }
 
     [ -n "$CONTAINER_TYPE" ] && {
-
         bin_var=$(
             cat <<'EOF'
 valid_config_cmd='docker run --rm -v $1:/root/.config/${KERNEL_NAME}/config.yaml:ro -v $(dirname $1):/root/.config/${KERNEL_NAME} ${URL_CR_PROXY}${KERNEL_IMAGE} -t'
