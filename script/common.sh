@@ -209,7 +209,7 @@ function _error_quit() {
 
 _is_bind() {
     local port=$1
-    { sudo ss -anptu || sudo netstat -anptu; } | grep ":${port}\b"
+    { sudo ss -lnptu || sudo netstat -lnptu; } | grep ":${port}\b"
 }
 
 _is_already_in_use() {
