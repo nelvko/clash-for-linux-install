@@ -20,20 +20,23 @@ _valid_env() {
 }
 
 _get_kernel() {
-    KERNEL_NAME=mihomo
-    ZIP_KERNEL=$ZIP_MIHOMO
-    KERNEL_IMAGE=$MIHOMO_IMAGE
-
     [[ $* == *docker* ]] && CONTAINER_TYPE=docker
+    [[ $* == *mihomo* ]] && KERNEL_NAME=mihomo
+    [[ $* == *clash* ]] && KERNEL_NAME=clash
 
-    [[ $* == *clash* ]] && {
-        KERNEL_NAME=clash
-        KERNEL_IMAGE=$CLASH_IMAGE
+    case "${KERNEL_NAME}" in
+    clash)
         [ -z "$CONTAINER_TYPE" ] && {
             [ ! -f "$ZIP_CLASH" ] && _download_clash "$(uname -m)"
             ZIP_KERNEL=$(echo "${ZIP_BASE_DIR}"/clash*)
         }
-    }
+        IMAGE_KERNEL=$IMAGE_CLASH
+        ;;
+    mihomo | *)
+        ZIP_KERNEL=$ZIP_MIHOMO
+        IMAGE_KERNEL=$IMAGE_MIHOMO
+        ;;
+    esac
 }
 
 _openrc() {
@@ -144,7 +147,7 @@ EOF
     [ -n "$CONTAINER_TYPE" ] && {
         bin_var=$(
             cat <<'EOF'
-valid_config_cmd='docker run --rm -v $1:/root/.config/${KERNEL_NAME}/config.yaml:ro -v $(dirname $1):/root/.config/${KERNEL_NAME} ${URL_CR_PROXY}${KERNEL_IMAGE} -t'
+valid_config_cmd='docker run --rm -v $1:/root/.config/${KERNEL_NAME}/config.yaml:ro -v $(dirname $1):/root/.config/${KERNEL_NAME} ${URL_CR_PROXY}${IMAGE_KERNEL} -t'
 yq1() {
     docker run --rm -i -u "$(id -u):$(id -u)" -v "${CLASH_BASE_DIR}":"${CLASH_BASE_DIR}" "${URL_CR_PROXY}"mikefarah/yq "$@"
 }
@@ -166,7 +169,7 @@ _set_container() {
     --name $KERNEL_NAME  \
     -v $CLASH_CONFIG_RUNTIME:/root/.config/${KERNEL_NAME}/config.yaml:ro \
     -v $CLASH_RESOURCES_DIR:/root/.config/${KERNEL_NAME} \
-      ${URL_CR_PROXY}${KERNEL_IMAGE}"
+      ${URL_CR_PROXY}${IMAGE_KERNEL}"
     service_restart="docker restart $KERNEL_NAME"
     service_is_active="docker inspect -f {{.State.Running}} $KERNEL_NAME 2>/dev/null | grep -q true"
     service_stop="docker stop $KERNEL_NAME"

@@ -27,14 +27,15 @@ _okcat '✅' '配置可用'
 
 mkdir -p "$CLASH_BASE_DIR"
 /bin/cp -rf . "$CLASH_BASE_DIR"
+tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"
 _set_env CLASH_CONFIG_URL "$CLASH_CONFIG_URL"
+_merge_config
+
 [ -n "$*" ] && {
     _set_env CONTAINER_TYPE "$CONTAINER_TYPE"
     _set_env KERNEL_NAME "$KERNEL_NAME"
-    _set_env KERNEL_IMAGE "$KERNEL_IMAGE"
+    _set_env IMAGE_KERNEL "$IMAGE_KERNEL"
 }
-
-tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"
 
 sed -i "/\$placeholder_bin/{
     r /dev/stdin
@@ -44,8 +45,6 @@ _set_rc
 
 [ -n "$INIT_TYPE" ] && _set_init
 [ -n "$CONTAINER_TYPE" ] && _set_container
-
-_merge_config
 
 clashui
 _okcat '🎉' 'enjoy 🎉'

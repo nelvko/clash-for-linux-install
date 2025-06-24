@@ -77,8 +77,8 @@ function clashui() {
     local public_ip=$(curl -s --noproxy "*" --connect-timeout 2 $query_url)
     local public_address="http://${public_ip:-公网}:${UI_PORT}/ui"
     # 内网ip
-    local local_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7}' ||
-        hostname -I 2>/dev/null | awk '{print $1}')
+    local local_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7}' )
+    [ -z "$local_ip" ] && local_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
     local local_address="http://${local_ip:-内网}:${UI_PORT}/ui"
     printf "\n"
     printf "╔═══════════════════════════════════════════════╗\n"
@@ -145,10 +145,18 @@ _tunon() {
     _tunstatus 2>/dev/null && return 0
     "$BIN_YQ" -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
     _merge_config_restart
-    sleep 0.5s
-    placeholder_check_tun | grep -E -m1 'unsupported kernel version|Start TUN listening error' && {
-        _tunoff >&/dev/null
-        _error_quit '不支持的内核版本'
+    sleep 0.3s
+    placeholder_check_tun | grep -E -m1 -qs 'unsupported kernel version|Start TUN listening error' && {
+        [ "$KERNEL_NAME" = 'mihomo' ] && {
+            "$BIN_YQ" -i '.tun.auto-redirect = false' "$CLASH_CONFIG_MIXIN"
+            _merge_config_restart
+            sleep 0.3s
+        }
+        placeholder_check_tun | grep -E -m1 -qs 'Tun adapter listening at|TUN listening iface' || {
+            placeholder_check_tun | grep -E -m1 'unsupported kernel version|Start TUN listening error'
+            _tunoff >&/dev/null
+            _error_quit '系统内核版本不支持 Tun 模式'
+        }
     }
     _okcat "Tun 模式已开启"
 }

@@ -43,8 +43,6 @@ is-active)
   echo "placeholder_kernel_name is not running."
   exit 1
   ;;
-enable) ;;
-disable) ;;
 *)
   echo "Usage: $0 {start|stop|restart}"
   ;;

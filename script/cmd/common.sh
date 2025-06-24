@@ -163,9 +163,12 @@ function _is_root() {
 function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
         local msg
-        msg=$(eval $valid_config_cmd) || {
-            eval $valid_config_cmd
-            echo "$msg" | grep -qs "unsupport proxy type" && _error_quit "不支持的代理协议，请安装 mihomo 内核"
+        msg=$(eval "$valid_config_cmd") || {
+            eval "$valid_config_cmd"
+            echo "$msg" | grep -qs "unsupport proxy type" && {
+                local proxy_type=$(awk -F': ' '{print $3}' <<<"$msg" | awk '{print $1}')
+                _error_quit "订阅中包含不支持的代理协议：${proxy_type}，请安装使用 mihomo 内核"
+            }
         }
     }
 }
