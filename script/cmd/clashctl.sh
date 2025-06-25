@@ -201,7 +201,7 @@ function clashupdate() {
 
     # 如果是自动更新模式，则设置定时任务
     [ "$is_auto" = true ] && {
-        command -v crontab1 >/dev/null || _error_quit "未安装 crontab，请先安装 cron 服务"
+        command -v crontab >/dev/null || _error_quit "未检测到 crontab 命令，请先安装 cron 服务"
         crontab -l | sudo grep -qs 'clashupdate' || {
             (
                 crontab -l 2>/dev/null
