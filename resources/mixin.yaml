@@ -28,6 +28,10 @@ tun:
     # - docker0
     # - podman0
 
+# 环境变量代理配置
+proxy-env:
+  enable: false
+
 # DNS 配置
 dns:
   enable: true
