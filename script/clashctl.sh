@@ -1,9 +1,7 @@
 # shellcheck disable=SC2148
 # shellcheck disable=SC2155
 
-# 设置代理环境变量
-_set_proxy_env() {
-    _get_proxy_port
+_set_system_proxy() {
     local auth=$(sudo "$BIN_YQ" '.authentication[0] // ""' "$CLASH_CONFIG_RUNTIME")
     [ -n "$auth" ] && auth=$auth@
 
@@ -22,12 +20,10 @@ _set_proxy_env() {
     export no_proxy=$no_proxy_addr
     export NO_PROXY=$no_proxy
 
-    # 持久化：记录环境变量代理状态到YAML配置
-    sudo "$BIN_YQ" -i '.proxy-env.enable = true' "$CLASH_CONFIG_MIXIN"
+    sudo "$BIN_YQ" -i '.system-proxy.enable = true' "$CLASH_CONFIG_MIXIN"
 }
 
-# 卸载代理环境变量
-_unset_proxy_env() {
+_unset_system_proxy() {
     unset http_proxy
     unset https_proxy
     unset HTTP_PROXY
@@ -37,94 +33,69 @@ _unset_proxy_env() {
     unset no_proxy
     unset NO_PROXY
 
-    # 持久化：清除环境变量代理状态
-    sudo "$BIN_YQ" -i '.proxy-env.enable = false' "$CLASH_CONFIG_MIXIN"
+    sudo "$BIN_YQ" -i '.system-proxy.enable = false' "$CLASH_CONFIG_MIXIN"
 }
 
 function clashon() {
+    _get_proxy_port
     systemctl is-active "$BIN_KERNEL_NAME" >&/dev/null || {
         sudo systemctl start "$BIN_KERNEL_NAME" >/dev/null || {
             _failcat '启动失败: 执行 clashstatus 查看日志'
             return 1
         }
     }
-
-    # 检查TUN模式状态，如果开启则不设置环境变量
-    local tun_status=$(sudo "$BIN_YQ" '.tun.enable' "$CLASH_CONFIG_MIXIN")
-    if [ "$tun_status" = 'true' ]; then
-        _okcat '代理程序已启动，TUN模式已开启（环境变量代理已禁用）'
-    else
-        _set_proxy_env
-        _okcat '已开启代理环境'
-    fi
+    _set_system_proxy
+    _okcat '已开启代理环境'
 }
-
-
 
 watch_proxy() {
     [ -z "$http_proxy" ] && [[ $- == *i* ]] && {
-        local proxy_env_status=$(sudo "$BIN_YQ" '.proxy-env.enable' "$CLASH_CONFIG_MIXIN" 2>/dev/null)
-        if [ "$proxy_env_status" = 'true' ]; then
-            _set_proxy_env >/dev/null 2>&1
-        fi
+        clashproxy status >&/dev/null && {
+            _is_root && clashon
+        }
     }
 }
 
 function clashoff() {
     sudo systemctl stop "$BIN_KERNEL_NAME" && _okcat '已关闭代理程序' ||
         _failcat '关闭失败: 执行 "clashstatus" 查看日志' || return 1
-
-    # 同时清除环境变量
-    _unset_proxy_env
+    _unset_system_proxy
 }
 
 clashrestart() {
     { clashoff && clashon; } >&/dev/null
 }
 
-# 独立的环境变量代理控制
 function clashproxy() {
     case "$1" in
     on)
-        # 检查代理程序是否运行
         systemctl is-active "$BIN_KERNEL_NAME" >&/dev/null || {
-            _failcat '代理程序未运行，请先执行 clashon'
+            _failcat '代理程序未运行，请执行 clashon 开启代理环境'
             return 1
         }
-
-        # 检查TUN模式状态
-        local tun_status=$(sudo "$BIN_YQ" '.tun.enable' "$CLASH_CONFIG_MIXIN")
-        if [ "$tun_status" = 'true' ]; then
-            _failcat 'TUN模式已开启，无法同时使用环境变量代理'
-            return 1
-        fi
-
-        _set_proxy_env  # 自动持久化状态
-        _okcat '已开启环境变量代理（新shell会话将自动应用）'
+        _set_system_proxy
+        _okcat '已开启系统代理'
         ;;
     off)
-        _unset_proxy_env  # 自动持久化状态
-        _okcat '已关闭环境变量代理'
+        _unset_system_proxy
+        _okcat '已关闭系统代理'
         ;;
     status)
-        local proxy_env_status=$(sudo "$BIN_YQ" '.proxy-env.enable' "$CLASH_CONFIG_MIXIN" 2>/dev/null)
-        if [ -n "$http_proxy" ]; then
-            _okcat "环境变量代理：已开启 ($http_proxy)"
-        else
-            if [ "$proxy_env_status" = 'true' ]; then
-                echo "环境变量代理：已配置开启，但当前shell未生效"
-                echo "💡 执行 'clash proxy on' 在当前shell中生效"
-            else
-                _failcat "环境变量代理：已关闭"
-            fi
-        fi
+        local system_proxy_status=$(sudo "$BIN_YQ" '.system-proxy.enable' "$CLASH_CONFIG_MIXIN" 2>/dev/null)
+        [ "$system_proxy_status" = "false" ] && {
+            _failcat "系统代理：关闭"
+            return 1
+        }
+        _okcat "系统代理：开启
+http_proxy： $http_proxy
+socks_proxy：$all_proxy"
         ;;
     *)
         cat <<EOF
 用法: clashproxy [on|off|status]
-    on      开启环境变量代理（系统代理）
-    off     关闭环境变量代理
-    status  查看环境变量代理状态
+    on      开启系统代理
+    off     关闭系统代理
+    status  查看系统代理状态
 EOF
         ;;
     esac
@@ -334,15 +305,12 @@ function clashctl() {
         cat <<EOF
 
 Usage:
-    clash      COMMAND  [OPTION]
-    mihomo     COMMAND  [OPTION]
-    clashctl   COMMAND  [OPTION]
-    mihomoctl  COMMAND  [OPTION】
+    clash COMMAND  [OPTION]
 
 Commands:
-    on                      开启代理程序
-    off                     关闭代理程序
-    proxy    [on|off|status] 环境变量代理控制
+    on                      开启代理
+    off                     关闭代理
+    proxy    [on|off]       系统代理
     ui                      面板地址
     status                  内核状况
     tun      [on|off]       Tun 模式
@@ -351,9 +319,8 @@ Commands:
     update   [auto|log]     更新订阅
 
 说明:
-    - on/off: 控制代理程序启停
-    - proxy: 独立控制环境变量代理（系统代理）
-    - tun: TUN模式与环境变量代理互斥
+    - clashon: 启动代理程序，并开启系统代理
+    - clashproxy: 仅控制系统代理，不影响代理程序
 
 EOF
         ;;
