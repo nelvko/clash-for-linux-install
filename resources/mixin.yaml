@@ -1,3 +1,7 @@
+# 系统代理配置
+system-proxy:
+  enable: true
+
 # Web 控制台配置
 external-controller: "0.0.0.0:9090"
 external-ui: public
@@ -27,10 +31,6 @@ tun:
   exclude-interface:
     # - docker0
     # - podman0
-
-# 环境变量代理配置
-proxy-env:
-  enable: false
 
 # DNS 配置
 dns:
