@@ -1,15 +1,7 @@
 # shellcheck disable=SC2148
 # shellcheck disable=SC2155
 
-function clashon() {
-    _get_proxy_port
-    systemctl is-active "$BIN_KERNEL_NAME" >&/dev/null || {
-        sudo systemctl start "$BIN_KERNEL_NAME" >/dev/null || {
-            _failcat '启动失败: 执行 clashstatus 查看日志'
-            return 1
-        }
-    }
-
+_set_system_proxy() {
     local auth=$(sudo "$BIN_YQ" '.authentication[0] // ""' "$CLASH_CONFIG_RUNTIME")
     [ -n "$auth" ] && auth=$auth@
 
@@ -28,19 +20,10 @@ function clashon() {
     export no_proxy=$no_proxy_addr
     export NO_PROXY=$no_proxy
 
-    _okcat '已开启代理环境'
+    sudo "$BIN_YQ" -i '.system-proxy.enable = true' "$CLASH_CONFIG_MIXIN"
 }
 
-watch_proxy() {
-    [ -z "$http_proxy" ] && [[ $- == *i* ]] && {
-        _is_root || _failcat '未检测到代理变量，可执行 clashon 开启代理环境' && clashon
-    }
-}
-
-function clashoff() {
-    sudo systemctl stop "$BIN_KERNEL_NAME" && _okcat '已关闭代理环境' ||
-        _failcat '关闭失败: 执行 "clashstatus" 查看日志' || return 1
-
+_unset_system_proxy() {
     unset http_proxy
     unset https_proxy
     unset HTTP_PROXY
@@ -49,10 +32,73 @@ function clashoff() {
     unset ALL_PROXY
     unset no_proxy
     unset NO_PROXY
+
+    sudo "$BIN_YQ" -i '.system-proxy.enable = false' "$CLASH_CONFIG_MIXIN"
+}
+
+function clashon() {
+    _get_proxy_port
+    systemctl is-active "$BIN_KERNEL_NAME" >&/dev/null || {
+        sudo systemctl start "$BIN_KERNEL_NAME" >/dev/null || {
+            _failcat '启动失败: 执行 clashstatus 查看日志'
+            return 1
+        }
+    }
+    _set_system_proxy
+    _okcat '已开启代理环境'
+}
+
+watch_proxy() {
+    [ -z "$http_proxy" ] && [[ $- == *i* ]] && {
+        clashproxy status >&/dev/null && {
+            _is_root && clashon
+        }
+    }
+}
+
+function clashoff() {
+    sudo systemctl stop "$BIN_KERNEL_NAME" && _okcat '已关闭代理程序' ||
+        _failcat '关闭失败: 执行 "clashstatus" 查看日志' || return 1
+    _unset_system_proxy
 }
 
 clashrestart() {
     { clashoff && clashon; } >&/dev/null
+}
+
+function clashproxy() {
+    case "$1" in
+    on)
+        systemctl is-active "$BIN_KERNEL_NAME" >&/dev/null || {
+            _failcat '代理程序未运行，请执行 clashon 开启代理环境'
+            return 1
+        }
+        _set_system_proxy
+        _okcat '已开启系统代理'
+        ;;
+    off)
+        _unset_system_proxy
+        _okcat '已关闭系统代理'
+        ;;
+    status)
+        local system_proxy_status=$(sudo "$BIN_YQ" '.system-proxy.enable' "$CLASH_CONFIG_MIXIN" 2>/dev/null)
+        [ "$system_proxy_status" = "false" ] && {
+            _failcat "系统代理：关闭"
+            return 1
+        }
+        _okcat "系统代理：开启
+http_proxy： $http_proxy
+socks_proxy：$all_proxy"
+        ;;
+    *)
+        cat <<EOF
+用法: clashproxy [on|off|status]
+    on      开启系统代理
+    off     关闭系统代理
+    status  查看系统代理状态
+EOF
+        ;;
+    esac
 }
 
 function clashstatus() {
@@ -136,7 +182,10 @@ _tunon() {
         _tunoff >&/dev/null
         _error_quit '不支持的内核版本'
     }
-    _okcat "Tun 模式已开启"
+
+    # 开启TUN模式时卸载环境变量，避免冲突
+    _unset_proxy_env
+    _okcat "Tun 模式已开启，已自动卸载环境变量代理"
 }
 
 function clashtun() {
@@ -232,7 +281,10 @@ function clashctl() {
         shift
         clashstatus "$@"
         ;;
-
+    proxy)
+        shift
+        clashproxy "$@"
+        ;;
     tun)
         shift
         clashtun "$@"
@@ -253,20 +305,22 @@ function clashctl() {
         cat <<EOF
 
 Usage:
-    clash      COMMAND  [OPTION]
-    mihomo     COMMAND  [OPTION]
-    clashctl   COMMAND  [OPTION]
-    mihomoctl  COMMAND  [OPTION】
+    clash COMMAND  [OPTION]
 
 Commands:
-    on                   开启代理
-    off                  关闭代理
-    ui                   面板地址
-    status               内核状况
-    tun      [on|off]    Tun 模式
-    mixin    [-e|-r]     Mixin 配置
-    secret   [SECRET]    Web 密钥
-    update   [auto|log]  更新订阅
+    on                      开启代理
+    off                     关闭代理
+    proxy    [on|off]       系统代理
+    ui                      面板地址
+    status                  内核状况
+    tun      [on|off]       Tun 模式
+    mixin    [-e|-r]        Mixin 配置
+    secret   [SECRET]       Web 密钥
+    update   [auto|log]     更新订阅
+
+说明:
+    - clashon: 启动代理程序，并开启系统代理
+    - clashproxy: 仅控制系统代理，不影响代理程序
 
 EOF
         ;;
