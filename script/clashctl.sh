@@ -114,7 +114,11 @@ function clashui() {
     local public_address="http://${public_ip:-公网}:${UI_PORT}/ui"
     # 内网ip
     # ip route get 1.1.1.1 | grep -oP 'src \K\S+'
-    local local_ip=$(hostname -I | awk '{print $1}')
+    if grep -q "ID=arch" /etc/os-release 2>/dev/null; then
+        local local_ip=$(ip route get 1.1.1.1 | grep -oP 'src \K\S+' 2>/dev/null)
+    else
+        local local_ip=$(hostname -I | awk '{print $1}' 2>/dev/null)
+    fi
     local local_address="http://${local_ip}:${UI_PORT}/ui"
     printf "\n"
     printf "╔═══════════════════════════════════════════════╗\n"
