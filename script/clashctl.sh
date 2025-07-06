@@ -188,7 +188,7 @@ _tunon() {
     }
 
     # 开启TUN模式时卸载环境变量，避免冲突
-    _unset_proxy_env
+    _unset_system_proxy
     _okcat "Tun 模式已开启，已自动卸载环境变量代理"
 }
 
