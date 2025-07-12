@@ -182,10 +182,7 @@ _tunon() {
         _tunoff >&/dev/null
         _error_quit '不支持的内核版本'
     }
-
-    # 开启TUN模式时卸载环境变量，避免冲突
-    _unset_proxy_env
-    _okcat "Tun 模式已开启，已自动卸载环境变量代理"
+    _okcat "Tun 模式已开启"
 }
 
 function clashtun() {
