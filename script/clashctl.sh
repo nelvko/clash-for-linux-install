@@ -49,15 +49,15 @@ function clashon() {
 }
 
 watch_proxy() {
+    # 新开交互式shell，且无代理变量时
     [ -z "$http_proxy" ] && [[ $- == *i* ]] && {
-        clashproxy status >&/dev/null && {
-            _is_root && clashon
-        }
+        # 为root时，自动开启代理环境（普通用户会触发sudo验证密码导致卡住）
+        _is_root && clashon
     }
 }
 
 function clashoff() {
-    sudo systemctl stop "$BIN_KERNEL_NAME" && _okcat '已关闭代理程序' ||
+    sudo systemctl stop "$BIN_KERNEL_NAME" && _okcat '已关闭代理环境' ||
         _failcat '关闭失败: 执行 "clashstatus" 查看日志' || return 1
     _unset_system_proxy
 }
@@ -314,10 +314,6 @@ Commands:
     mixin    [-e|-r]        Mixin 配置
     secret   [SECRET]       Web 密钥
     update   [auto|log]     更新订阅
-
-说明:
-    - clashon: 启动代理程序，并开启系统代理
-    - clashproxy: 仅控制系统代理，不影响代理程序
 
 EOF
         ;;

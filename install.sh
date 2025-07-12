@@ -53,4 +53,5 @@ systemctl enable "$BIN_KERNEL_NAME" >&/dev/null || _failcat '💥' "设置自启
 clashui
 _okcat '🎉' 'enjoy 🎉'
 clash
-_quit
+# shellcheck disable=SC2016
+_quit '[ -z $http_proxy ] && _okcat "请执行 clashon 开启代理环境"'

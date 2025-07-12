@@ -193,7 +193,7 @@ function _failcat() {
 function _quit() {
     local user=root
     [ -n "$SUDO_USER" ] && user=$SUDO_USER
-    exec sudo -u "$user" -- "$_SHELL" -i
+    exec sudo -u "$user" -- "$_SHELL" -i -c "$1"
 }
 
 function _error_quit() {

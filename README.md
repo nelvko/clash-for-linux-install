@@ -15,7 +15,7 @@
 ### 环境要求
 
 - 用户权限：`root`、`sudo`。（无权限可参考：[#91](https://github.com/nelvko/clash-for-linux-install/issues/91)）
-- `shell` 支持：`bash`、`zsh`。
+- `shell` 支持：`bash`、`zsh`、`fish`。
 
 ### 一键安装
 
@@ -35,23 +35,21 @@ git clone --branch master --depth 1 https://gh-proxy.com/https://github.com/nelv
 
 ### 命令一览
 
-执行 `clash` 列出开箱即用的快捷命令。
+执行 `clashctl` 列出开箱即用的快捷命令。
 
-> 兼容多种命令风格
+> 同 `clash`、`mihomo`、`mihomoctl`
 
 ```bash
-$ clash
+$ clashctl
 Usage:
     clash     COMMAND [OPTION]
-    mihomo    COMMAND [OPTION]
-    clashctl  COMMAND [OPTION]
-    mihomoctl COMMAND [OPTION]
-
+    
 Commands:
     on                   开启代理
     off                  关闭代理
     ui                   面板地址
     status               内核状况
+    proxy    [on|off]    系统代理
     tun      [on|off]    Tun 模式
     mixin    [-e|-r]     Mixin 配置
     secret   [SECRET]    Web 密钥
@@ -61,21 +59,14 @@ Commands:
 ### 优雅启停
 
 ```bash
-$ clashoff
-😼 已关闭代理环境
-
 $ clashon
 😼 已开启代理环境
+
+$ clashoff
+😼 已关闭代理环境
 ```
-
-<details>
-
-<summary>原理</summary>
-
-- 使用 `systemctl` 控制 `clash` 启停，并调整代理环境变量的值（http_proxy 等）。应用程序在发起网络请求时，会通过其指定的代理地址转发流量，不调整会造成：关闭代理但未卸载代理变量导致仍转发请求、开启代理后未设置代理地址导致请求不转发。
-- `clashon` 等命令封装了上述流程。
-
-</details>
+- 启停代理内核的同时，设置系统代理。
+- 亦可通过 `clashproxy` 单独控制系统代理。
 
 ### Web 控制台
 
@@ -148,7 +139,7 @@ $ clashmixin -r
 😼 less 查看 运行时 配置
 ```
 
-- 将自定义配置写在 `Mixin` 而不是原配置中，可避免更新订阅后丢失自定义配置。
+- 持久化：将自定义配置写在 `Mixin` 而不是原配置中，可避免更新订阅后丢失自定义配置。
 - 运行时配置是订阅配置和 `Mixin` 配置的并集。
 - 相同配置项优先级：`Mixin` 配置 > 订阅配置。
 
