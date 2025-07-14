@@ -52,7 +52,7 @@ watch_proxy() {
     # 新开交互式shell，且无代理变量时
     [ -z "$http_proxy" ] && [[ $- == *i* ]] && {
         # 为root时，自动开启代理环境（普通用户会触发sudo验证密码导致卡住）
-        _is_root && clashon
+        _is_root || _failcat '代理环境：关闭,可执行 clashon 开启' && clashon
     }
 }
 
