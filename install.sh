@@ -54,4 +54,5 @@ clashui
 _okcat '🎉' 'enjoy 🎉'
 clash
 # shellcheck disable=SC2016
+[ "$SUDO_USER" != 'root' ] && _okcat '请执行 clashon 开启代理环境'
 _quit
