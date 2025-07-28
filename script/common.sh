@@ -234,7 +234,11 @@ function _valid_config() {
         cmd="$BIN_KERNEL -d $(dirname "$1") -f $1 -t"
         msg=$(eval "$cmd") || {
             eval "$cmd"
-            echo "$msg" | grep -qs "unsupport proxy type" && _error_quit "不支持的代理协议，请安装 mihomo 内核"
+            echo "$msg" | grep -qs "unsupport proxy type" && {
+                local prefix="检测到订阅中包含不受支持的代理协议"
+                [ "$BIN_KERNEL_NAME" = "clash" ] && _error_quit "${prefix}, 推荐安装使用 mihomo 内核"
+                _error_quit "${prefix}, 请检查并升级内核版本"
+            }
         }
     }
 }
