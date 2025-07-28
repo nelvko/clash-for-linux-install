@@ -265,7 +265,7 @@ _download_clash() {
     esac
 
     _okcat '⏳' "正在下载：clash：${arch} 架构..."
-    local clash_zip="${ZIP_BASE_DIR}/$(basename $url)"
+    ZIP_CLASH="${ZIP_BASE_DIR}/$(basename $url)"
     curl \
         --progress-bar \
         --show-error \
@@ -273,9 +273,9 @@ _download_clash() {
         --insecure \
         --connect-timeout 15 \
         --retry 1 \
-        --output "$clash_zip" \
+        --output "$ZIP_CLASH" \
         "$url"
-    echo $sha256sum "$clash_zip" | sha256sum -c ||
+    echo $sha256sum "$ZIP_CLASH" | sha256sum -c ||
         _error_quit "下载失败：请自行下载对应版本至 ${ZIP_BASE_DIR} 目录下：https://downloads.clash.wiki/ClashPremium/"
 }
 
