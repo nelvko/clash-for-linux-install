@@ -57,7 +57,7 @@ _set_var() {
         SHELL_RC_ZSH="${home}/.zshrc"
     }
     command -v fish >&/dev/null && {
-        SHELL_RC_FISH="${home}/.config/fish/conf.d/clashctl.fish"
+        SHELL_RC_FISH="${home}/.config/fish/config.fish"
     }
 
     # 定时任务路径
@@ -92,14 +92,13 @@ _set_bin
 
 _set_rc() {
     [ "$1" = "unset" ] && {
-        sed -i "\|$CLASH_SCRIPT_DIR|d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
-        rm -f "$SHELL_RC_FISH" 2>/dev/null
+        sed -i "\|$CLASH_SCRIPT_DIR|d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" "$SHELL_RC_FISH" 2>/dev/null
         return
     }
 
     echo "source $CLASH_SCRIPT_DIR/common.sh && source $CLASH_SCRIPT_DIR/clashctl.sh && watch_proxy" |
         tee -a "$SHELL_RC_BASH" "$SHELL_RC_ZSH" >&/dev/null
-    [ -n "$SHELL_RC_FISH" ] && /usr/bin/install $SCRIPT_FISH "$SHELL_RC_FISH"
+    [ -n "$SHELL_RC_FISH" ] && echo "source $CLASH_SCRIPT_DIR/clashctl.fish && watch_proxy" >> "$SHELL_RC_FISH"
 }
 
 # 默认集成、安装mihomo内核
