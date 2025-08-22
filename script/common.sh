@@ -174,6 +174,10 @@ _get_color_msg() {
     printf "%b%s%b\n" "$color" "$msg" "$reset"
 }
 
+_get_random_val() {
+    cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 6
+}
+
 function _okcat() {
     local color=#c8d6e5
     local emoji=😼
