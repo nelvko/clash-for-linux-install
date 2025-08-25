@@ -96,6 +96,7 @@ _systemd() {
 }
 
 _get_init() {
+    grep -E "docker|kubepods|containerd|podman" /proc/1/cgroup && _error_quit "检测到容器环境，请在宿主机内安装！"
     INIT_TYPE=$(cat /proc/1/comm 2>/dev/null)
     [ -z "$INIT_TYPE" ] && {
         INIT_TYPE=$(ps -p 1 -o comm= 2>/dev/null)
