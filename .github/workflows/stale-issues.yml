@@ -1,7 +1,7 @@
 name: Close inactive issues
 on:
   schedule:
-    - cron: "0 0 * * *"
+    - cron: "0 9 * * 1-5"
   workflow_dispatch: # 允许手动触发
 
 jobs:
@@ -9,6 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
+      actions: write
     steps:
       - uses: actions/stale@v9
         with:
@@ -16,6 +17,6 @@ jobs:
           days-before-issue-stale: 14
           days-before-issue-close: 7
           stale-issue-label: "stale"
-          stale-issue-message: "😾 长时间未活跃，将在 7 天后自动关闭。如未解决，请回复以保持活跃。"
-          close-issue-message: "😼 无反馈，已自动关闭。若仍需讨论，可重新打开。"
+          stale-issue-message: "长时间未活跃，将在 7 天后自动关闭。若仍需讨论，请回复以保持活跃。"
+          close-issue-message: "已自动关闭，如未解决,可重新打开。"
           repo-token: ${{ secrets.GITHUB_TOKEN }} # 自动生成
