@@ -1,0 +1,11 @@
+name: 功能建议
+description: 为该项目提出建议
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    attributes:
+      label: 描述
+      description: 请提供对于该功能的详细描述。
+    validations:
+      required: true
