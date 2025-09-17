@@ -115,11 +115,14 @@ $ clashupdate log
 ### `Tun` 模式
 
 ```bash
-$ clashtun
-😾 Tun 状态：关闭
+$ clashtun 
+😾 查看 Tun 状态：关闭
 
 $ clashtun on
 😼 Tun 模式已开启
+
+$ clashtun off
+😾 Tun 模式已关闭
 ```
 
 - 作用：实现本机及 `Docker` 等容器的所有流量路由到 `clash` 代理、DNS 劫持等。
@@ -142,6 +145,10 @@ $ clashmixin -r
 - 持久化：将自定义配置写在 `Mixin` 而不是原配置中，可避免更新订阅后丢失自定义配置。
 - 运行时配置是订阅配置和 `Mixin` 配置的并集。
 - 相同配置项优先级：`Mixin` 配置 > 订阅配置。
+
+### 判断是否最终连接成功
+
+验证连通外网：` curl -sSL www.google.com `
 
 ### 卸载
 
