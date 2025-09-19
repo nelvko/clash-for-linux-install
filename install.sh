@@ -49,6 +49,9 @@ _set_rc
 [ -n "$CONTAINER_TYPE" ] && _set_container
 
 clashui
+clashsecret "$(_get_random_val)" >/dev/null
+clashsecret
+
 _okcat '🎉' 'enjoy 🎉'
 clash
 _quit
