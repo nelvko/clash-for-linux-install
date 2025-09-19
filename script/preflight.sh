@@ -12,17 +12,23 @@ ZIP_YQ=$(echo "${ZIP_BASE_DIR}"/yq*)
 ZIP_SUBCONVERTER=$(echo "${ZIP_BASE_DIR}"/subconverter*)
 ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
 
+file_pid="${CLASH_RESOURCES_DIR}/pid"
+file_log="${CLASH_RESOURCES_DIR}/log"
+
 [ "$1" = 'unset' ] && is_unset=true
 
 _valid_env() {
-    _is_root || _error_quit "需要 root 或 sudo 权限执行"
-    [ -n "$ZSH_VERSION" ] && [ -n "$BASH_VERSION" ] && _error_quit "仅支持：bash、zsh"
+    [ -n "$ZSH_VERSION" ] && [ -n "$BASH_VERSION" ] && _error_quit "仅支持：bash、zsh 执行"
 }
 
 _get_kernel() {
-    [[ $* == *docker* ]] && CONTAINER_TYPE=docker
     [[ $* == *mihomo* ]] && KERNEL_NAME=mihomo
     [[ $* == *clash* ]] && KERNEL_NAME=clash
+    [[ $* == *docker* ]] && {
+        command -v docker >&/dev/null || _error_quit "暂未安装 docker"
+        docker info &>/dev/null || _error_quit "当前用户无权限运行 docker，需加入 docker 组或使用 sudo 执行安装"
+        CONTAINER_TYPE=docker
+    }
 
     case "${KERNEL_NAME}" in
     clash)
@@ -83,24 +89,34 @@ _systemd() {
     service_src="${SCRIPT_INIT_DIR}/systemd.sh"
     service_target="/etc/systemd/system/${KERNEL_NAME}.service"
 
-    service_reload="systemctl daemon-reload"
+    service_reload="sudo systemctl daemon-reload"
 
-    service_enable="systemctl enable $KERNEL_NAME"
-    service_disable="systemctl disable $KERNEL_NAME"
+    service_enable="sudo systemctl enable $KERNEL_NAME"
+    service_disable="sudo systemctl disable $KERNEL_NAME"
 
-    service_start="systemctl start $KERNEL_NAME"
-    service_is_active="systemctl is-active $KERNEL_NAME"
-    service_stop="systemctl stop $KERNEL_NAME"
-    service_restart="systemctl restart $KERNEL_NAME"
-    service_status="systemctl status $KERNEL_NAME"
+    service_start="sudo systemctl start $KERNEL_NAME"
+    service_is_active="sudo systemctl is-active $KERNEL_NAME"
+    service_stop="sudo systemctl stop $KERNEL_NAME"
+    service_restart="sudo systemctl restart $KERNEL_NAME"
+    service_status="sudo systemctl status $KERNEL_NAME"
+}
+
+_rootless() {
+    service_enable=""
+    service_disable=""
+
+    service_start="( nohup ${BIN_KERNEL} -d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME} >\&$file_log \& echo \$!>$file_pid )"
+    service_is_active="pgrep --pidfile $file_pid"
+    service_stop="pkill -9 --pidfile $file_pid"
+    service_restart=""
+    service_status="less $file_log"
 }
 
 _get_init() {
-    grep -E "docker|kubepods|containerd|podman" /proc/1/cgroup && _error_quit "检测到容器环境，请在宿主机内安装！"
+    grep -E "docker|kubepods|containerd|podman" /proc/1/cgroup && _error_quit "检测到容器环境，仅支持安装到宿主机！"
     INIT_TYPE=$(cat /proc/1/comm 2>/dev/null)
-    [ -z "$INIT_TYPE" ] && {
-        INIT_TYPE=$(ps -p 1 -o comm= 2>/dev/null)
-    }
+    [ -z "$INIT_TYPE" ] && INIT_TYPE=$(ps -p 1 -o comm= 2>/dev/null)
+    _has_root || INIT_TYPE=rootless
 
     case "${INIT_TYPE}" in
     systemd)
@@ -113,6 +129,10 @@ _get_init() {
             return
         }
         _sysvinit
+        service_check_tun="clashstatus"
+        ;;
+    rootless)
+        _rootless
         service_check_tun="clashstatus"
         ;;
     *)
@@ -148,14 +168,14 @@ EOF
     [ -n "$CONTAINER_TYPE" ] && {
         bin_var=$(
             cat <<'EOF'
-valid_config_cmd='docker run --rm -v $1:/root/.config/${KERNEL_NAME}/config.yaml:ro -v $(dirname $1):/root/.config/${KERNEL_NAME} ${URL_CR_PROXY}${IMAGE_KERNEL} -t'
+valid_config_cmd='sudo docker run --rm -v $1:/root/.config/${KERNEL_NAME}/config.yaml:ro -v $(dirname $1):/root/.config/${KERNEL_NAME} ${URL_CR_PROXY}${IMAGE_KERNEL} -t'
 yq1() {
-    docker run --rm -i -u "$(id -u):$(id -u)" -v "${CLASH_BASE_DIR}":"${CLASH_BASE_DIR}" "${URL_CR_PROXY}"mikefarah/yq "$@"
+    sudo docker run --rm -i -u "$(id -u):$(id -u)" -v "${CLASH_BASE_DIR}":"${CLASH_BASE_DIR}" "${URL_CR_PROXY}"mikefarah/yq "$@"
 }
 BIN_YQ="yq1"
-BIN_SUBCONVERTER_START="docker run --rm -d -p ${BIN_SUBCONVERTER_PORT}:25500 --network bridge --name subconverter ${URL_CR_PROXY}tindy2013/subconverter"
-BIN_SUBCONVERTER_STOP="docker stop subconverter"
-BIN_SUBCONVERTER_LOG="docker logs subconverter"
+BIN_SUBCONVERTER_START="sudo docker run --rm -d -p ${BIN_SUBCONVERTER_PORT}:25500 --network bridge --name subconverter ${URL_CR_PROXY}tindy2013/subconverter"
+BIN_SUBCONVERTER_STOP="sudo docker stop subconverter"
+BIN_SUBCONVERTER_LOG="sudo docker logs subconverter"
 EOF
         )
         eval "$bin_var"
@@ -163,18 +183,18 @@ EOF
 }
 
 _set_container() {
-    service_start="docker run \
+    service_start="sudo docker run \
     -d \
     --rm \
     --network host \
     --name $KERNEL_NAME  \
     -v $CLASH_CONFIG_RUNTIME:/root/.config/${KERNEL_NAME}/config.yaml:ro \
     -v $CLASH_RESOURCES_DIR:/root/.config/${KERNEL_NAME} \
-      ${URL_CR_PROXY}${IMAGE_KERNEL}"
-    service_restart="docker restart $KERNEL_NAME"
-    service_is_active="docker inspect -f {{.State.Running}} $KERNEL_NAME 2>/dev/null | grep -q true"
-    service_stop="docker stop $KERNEL_NAME"
-    service_status="docker logs $KERNEL_NAME"
+      ${URL_CR_PROXY}${IMAGE_KERNEL} >/dev/null"
+    service_restart="sudo docker restart $KERNEL_NAME"
+    service_is_active="sudo docker inspect -f {{.State.Running}} $KERNEL_NAME 2>/dev/null | grep -q true"
+    service_stop="sudo docker stop $KERNEL_NAME"
+    service_status="sudo docker logs $KERNEL_NAME"
     service_check_tun="clashstatus"
 
     sed -i \
@@ -189,8 +209,6 @@ _set_container() {
 
 }
 _set_init() {
-    file_pid="/run/${KERNEL_NAME}.pid"
-    file_log="/var/log/${KERNEL_NAME}.log"
 
     [ "$is_unset" = true ] && {
         $service_disable >&/dev/null
@@ -202,18 +220,18 @@ _set_init() {
         return
     }
 
-    /usr/bin/install -m +x "$service_src" "$service_target"
-    $service_add
+    _has_root && {
+        /usr/bin/install -m +x "$service_src" "$service_target"
+        $service_add
+    }
 
-    local file_pid="/run/${KERNEL_NAME}.pid"
-    local file_log="/var/log/${KERNEL_NAME}.log"
     local KERNEL_DESC="$KERNEL_NAME Daemon, A[nother] Clash Kernel."
 
     local cmd_path="${BIN_KERNEL}"
     local cmd_arg="-d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME}"
     local cmd_full="${BIN_KERNEL} -d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME}"
 
-    sed -i \
+    _has_root && { sed -i \
         -e "s|placeholder_cmd_path|$cmd_path|g" \
         -e "s|placeholder_cmd_args|$cmd_arg|g" \
         -e "s|placeholder_cmd_full|$cmd_full|g" \
@@ -222,6 +240,7 @@ _set_init() {
         -e "s|placeholder_kernel_name|$KERNEL_NAME|g" \
         -e "s|placeholder_kernel_desc|$KERNEL_DESC|g" \
         "$service_target"
+    }
 
     sed -i \
         -e "s|placeholder_bin_kernel|$BIN_KERNEL|g" \

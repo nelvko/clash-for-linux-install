@@ -124,9 +124,12 @@ function _failcat() {
 }
 
 function _quit() {
-    local user=root
-    [ -n "$SUDO_USER" ] && user=$SUDO_USER
-    exec sudo -u "$user" -- "$EXEC_SHELL" -i
+    _has_root && {
+        local user=root
+        [ -n "$SUDO_USER" ] && user=$SUDO_USER
+        exec sudo -u "$user" -- "$EXEC_SHELL" -i
+    } 
+    exec "$EXEC_SHELL" -i
 }
 
 function _error_quit() {
@@ -142,7 +145,7 @@ function _error_quit() {
 
 _is_bind() {
     local port=$1
-    { sudo ss -lnptu 2>/dev/null || sudo netstat -lnptu; } | grep ":${port}\b"
+    {  ss -lnptu 2>/dev/null ||  netstat -lnptu; } | grep ":${port}\b"
 }
 
 _is_already_in_use() {
@@ -150,15 +153,26 @@ _is_already_in_use() {
     local progress=$2
     _is_bind "$port" >&/dev/null && {
         _is_bind "$port" | grep -qs "$progress" && return 1
-        docker ps --format '{{.Names}} {{.Ports}}' | grep "$port" | grep -qs "$progress" && return 1
+        [ -n "$CONTAINER_TYPE" ] && sudo docker ps --format '{{.Names}} {{.Ports}}' | grep "$port" | grep -qs "$progress" && return 1
         return 0
     }
     return 1
 }
 
-function _is_root() {
-    [ "$(whoami)" = "root" ]
+function _has_root() {
+    [ "$(id -u)" -eq 0 ]
 }
+
+
+# function _is_root() {
+#     [ "$(id -un)" = "root" ]
+# }
+
+# function _is_sudo() {
+#     [ -n "$SUDO_USER" ]
+# }
+
+
 
 function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
@@ -178,7 +192,7 @@ _download_raw_config() {
     local url=$2
     local agent='clash-verge/v2.0.4'
 
-    sudo curl \
+    curl \
         --silent \
         --show-error \
         --insecure \
@@ -187,7 +201,7 @@ _download_raw_config() {
         --user-agent "$agent" \
         --output "$dest" \
         "$url" ||
-        sudo wget \
+        wget \
             --no-verbose \
             --no-check-certificate \
             --timeout 3 \

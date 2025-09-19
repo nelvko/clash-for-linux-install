@@ -14,7 +14,7 @@ SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
 function clashon() {
     _get_proxy_port
     placeholder_is_active >&/dev/null || {
-        sudo placeholder_start >/dev/null || {
+        placeholder_start || {
             _failcat '启动失败: 执行 clashstatus 查看日志'
             return 1
         }
@@ -42,12 +42,12 @@ function clashon() {
 watch_proxy() {
     [ -z "$http_proxy" ] && [[ $- == *i* ]] && { # 新开交互式shell时开启代理环境
     # [[ "$0" == *-* ]] && { # 登录时开启代理环境
-        _is_root || _failcat '未检测到代理变量，可执行 clashon 开启代理环境' && clashon
+        _has_root || _failcat '未检测到代理变量，可执行 clashon 开启代理环境' && clashon
     }
 }
 
 function clashoff() {
-    sudo placeholder_stop >/dev/null && _okcat '已关闭代理环境' ||
+    placeholder_stop >/dev/null && _okcat '已关闭代理环境' ||
         _failcat '关闭失败: 执行 clashstatus 查看日志' || return 1
 
     unset http_proxy
@@ -66,7 +66,7 @@ clashrestart() {
 }
 
 function clashstatus() {
-    sudo placeholder_status "$@"
+    placeholder_status "$@"
 }
 
 function clashui() {
@@ -96,11 +96,11 @@ function clashui() {
 
 _merge_config() {
     local backup="/tmp/rt.backup"
-    sudo cat "$CLASH_CONFIG_RUNTIME" 2>/dev/null | sudo tee $backup >&/dev/null
+    cat "$CLASH_CONFIG_RUNTIME" 2>/dev/null | tee $backup >&/dev/null
     "$BIN_YQ" eval-all '. as $item ireduce ({}; . *+ $item) | (.. | select(tag == "!!seq")) |= unique' \
-        "$CLASH_CONFIG_MIXIN" "$CLASH_CONFIG_RAW" "$CLASH_CONFIG_MIXIN" | sudo tee "$CLASH_CONFIG_RUNTIME" >&/dev/null
+        "$CLASH_CONFIG_MIXIN" "$CLASH_CONFIG_RAW" "$CLASH_CONFIG_MIXIN" | tee "$CLASH_CONFIG_RUNTIME" >&/dev/null
     _valid_config "$CLASH_CONFIG_RUNTIME" || {
-        sudo cat $backup | sudo tee "$CLASH_CONFIG_RUNTIME" >&/dev/null
+        cat $backup | tee "$CLASH_CONFIG_RUNTIME" >&/dev/null
         _error_quit "验证失败：请检查 Mixin 配置"
     }
 }
@@ -185,7 +185,7 @@ function clashupdate() {
         [ -n "$2" ] && url=$2
         ;;
     log)
-        sudo tail "${CLASH_UPDATE_LOG}" 2>/dev/null || _failcat "暂无更新日志"
+        tail "${CLASH_UPDATE_LOG}" 2>/dev/null || _failcat "暂无更新日志"
         return 0
         ;;
     *)
@@ -202,7 +202,7 @@ function clashupdate() {
     # 如果是自动更新模式，则设置定时任务
     [ "$is_auto" = true ] && {
         command -v crontab >/dev/null || _error_quit "未检测到 crontab 命令，请先安装 cron 服务"
-        crontab -l | sudo grep -qs 'clashupdate' || {
+        crontab -l | grep -qs 'clashupdate' || {
             (
                 crontab -l 2>/dev/null
                 echo "0 0 */2 * * $EXEC_SHELL -i -c 'clashupdate $url'"
@@ -212,12 +212,12 @@ function clashupdate() {
     }
 
     _okcat '👌' "正在下载：原配置已备份..."
-    sudo cat "$CLASH_CONFIG_RAW" | sudo tee "$CLASH_CONFIG_RAW_BAK" >&/dev/null
+    cat "$CLASH_CONFIG_RAW" | tee "$CLASH_CONFIG_RAW_BAK" >&/dev/null
 
     _rollback() {
         _failcat '🍂' "$1"
-        sudo cat "$CLASH_CONFIG_RAW_BAK" | sudo tee "$CLASH_CONFIG_RAW" >&/dev/null
-        _failcat '❌' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新失败：$url" 2>&1 | sudo tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
+        cat "$CLASH_CONFIG_RAW_BAK" | tee "$CLASH_CONFIG_RAW" >&/dev/null
+        _failcat '❌' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新失败：$url" 2>&1 | tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
         _error_quit
     }
 
@@ -226,13 +226,13 @@ function clashupdate() {
 
     _merge_config_restart && _okcat '🍃' '订阅更新成功'
     _set_env CLASH_CONFIG_URL "$url"
-    _okcat '✅' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新成功：$url" | sudo tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
+    _okcat '✅' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新成功：$url" | tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
 }
 
 function clashmixin() {
     case "$1" in
     -e)
-        sudo vim "$CLASH_CONFIG_MIXIN" && {
+        vim "$CLASH_CONFIG_MIXIN" && {
             _merge_config_restart && _okcat "配置更新成功，已重启生效"
         }
         ;;

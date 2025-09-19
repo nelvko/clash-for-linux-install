@@ -5,15 +5,17 @@
 . script/preflight.sh
 
 _valid_env
-_get_kernel "$@"
-
-[ -z "$CONTAINER_TYPE" ] && _get_init
 
 [ -d "$CLASH_BASE_DIR" ] && _error_quit "请先执行卸载脚本,以清除安装路径：$CLASH_BASE_DIR"
+mkdir -p "$CLASH_BASE_DIR" || _error_quit "无写入权限：$CLASH_BASE_DIR，请前往 .env 文件更换安装路径"
+
+_get_kernel "$@"
+_set_bin
+[ -z "$CONTAINER_TYPE" ] && _get_init
+
 
 _okcat "安装内核：$KERNEL_NAME by ${INIT_TYPE:-$CONTAINER_TYPE}"
 
-_set_bin
 _valid_config "$(pwd)/$RESOURCES_CONFIG" || {
     [ -z "$CLASH_CONFIG_URL" ] && {
         echo -n "$(_okcat '✈️ ' '输入订阅：')"
