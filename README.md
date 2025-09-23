@@ -7,14 +7,14 @@
 ![preview](resources/preview.png)
 
 - 默认安装 `mihomo` 内核，[可选安装](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ#%E5%AE%89%E8%A3%85-clash-%E5%86%85%E6%A0%B8) `clash`。
-- 自动使用 [subconverter](https://github.com/tindy2013/subconverter) 进行本地订阅转换。
+- 支持使用 [subconverter](https://github.com/tindy2013/subconverter) 进行本地订阅转换。
 - 多架构支持，适配主流 `Linux` 发行版：`CentOS 7.6`、`Debian 12`、`Ubuntu 24.04.1 LTS`。
 
 ## 快速开始
 
 ### 环境要求
 
-- 用户权限：`root`、`sudo`。（无权限可参考：[#91](https://github.com/nelvko/clash-for-linux-install/issues/91)）
+- 用户权限：`root` 或 `sudo` 用户；普通用户请戳：[#91](https://github.com/nelvko/clash-for-linux-install/issues/91)
 - `shell` 支持：`bash`、`zsh`、`fish`。
 
 ### 一键安装
@@ -139,9 +139,9 @@ $ clashmixin -r
 😼 less 查看 运行时 配置
 ```
 
-- 持久化：将自定义配置写在 `Mixin` 而不是原配置中，可避免更新订阅后丢失自定义配置。
-- 运行时配置是订阅配置和 `Mixin` 配置的并集。
-- 相同配置项优先级：`Mixin` 配置 > 订阅配置。
+- 持久化：将自定义配置项写入`Mixin`（`mixin.yaml`），而非原订阅配置（`config.yaml`），可避免更新订阅后丢失。
+- 配置加载：代理内核启动时使用 `runtime.yaml`，它是订阅配置与 `Mixin` 配置的合并结果集，相同配置项以 `Mixin` 为准。
+- 注意：因此直接修改 `config.yaml` 并不会生效。
 
 ### 卸载
 
