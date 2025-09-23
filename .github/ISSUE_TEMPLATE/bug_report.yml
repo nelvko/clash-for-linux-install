@@ -9,11 +9,11 @@ body:
       label: 前置确认
       description: 在提交之前，请勾选以下选项以确认您已完成必要的自助排查
       options:
-        - label: 我确认这是项目 **Bug**， 而非操作不当或使用不清楚。否则请移步[讨论区](https://github.com/nelvko/clash-for-linux-install/discussions) 或使用其他 Issue 模板
+        - label: 我确认这是项目 **Bug**， 而非操作不当或使用不清楚。否则请使用其他 Issue 模板或移步[讨论区](https://github.com/nelvko/clash-for-linux-install/discussions)
           required: true
-        - label: 我已查阅 [常见问题](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)，未找到解决方案
+        - label: 我已查阅 [常见问题](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)，但仍未找到解决方案
           required: true
-        - label: 我已排查 [Issues](https://github.com/nelvko/clash-for-linux-install/issues)，未发现相关或重复的议题
+        - label: 我已使用关键字查询相关 [Issues](https://github.com/nelvko/clash-for-linux-install/issues?q=is%3Aissue)，但仍未找到解决方案
           required: true
         - label: 我已确认本地与远程仓库最新提交的哈希一致。 (`git rev-parse --short HEAD`)
           required: true
@@ -60,14 +60,14 @@ body:
   - type: textarea
     id: desc
     attributes:
-      label: 描述 & 复现 & 截图
+      label: 描述 & 复现
       description: |
         请详细描述：
         1. 操作步骤  
         2. 期望结果  
         3. 实际表现  
         4. ~~必要时~~最好附上截图
-        （请勿泄露订阅等敏感信息）
+        **请勿泄露订阅、IP 等敏感信息**
       # placeholder: |
 
     validations:
@@ -77,6 +77,6 @@ body:
     id: logs
     attributes:
       label: 日志
-      description: 请粘贴相关日志输出（自动格式化为代码，无需手动加反引号）
+      description: 请提供相关日志输出或截图（自动格式化为代码，无需手动加反引号）
       render: shell
   

@@ -1,0 +1,51 @@
+name: Q&A
+description: "问题反馈与解答"
+title: "[Q&A] "
+labels: []
+body:
+  - type: checkboxes
+    id: ensure
+    attributes:
+      label: 前置确认
+      description: 大部分使用问题可以在下述选项中得到解决，在提交问题前，请先进行自助排查。
+      options:
+        - label: 我已查阅 [常见问题](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)，但仍未找到解决方案
+          required: true
+        - label: 我已使用关键字查询相关 [Issues](https://github.com/nelvko/clash-for-linux-install/issues?q=is%3Aissue)，但仍未找到解决方案
+          required: true
+
+  - type: dropdown
+    id: branch
+    attributes:
+      label: 克隆的分支
+      options:
+        - master
+        - feat-init
+        - arch-*
+    validations:
+      required: true
+
+  - type: dropdown
+    id: shell
+    attributes:
+      label: Shell 环境
+      options:
+        - Bash
+        - Zsh
+        - Fish
+        - Others
+      default: 0
+    validations:
+      required: true
+
+  - type: textarea
+    id: desc
+    attributes:
+      label: 问题描述
+      description: |
+        ~~必要时~~最好附上截图。
+        **请勿泄露订阅、IP 等敏感信息**
+
+    validations:
+      required: true
+  
