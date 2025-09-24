@@ -134,8 +134,7 @@ _get_random_port() {
 }
 
 function _get_proxy_port() {
-    local mixed_port=$(sudo "$BIN_YQ" '.mixed-port // ""' $CLASH_CONFIG_RUNTIME)
-    MIXED_PORT=${mixed_port:-7890}
+    MIXED_PORT=$(sudo "$BIN_YQ" '.mixed-port' $CLASH_CONFIG_RUNTIME)
 
     _is_already_in_use "$MIXED_PORT" "$BIN_KERNEL_NAME" && {
         local newPort=$(_get_random_port)
