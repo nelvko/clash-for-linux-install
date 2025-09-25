@@ -5,7 +5,10 @@
 # shellcheck disable=SC1091
 
 . "$(dirname "$(dirname "$SCRIPT_DIR")")/.env"
-
+[ -n "$SUDO_USER" ] && {
+    home=$(awk -F: -v user="$SUDO_USER" '$1==user{print $6}' /etc/passwd)
+    CLASH_BASE_DIR=${CLASH_BASE_DIR/\/root/$home}
+}
 SCRIPT_BASE_DIR='script'
 SCRIPT_INIT_DIR="${SCRIPT_BASE_DIR}/init"
 SCRIPT_CMD_DIR="${SCRIPT_BASE_DIR}/cmd"

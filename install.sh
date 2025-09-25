@@ -15,6 +15,7 @@ _set_bin
 
 
 _okcat "安装内核：$KERNEL_NAME by ${INIT_TYPE:-$CONTAINER_TYPE}"
+_okcat "安装路径：$CLASH_BASE_DIR"
 
 _valid_config "$(pwd)/$RESOURCES_CONFIG" || {
     [ -z "$CLASH_CONFIG_URL" ] && {
