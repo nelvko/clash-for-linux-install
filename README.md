@@ -14,7 +14,7 @@
 
 ### 环境要求
 
-- 用户权限：`root` 或 `sudo` 用户；普通用户请戳：[#91](https://github.com/nelvko/clash-for-linux-install/issues/91)
+- 用户权限：`root` 或 `sudo` 用户。普通用户请戳：[#91](https://github.com/nelvko/clash-for-linux-install/issues/91)
 - `shell` 支持：`bash`、`zsh`、`fish`。
 
 ### 一键安装
@@ -37,12 +37,11 @@ git clone --branch master --depth 1 https://gh-proxy.com/https://github.com/nelv
 
 执行 `clashctl` 列出开箱即用的快捷命令。
 
-> 同 `clash`、`mihomo`、`mihomoctl`
 
 ```bash
 $ clashctl
 Usage:
-    clash     COMMAND [OPTION]
+    clashctl    COMMAND [OPTION]
     
 Commands:
     on                   开启代理
@@ -55,6 +54,8 @@ Commands:
     secret   [SECRET]    Web 密钥
     update   [auto|log]  更新订阅
 ```
+
+💡`clashon` 等同于 `clashctl on`，`Tab` 补全更方便！
 
 ### 优雅启停
 
@@ -91,7 +92,7 @@ $ clashsecret
 ```
 
 - 通过浏览器打开 Web 控制台，实现可视化操作：切换节点、查看日志等。
-- 控制台密钥默认为空，若暴露到公网使用建议更新密钥。
+- 若暴露到公网使用建议定期更换密钥。
 
 ### 更新订阅
 
@@ -157,11 +158,11 @@ sudo bash uninstall.sh
 
 - [Clash 知识库](https://clash.wiki/)
 - [Clash 家族下载](https://www.clash.la/releases/)
-- [Clash Premium 2023.08.17](https://downloads.clash.wiki/ClashPremium/)
-- [mihomo v1.19.2](https://github.com/MetaCubeX/mihomo)
-- [subconverter v0.9.0：本地订阅转换](https://github.com/tindy2013/subconverter)
-- [yacd v0.3.8：Web 控制台](https://github.com/haishanh/yacd)
-- [yq v4.45.1：处理 yaml](https://github.com/mikefarah/yq)
+- [Clash Premium](https://downloads.clash.wiki/ClashPremium/)
+- [mihomo](https://github.com/MetaCubeX/mihomo)
+- [subconverter: 订阅转换](https://github.com/tindy2013/subconverter)
+- [yacd: Web 控制台](https://github.com/haishanh/yacd)
+- [yq: 处理 yaml](https://github.com/mikefarah/yq)
 
 ## Star History
 
