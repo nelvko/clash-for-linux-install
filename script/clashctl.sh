@@ -302,10 +302,17 @@ function clashctl() {
         clashupdate "$@"
         ;;
     *)
-        cat <<EOF
+        shift
+        clashhelp "$@"
+        ;;
+    esac
+}
 
+clashhelp() {
+    cat <<EOF
+    
 Usage:
-    clash COMMAND  [OPTION]
+    clashctl COMMAND  [OPTION]
 
 Commands:
     on                      开启代理
@@ -319,18 +326,4 @@ Commands:
     update   [auto|log]     更新订阅
 
 EOF
-        ;;
-    esac
-}
-
-function mihomoctl() {
-    clashctl "$@"
-}
-
-function clash() {
-    clashctl "$@"
-}
-
-function mihomo() {
-    clashctl "$@"
 }

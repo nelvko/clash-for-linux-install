@@ -1,23 +1,41 @@
 set fn_arr \
-clash \
-clashctl \
-mihomo \
-mihomoctl \
-\
 clashui \
 clashstatus \
 clashsecret \
 clashtun \
 clashmixin \
-clashupdate
+clashupdate \
+clashhelp
 
 set -gx fish_version $FISH_VERSION
 
 for fn in $fn_arr
-    eval \
-    "function $fn
-        bash -i -c '$fn \$@;exec fish -i' -- \$argv
-    end"
+    eval "
+    function $fn
+        bash -i -c '$fn \"\$@\"' -- \$argv
+    end
+    "
+end
+
+
+function clashctl
+    if test -z "$argv"
+        clashhelp
+        return
+    end
+
+
+    set suffix $argv[1]
+    set argv $argv[2..-1]
+
+    switch $suffix
+        case on
+            clashon $argv
+        case off
+            clashoff $argv
+        case '*'
+            clash"$suffix" $argv
+    end
 end
 
 function clashon

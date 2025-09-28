@@ -53,7 +53,7 @@ systemctl enable "$BIN_KERNEL_NAME" >&/dev/null || _failcat '💥' "设置自启
 clashui
 clashsecret "$(_get_random_val)" >/dev/null
 clashsecret
-clash
+clashctl
 # shellcheck disable=SC2016
 [ "$SUDO_USER" != 'root' ] && _okcat '请执行 clashon 开启代理环境'
 _okcat '🎉' 'enjoy 🎉'
