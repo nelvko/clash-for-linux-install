@@ -234,7 +234,7 @@ function _valid_env() {
 function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
         local cmd msg
-        cmd="$BIN_KERNEL -d $(dirname "$1") -f $1 -t"
+        cmd="sudo $BIN_KERNEL -d $(dirname "$1") -f $1 -t"
         msg=$(eval "$cmd") || {
             eval "$cmd"
             echo "$msg" | grep -qs "unsupport proxy type" && {
@@ -359,5 +359,5 @@ _start_convert() {
     done
 }
 _stop_convert() {
-    pkill -9 -f "$BIN_SUBCONVERTER" >&/dev/null
+    sudo pkill -9 -f "$BIN_SUBCONVERTER" >&/dev/null
 }
