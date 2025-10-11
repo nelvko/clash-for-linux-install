@@ -212,19 +212,38 @@ function clashsub() {
         shift
         _sub_del "$@"
         ;;
-    list)
+    list | ls)
         shift
         _sub_list "$@"
         ;;
     update)
-        # --auto
-        # --convert
         shift
         _sub_update "$@"
         ;;
     log)
         shift
         _sub_log
+        ;;
+
+    *)
+        cat <<EOF
+        
+- 新增订阅：
+  clashsub add https://example.com
+
+- 查看订阅：
+  clashsub ls
+
+- 删除订阅：
+  clashsub del 1
+
+- 更新订阅：可指定订阅进行更新
+  clashsub update                      # 使用合并订阅更新
+  clashsub update https://example.com  # 使用指定订阅更新
+  clashsub update --auto               # 设置定时自动更新
+  clashsub update --convert            # 强制使用订阅转换
+
+EOF
         ;;
     esac
 }
@@ -238,12 +257,12 @@ _sub_add() {
     [ -z "$url" ] && _error_quit "订阅链接不能为空"
 
     grep -qsFx "$url" "$CLASH_CONFIG_URL" && {
-        _failcat "该链接已存在"
+        _failcat "该订阅链接已存在"
         return 1
     }
 
     echo "$url" | sudo tee -a "$CLASH_CONFIG_URL" >&/dev/null
-    _okcat "添加成功"
+    _okcat "已添加"
 }
 
 _sub_del() {
@@ -253,7 +272,7 @@ _sub_del() {
         read -r id
     }
     [ -z "$id" ] && _error_quit "序号不能为空"
-    sed -i "${id}d" "$CLASH_CONFIG_URL" && _okcat "删除成功"
+    sed -i "${id}d" "$CLASH_CONFIG_URL" && _okcat "已删除"
 }
 
 _sub_list() {
@@ -268,38 +287,43 @@ _sub_list() {
     done <"$CLASH_CONFIG_URL"
 }
 
-function clashupdate() {
-    local url=$(cat "$CLASH_CONFIG_URL")
-    local is_auto
+_sub_update() {
+    local url is_auto is_convert is_merge
 
     case "$1" in
-    auto)
+    --auto)
         is_auto=true
         [ -n "$2" ] && url=$2
         ;;
-    log)
-        sudo tail "${CLASH_UPDATE_LOG}" 2>/dev/null || _failcat "暂无更新日志"
-        return 0
+    --convert)
+        is_convert=true
+        [ -n "$2" ] && url=$2
         ;;
     *)
         [ -n "$1" ] && url=$1
         ;;
     esac
 
-    # 如果没有提供有效的订阅链接（url为空或者不是http开头），则使用默认配置文件
-    [ "${url:0:4}" != "http" ] && {
-        _failcat "没有提供有效的订阅链接：使用 ${CLASH_CONFIG_RAW} 进行更新..."
-        url="file://$CLASH_CONFIG_RAW"
+    [ -n "$url" ] && {
+        curl -fskLI "$url" >&/dev/null || _error_quit "订阅链接无效,请检查"
     }
 
-    # 如果是自动更新模式，则设置定时任务
+    [ -z "$url" ] && {
+        url=$(paste -sd'|' "$CLASH_CONFIG_URL")
+        is_merge=true
+        [ -z "$url" ] && {
+            url="file://$CLASH_CONFIG_RAW"
+            is_merge=false
+        }
+    }
+
     [ "$is_auto" = true ] && {
-        sudo grep -qs 'clashupdate' "$CLASH_CRON_TAB" || echo "0 0 */2 * * $_SHELL -i -c 'clashupdate $url'" | sudo tee -a "$CLASH_CRON_TAB" >&/dev/null
+        grep -qs "clashsub update" "$CLASH_CRON_TAB" || echo "0 0 */2 * * $_SHELL -i -c "clashsub update "$url""" | tee -a "$CLASH_CRON_TAB" >&/dev/null
         _okcat "已设置定时更新订阅" && return 0
     }
 
     _okcat '👌' "正在下载：原配置已备份..."
-    sudo cat "$CLASH_CONFIG_RAW" | sudo tee "$CLASH_CONFIG_RAW_BAK" >&/dev/null
+    cat "$CLASH_CONFIG_RAW" | sudo tee "$CLASH_CONFIG_RAW_BAK" >&/dev/null
 
     _rollback() {
         _failcat '🍂' "$1"
@@ -308,7 +332,13 @@ function clashupdate() {
         _error_quit
     }
 
-    _download_config "$CLASH_CONFIG_RAW" "$url" || _rollback "下载失败：已回滚配置"
+    [[ "$is_convert" = true || "$is_merge" = true ]] && {
+        _download_convert_config "$CLASH_CONFIG_RAW" "$url"
+    }
+
+    [ "$is_merge" != true ] && {
+        _download_config "$CLASH_CONFIG_RAW" "$url" || _rollback "下载失败：已回滚配置"
+    }
     _valid_config "$CLASH_CONFIG_RAW" || _rollback "转换失败：已回滚配置，转换日志：$BIN_SUBCONVERTER_LOG"
 
     _merge_config_restart && _okcat '🍃' '订阅更新成功'
