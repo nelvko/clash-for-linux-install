@@ -114,17 +114,18 @@ function clashui() {
     # ifconfig.me
     local query_url='api64.ipify.org'
     local public_ip=$(curl -s --noproxy "*" --connect-timeout 2 $query_url)
-    local public_address="http://${public_ip:-公网}:${UI_PORT}/ui"
+    local public_address="http://${public_ip:-公网}:${EXT_PORT}/ui"
     # 内网ip
     # ip route get 1.1.1.1 | grep -oP 'src \K\S+'
-    local local_ip=$(hostname -I | awk '{print $1}')
-    local local_address="http://${local_ip}:${UI_PORT}/ui"
+    local local_ip=$EXT_IP
+    [ "$EXT_IP" = '0.0.0.0' ] && local_ip=$(hostname -I | awk '{print $1}')
+    local local_address="http://${local_ip}:${EXT_PORT}/ui"
     printf "\n"
     printf "╔═══════════════════════════════════════════════╗\n"
     printf "║                %s                  ║\n" "$(_okcat 'Web 控制台')"
     printf "║═══════════════════════════════════════════════║\n"
     printf "║                                               ║\n"
-    printf "║     🔓 注意放行端口：%-5s                    ║\n" "$UI_PORT"
+    printf "║     🔓 注意放行端口：%-5s                    ║\n" "$EXT_PORT"
     printf "║     🏠 内网：%-31s  ║\n" "$local_address"
     printf "║     🌏 公网：%-31s  ║\n" "$public_address"
     printf "║     ☁️  公共：%-31s  ║\n" "$URL_CLASH_UI"

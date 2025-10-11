@@ -147,14 +147,14 @@ function _get_proxy_port() {
 
 function _get_ui_port() {
     local ext_addr=$(sudo "$BIN_YQ" '.external-controller // ""' $CLASH_CONFIG_RUNTIME)
-    local ext_port=${ext_addr##*:}
-    UI_PORT=${ext_port:-9090}
+    EXT_IP=${ext_addr%%:*}
+    EXT_PORT=${ext_addr##*:}
 
-    _is_already_in_use "$UI_PORT" "$BIN_KERNEL_NAME" && {
+    _is_already_in_use "$EXT_PORT" "$BIN_KERNEL_NAME" && {
         local newPort=$(_get_random_port)
-        local msg="端口占用：${UI_PORT} 🎲 随机分配：$newPort"
-        sudo "$BIN_YQ" -i ".external-controller = \"0.0.0.0:$newPort\"" $CLASH_CONFIG_RUNTIME
-        UI_PORT=$newPort
+        local msg="端口占用：${EXT_PORT} 🎲 随机分配：$newPort"
+        sudo "$BIN_YQ" -i ".external-controller = \"$EXT_IP:$newPort\"" $CLASH_CONFIG_RUNTIME
+        EXT_PORT=$newPort
         _failcat '🎯' "$msg"
     }
 }
