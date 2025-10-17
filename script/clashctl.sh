@@ -113,12 +113,10 @@ function clashui() {
     # 公网ip
     # ifconfig.me
     local query_url='api64.ipify.org'
-    local public_ip=$(curl -s --noproxy "*" --connect-timeout 2 $query_url)
+    local public_ip=$(curl -s --noproxy "*" --max-time 2 $query_url)
     local public_address="http://${public_ip:-公网}:${EXT_PORT}/ui"
-    # 内网ip
-    # ip route get 1.1.1.1 | grep -oP 'src \K\S+'
+
     local local_ip=$EXT_IP
-    [ "$EXT_IP" = '0.0.0.0' ] && local_ip=$(hostname -I | awk '{print $1}')
     local local_address="http://${local_ip}:${EXT_PORT}/ui"
     printf "\n"
     printf "╔═══════════════════════════════════════════════╗\n"
@@ -267,6 +265,57 @@ function clashmixin() {
     esac
 }
 
+function clashupgrade() {
+    case "$1" in
+    -h | --help)
+        cat <<EOF
+
+- 升级当前版本
+  clashupgrade
+
+- 升级到稳定版
+  clashupgrade release
+
+- 升级到测试版
+  clashupgrade alpha
+
+EOF
+        return 0
+        ;;
+    release)
+        channel="release"
+        ;;
+    alpha)
+        channel="alpha"
+        ;;
+    *)
+        channel=""
+        ;;
+    esac
+
+    _okcat "请求内核升级..."
+    _get_ui_port
+    local secret=$(sudo "$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME")
+    local res=$(
+        curl -X POST \
+            --silent \
+            --noproxy "*" \
+            -H "Authorization: Bearer $secret" \
+            "http://${EXT_IP}:${EXT_PORT}/upgrade?channel=$channel"
+    )
+
+    grep -qs '"status":"ok"' <<<"$res" && {
+        _okcat "内核升级成功"
+        return 0
+    }
+    grep 'already using latest version' <<<"$res" && {
+        _okcat "已是最新版本"
+        return 0
+    }
+    _failcat "升级请求失败，请检查网络或稍后重试"
+
+}
+
 function clashctl() {
     case "$1" in
     on)
@@ -302,6 +351,10 @@ function clashctl() {
         shift
         clashupdate "$@"
         ;;
+    upgrade)
+        shift
+        clashupgrade "$@"
+        ;;
     *)
         shift
         clashhelp "$@"
@@ -325,6 +378,7 @@ Commands:
     mixin    [-e|-r]        Mixin 配置
     secret   [SECRET]       Web 密钥
     update   [auto|log]     更新订阅
+    upgrade                 升级内核
 
 EOF
 }
