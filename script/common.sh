@@ -353,8 +353,7 @@ _start_convert() {
         BIN_SUBCONVERTER_PORT=$newPort
     }
     local start=$(date +%s)
-    # 子shell运行，屏蔽kill时的输出
-    (sudo "$BIN_SUBCONVERTER" 2>&1 | sudo tee "$BIN_SUBCONVERTER_LOG" >/dev/null &)
+    (nohup sudo "$BIN_SUBCONVERTER" 2>&1 | sudo tee "$BIN_SUBCONVERTER_LOG" >/dev/null &)
     while ! _is_bind "$BIN_SUBCONVERTER_PORT" >&/dev/null; do
         sleep 1s
         local now=$(date +%s)
@@ -362,5 +361,5 @@ _start_convert() {
     done
 }
 _stop_convert() {
-    sudo pkill -9 -f "$BIN_SUBCONVERTER" >&/dev/null
+    sudo pkill -9 -f "[${BIN_SUBCONVERTER:0:1}]${BIN_SUBCONVERTER:1}"
 }

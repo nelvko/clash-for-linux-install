@@ -25,7 +25,7 @@ _valid_config "$RESOURCES_CONFIG" || {
 }
 _okcat '✅' '配置可用'
 mkdir "$CLASH_BASE_DIR"
-echo "$url" >"$CLASH_CONFIG_URL"
+[ -n "$url" ] && echo "$url" >"$CLASH_CONFIG_URL"
 
 /bin/cp -rf "$SCRIPT_BASE_DIR" "$CLASH_BASE_DIR"
 /bin/ls "$RESOURCES_BASE_DIR" | grep -Ev 'zip|png' | xargs -I {} /bin/cp -rf "${RESOURCES_BASE_DIR}/{}" "$CLASH_BASE_DIR"
