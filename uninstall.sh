@@ -12,7 +12,7 @@ clashoff >&/dev/null
 _unset_init
 _unset_rc
 
-command -v crontab && crontab -l | grep -v "clashupdate" | crontab -
+command -v crontab >&/dev/null && crontab -l | grep -v "clashupdate" | crontab -
 
 rm -rf "$CLASH_BASE_DIR" >&/dev/null || _error_quit '请使用 sudo 执行'
 
