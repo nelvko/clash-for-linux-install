@@ -264,7 +264,7 @@ function clashmixin() {
         ;;
     esac
 }
-
+# --retry
 function clashupgrade() {
     case "$1" in
     -h | --help)
