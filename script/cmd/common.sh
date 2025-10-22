@@ -131,11 +131,11 @@ function _failcat() {
 }
 
 function _quit() {
-    _has_root && {
+    _has_root && command -v sudo >&/dev/null && {
         local user=root
         [ -n "$SUDO_USER" ] && user=$SUDO_USER
         exec sudo -u "$user" -- "$EXEC_SHELL" -i
-    } 
+    }
     exec "$EXEC_SHELL" -i
 }
 
@@ -152,7 +152,7 @@ function _error_quit() {
 
 _is_bind() {
     local port=$1
-    {  ss -lnptu 2>/dev/null ||  netstat -lnptu; } | grep ":${port}\b"
+    { ss -lnptu 2>/dev/null || netstat -lnptu; } | grep ":${port}\b"
 }
 
 _is_already_in_use() {
@@ -170,7 +170,6 @@ function _has_root() {
     [ "$(id -u)" -eq 0 ]
 }
 
-
 # function _is_root() {
 #     [ "$(id -un)" = "root" ]
 # }
@@ -178,8 +177,6 @@ function _has_root() {
 # function _is_sudo() {
 #     [ -n "$SUDO_USER" ]
 # }
-
-
 
 function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {

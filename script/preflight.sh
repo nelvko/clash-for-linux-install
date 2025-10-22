@@ -17,6 +17,8 @@ file_log="${CLASH_RESOURCES_DIR}/log"
 
 _valid_env() {
     [ -n "$ZSH_VERSION" ] && [ -n "$BASH_VERSION" ] && _error_quit "仅支持：bash、zsh 执行"
+    command -v xz >&/dev/null || _error_quit "缺少 xz 命令，请先安装"
+
 }
 
 _parse_args() {
