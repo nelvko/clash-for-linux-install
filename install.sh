@@ -4,16 +4,15 @@
 . script/cmd/clashctl.sh
 . script/preflight.sh
 
+_parse_args "$@"
 _valid_env
 
 [ -d "$CLASH_BASE_DIR" ] && _error_quit "请先执行卸载脚本,以清除安装路径：$CLASH_BASE_DIR"
 mkdir -p "$CLASH_BASE_DIR" || _error_quit "无写入权限：$CLASH_BASE_DIR，请前往 .env 文件更换安装路径"
 
-_parse_args
-_confirm_kernel "$@"
-_set_bin
-_detect_init "$@"
 
+_get_kernel
+_get_init
 
 _okcat "安装内核：$KERNEL_NAME by ${INIT_TYPE}"
 _okcat "安装路径：$CLASH_BASE_DIR"
@@ -40,11 +39,6 @@ _merge_config
     _set_env KERNEL_NAME "$KERNEL_NAME"
     _set_env IMAGE_KERNEL "$IMAGE_KERNEL"
 }
-
-sed -i "/\$placeholder_bin/{
-    r /dev/stdin
-    d
-}" "$CLASH_CMD_DIR/common.sh" <<<"$bin_var"
 
 _set_rc
 _set_init
