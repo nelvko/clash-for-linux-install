@@ -4,6 +4,7 @@
 . script/cmd/clashctl.sh
 . script/preflight.sh
 
+_valid_required
 _parse_args "$@"
 _valid_env
 

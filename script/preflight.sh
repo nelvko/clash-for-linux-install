@@ -15,10 +15,17 @@ ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
 file_pid="${CLASH_RESOURCES_DIR}/pid"
 file_log="${CLASH_RESOURCES_DIR}/log"
 
+_valid_required() {
+    REQUIRED_CMDS=("xz" "pgrep" "curl" "tar")
+    local missing=()
+    for cmd in "${REQUIRED_CMDS[@]}"; do
+        command -v "$cmd" >&/dev/null || missing+=("$cmd")
+    done
+    [ "${#missing[@]}" -gt 0 ] && _error_quit "请先安装以下命令：${missing[*]}"
+}
+
 _valid_env() {
     [ -n "$ZSH_VERSION" ] && [ -n "$BASH_VERSION" ] && _error_quit "仅支持：bash、zsh 执行"
-    command -v xz >&/dev/null || _error_quit "缺少 xz 命令，请先安装"
-
 }
 
 _parse_args() {
