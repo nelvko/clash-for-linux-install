@@ -25,7 +25,6 @@ _valid_required() {
 }
 
 _valid_env() {
-    echo 123 $BASH_VERSION
     [ -z "$ZSH_VERSION" ] && [ -z "$BASH_VERSION" ] && _error_quit "仅支持：bash、zsh 执行"
 }
 
