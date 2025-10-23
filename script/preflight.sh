@@ -16,16 +16,17 @@ file_pid="${CLASH_RESOURCES_DIR}/pid"
 file_log="${CLASH_RESOURCES_DIR}/log"
 
 _valid_required() {
-    REQUIRED_CMDS=("xz" "pgrep" "curl" "tar")
+    local required_cmds=("xz" "pgrep" "curl" "tar")
     local missing=()
-    for cmd in "${REQUIRED_CMDS[@]}"; do
+    for cmd in "${required_cmds[@]}"; do
         command -v "$cmd" >&/dev/null || missing+=("$cmd")
     done
     [ "${#missing[@]}" -gt 0 ] && _error_quit "请先安装以下命令：${missing[*]}"
 }
 
 _valid_env() {
-    [ -n "$ZSH_VERSION" ] && [ -n "$BASH_VERSION" ] && _error_quit "仅支持：bash、zsh 执行"
+    echo 123 $BASH_VERSION
+    [ -z "$ZSH_VERSION" ] && [ -z "$BASH_VERSION" ] && _error_quit "仅支持：bash、zsh 执行"
 }
 
 _parse_args() {
