@@ -50,7 +50,7 @@ _parse_args() {
 _get_kernel() {
     case "${KERNEL_NAME}" in
     clash)
-        [ "$_IS_CONTAINER" = 'true' ] && {
+        [ "$_IS_CONTAINER" != 'true' ] && {
             [ ! -f "$ZIP_CLASH" ] && _download_clash "$(uname -m)"
             ZIP_KERNEL=$(echo "${ZIP_BASE_DIR}"/clash*)
         }
@@ -308,11 +308,12 @@ _bin_host() {
 }
 # shellcheck disable=SC2329
 _bin_container() {
-    valid_config_cmd="sudo docker run \
+    valid_config_cmd='sudo docker run \
                             --rm \
-                            -v \$1:/root/.config/${KERNEL_NAME}/config.yaml:ro \
-                            -v $(dirname \$1):/root/.config/${KERNEL_NAME} ${URL_CR_PROXY}${IMAGE_KERNEL} \
-                            -t"
+                            -v $1:/root/.config/${KERNEL_NAME}/config.yaml:ro \
+                            -v $(dirname $1):/root/.config/${KERNEL_NAME} \
+                            ${URL_CR_PROXY}${IMAGE_KERNEL} \
+                            -t'
     yq1() {
         sudo docker run \
             --rm \
