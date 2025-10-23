@@ -6,10 +6,6 @@ set +o noglob >&/dev/null
 setopt glob no_nomatch >&/dev/null
 
 ZIP_BASE_DIR="${RESOURCES_BASE_DIR}/zip"
-ZIP_CLASH=$(echo "${ZIP_BASE_DIR}"/clash*)
-ZIP_MIHOMO=$(echo "${ZIP_BASE_DIR}"/mihomo*)
-ZIP_YQ=$(echo "${ZIP_BASE_DIR}"/yq*)
-ZIP_SUBCONVERTER=$(echo "${ZIP_BASE_DIR}"/subconverter*)
 ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
 
 file_pid="${CLASH_RESOURCES_DIR}/pid"
@@ -48,15 +44,19 @@ _parse_args() {
 }
 
 _get_kernel() {
+    [ "$_IS_CONTAINER" = true ]
+    required_zip=("$KERNEL_NAME" "yq" "subconverter")
     case "${KERNEL_NAME}" in
     clash)
         [ "$_IS_CONTAINER" != 'true' ] && {
-            [ ! -f "$ZIP_CLASH" ] && _download_clash "$(uname -m)"
+            [ ! -f "$ZIP_CLASH" ] && required_zip+=("clash")
+            _download_zip "$(uname -m)"
             ZIP_KERNEL=$(echo "${ZIP_BASE_DIR}"/clash*)
         }
         IMAGE_KERNEL=$IMAGE_CLASH
         ;;
     mihomo | *)
+        _download_zip "$(uname -m)"
         ZIP_KERNEL=$ZIP_MIHOMO
         IMAGE_KERNEL=$IMAGE_MIHOMO
         ;;
@@ -254,45 +254,85 @@ _unset_rc() {
     rm -f "$SHELL_RC_FISH" 2>/dev/null
 }
 
-_download_clash() {
-    local arch=$1
-    local url sha256sum
-    case "$arch" in
-    x86_64)
-        url=https://downloads.clash.wiki/ClashPremium/clash-linux-amd64-2023.08.17.gz
-        sha256sum='92380f053f083e3794c1681583be013a57b160292d1d9e1056e7fa1c2d948747'
-        ;;
-    *86*)
-        url=https://downloads.clash.wiki/ClashPremium/clash-linux-386-2023.08.17.gz
-        sha256sum='254125efa731ade3c1bf7cfd83ae09a824e1361592ccd7c0cccd2a266dcb92b5'
-        ;;
-    armv*)
-        url=https://downloads.clash.wiki/ClashPremium/clash-linux-armv5-2023.08.17.gz
-        sha256sum='622f5e774847782b6d54066f0716114a088f143f9bdd37edf3394ae8253062e8'
-        ;;
-    aarch64)
-        url=https://downloads.clash.wiki/ClashPremium/clash-linux-arm64-2023.08.17.gz
-        sha256sum='c45b39bb241e270ae5f4498e2af75cecc0f03c9db3c0db5e55c8c4919f01afdd'
-        ;;
-    *)
-        _error_quit "未知的架构版本：$arch，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录下：https://downloads.clash.wiki/ClashPremium/"
-        ;;
-    esac
+# _download_zip() {
+#     local arch=$1
+#     local clash_url mihomo_url yq_url subconverter_url
 
-    _okcat '⏳' "正在下载：clash：${arch} 架构..."
-    clash_zip="${ZIP_BASE_DIR}/$(basename $url)"
-    curl \
-        --progress-bar \
-        --show-error \
-        --fail \
-        --insecure \
-        --connect-timeout 15 \
-        --retry 1 \
-        --output "$clash_zip" \
-        "$url"
-    echo $sha256sum "$clash_zip" | sha256sum -c ||
-        _error_quit "下载失败：请自行下载对应版本至 ${ZIP_BASE_DIR} 目录下：https://downloads.clash.wiki/ClashPremium/"
-}
+#     case "$arch" in
+#     x86_64)
+#         clash_url=https://downloads.clash.wiki/ClashPremium/clash-linux-amd64-2023.08.17.gz
+#         mihomo_url=https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-amd64-v1.19.15.gz
+#         yq_url=https://github.com/mikefarah/yq/releases/download/v4.48.1/yq_linux_amd64.tar.gz
+#         subconverter_url=https://github.com/tindy2013/subconverter/releases/download/v0.9.0/subconverter_linux64.tar.gz
+#         ;;
+#     *86*)
+#         clash_url=https://downloads.clash.wiki/ClashPremium/clash-linux-386-2023.08.17.gz
+#         mihomo_url=https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-386-v1.19.15.gz
+#         yq_url=https://github.com/mikefarah/yq/releases/download/v4.48.1/yq_linux_386.tar.gz
+#         subconverter_url=https://github.com/tindy2013/subconverter/releases/download/v0.9.0/subconverter_linux32.tar.gz
+#         ;;
+#     armv*)
+#         clash_url=https://downloads.clash.wiki/ClashPremium/clash-linux-armv5-2023.08.17.gz
+#         mihomo_url=https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-armv7-v1.19.15.gz
+#         yq_url=https://github.com/mikefarah/yq/releases/download/v4.48.1/yq_linux_arm.tar.gz
+#         subconverter_url=https://github.com/tindy2013/subconverter/releases/download/v0.9.0/subconverter_armv7.tar.gz
+#         ;;
+#     aarch64)
+#         clash_url=https://downloads.clash.wiki/ClashPremium/clash-linux-arm64-2023.08.17.gz
+#         mihomo_url=https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-arm64-v1.19.15.gz
+#         yq_url=https://github.com/mikefarah/yq/releases/download/v4.48.1/yq_linux_arm64.tar.gz
+#         subconverter_url=https://github.com/tindy2013/subconverter/releases/download/v0.9.0/subconverter_aarch64.tar.gz
+#         ;;
+#     *)
+#         _error_quit "未知的架构版本：$arch，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录"
+#         ;;
+#     esac
+
+#     [ -n "$ZSH_VERSION" ] && {
+#         typeset -A urls
+#         urls=(
+#             clash "$clash_url"
+#             mihomo "$mihomo_url"
+#             yq "$yq_url"
+#             subconverter "$subconverter_url"
+#         )
+#         KEYS=("${(@k)urls}")  # zsh 获取 keys
+#     }
+#     [ -n "$BASH_VERSION" ] && {
+#         declare -A urls=(
+#             [clash]="$clash_url"
+#             [mihomo]="$mihomo_url"
+#             [yq]="$yq_url"
+#             [subconverter]="$subconverter_url"
+#         )
+#         KEYS=("${!urls[@]}")  # bash 获取 keys
+#     }
+
+#     local num=0
+#     fail=()
+#     for key in "${required_zip[@]}"; do
+#         local url="${urls[$key]}"
+#         local proxy_url="${URL_GH_PROXY}${url}"
+#         [ "$key" != 'clash' ] && url="$proxy_url"
+#         _okcat '⏳' "正在下载：${key}..."
+#         local target="${ZIP_BASE_DIR}/$(basename "$url")"
+#         curl \
+#             --progress-bar \
+#             --show-error \
+#             --fail \
+#             --insecure \
+#             --connect-timeout 15 \
+#             --retry 1 \
+#             --output "$target" \
+#             "$url" || fail+=("$key")
+#     done
+
+#     [ ${#fail[@]} -gt 0 ] && _error_quit "下载失败：$fail，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录"
+#     ZIP_CLASH=$(echo "${ZIP_BASE_DIR}"/clash*)
+#     ZIP_MIHOMO=$(echo "${ZIP_BASE_DIR}"/mihomo*)
+#     ZIP_YQ=$(echo "${ZIP_BASE_DIR}"/yq*)
+#     ZIP_SUBCONVERTER=$(echo "${ZIP_BASE_DIR}"/subconverter*)
+# }
 # shellcheck disable=SC2016
 _bin_host() {
     valid_config_cmd='$BIN_KERNEL -d $(dirname $1) -f $1 -t'
