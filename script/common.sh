@@ -229,7 +229,6 @@ function _is_root() {
 
 function _valid_env() {
     _is_root || _error_quit "需要 root 或 sudo 权限执行"
-    [ -n "$ZSH_VERSION" ] && [ -n "$BASH_VERSION" ] && _error_quit "仅支持：bash、zsh"
     [ "$(ps -p 1 -o comm=)" != "systemd" ] && _error_quit "系统不具备 systemd"
 }
 
