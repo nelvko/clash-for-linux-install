@@ -113,7 +113,7 @@ function clashui() {
     # 公网ip
     # ifconfig.me
     local query_url='api64.ipify.org'
-    local public_ip=$(curl -s --noproxy "*" --max-time 2 $query_url)
+    local public_ip=$(curl -s --noproxy "*" --location --max-time 2 $query_url)
     local public_address="http://${public_ip:-公网}:${EXT_PORT}/ui"
 
     local local_ip=$EXT_IP
@@ -300,6 +300,7 @@ EOF
         curl -X POST \
             --silent \
             --noproxy "*" \
+            --location \
             -H "Authorization: Bearer $secret" \
             "http://${EXT_IP}:${EXT_PORT}/upgrade?channel=$channel"
     )

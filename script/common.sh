@@ -279,6 +279,7 @@ _download_clash() {
         --show-error \
         --fail \
         --insecure \
+        --location \
         --connect-timeout 5 \
         --max-time 15 \
         --retry 1 \
@@ -296,6 +297,7 @@ _download_raw_config() {
         --silent \
         --show-error \
         --insecure \
+        --location \
         --max-time 5 \
         --retry 1 \
         --user-agent "$agent" \
@@ -320,6 +322,7 @@ _download_convert_config() {
         curl \
             --get \
             --silent \
+            --location \
             --output /dev/null \
             --data-urlencode "target=$target" \
             --data-urlencode "url=$url" \
