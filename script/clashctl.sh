@@ -6,8 +6,7 @@ _set_system_proxy() {
     [ -n "$auth" ] && auth=$auth@
 
     local bind_addr=$(sudo "$BIN_YQ" '.bind-address // ""' "$CLASH_CONFIG_RUNTIME")
-    [[ -z "$bind_addr" || "$bind_addr" == "*" ]] && bind_addr='127.0.0.1'
-
+    case $bind_addr in "" | "*" | "0.0.0.0") bind_addr=127.0.0.1 ;; esac
     local http_proxy_addr="http://${auth}${bind_addr}:${MIXED_PORT}"
     local socks_proxy_addr="socks5h://${auth}${bind_addr}:${MIXED_PORT}"
     local no_proxy_addr="localhost,127.0.0.1,::1"
@@ -22,8 +21,6 @@ _set_system_proxy() {
 
     export no_proxy=$no_proxy_addr
     export NO_PROXY=$no_proxy
-
-    sudo "$BIN_YQ" -i '.system-proxy.enable = true' "$CLASH_CONFIG_MIXIN"
 }
 
 _unset_system_proxy() {
@@ -35,8 +32,6 @@ _unset_system_proxy() {
     unset ALL_PROXY
     unset no_proxy
     unset NO_PROXY
-
-    sudo "$BIN_YQ" -i '.system-proxy.enable = false' "$CLASH_CONFIG_MIXIN"
 }
 
 function clashon() {
@@ -47,7 +42,7 @@ function clashon() {
             return 1
         }
     }
-    _set_system_proxy
+    clashproxy status >/dev/null && _set_system_proxy
     _okcat '已开启代理环境'
 }
 
@@ -76,10 +71,12 @@ function clashproxy() {
             _failcat '代理程序未运行，请执行 clashon 开启代理环境'
             return 1
         }
+        sudo "$BIN_YQ" -i '.system-proxy.enable = true' "$CLASH_CONFIG_MIXIN"
         _set_system_proxy
         _okcat '已开启系统代理'
         ;;
     off)
+        sudo "$BIN_YQ" -i '.system-proxy.enable = false' "$CLASH_CONFIG_MIXIN"
         _unset_system_proxy
         _okcat '已关闭系统代理'
         ;;
