@@ -279,62 +279,49 @@ _unset_rc() {
     rm -f "$SHELL_RC_FISH" 2>/dev/null
 }
 
+# shellcheck disable=SC2155
 _download_zip() {
     local arch=$(uname -m)
-    local clash_url mihomo_url yq_url subconverter_url
+    local url_clash url_mihomo url_yq url_subconverter
 
     case "$arch" in
     x86_64)
-        clash_url=https://downloads.clash.wiki/ClashPremium/clash-linux-amd64-2023.08.17.gz
-        mihomo_url=https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-amd64-v1.19.15.gz
-        yq_url=https://github.com/mikefarah/yq/releases/download/v4.48.1/yq_linux_amd64.tar.gz
-        subconverter_url=https://github.com/tindy2013/subconverter/releases/download/v0.9.0/subconverter_linux64.tar.gz
+        url_clash=https://downloads.clash.wiki/ClashPremium/clash-linux-amd64-2023.08.17.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-amd64-v1.19.15.gz
+        url_yq=https://github.com/mikefarah/yq/releases/download/v4.48.1/yq_linux_amd64.tar.gz
+        url_subconverter=https://github.com/tindy2013/subconverter/releases/download/v0.9.0/subconverter_linux64.tar.gz
         ;;
     *86*)
-        clash_url=https://downloads.clash.wiki/ClashPremium/clash-linux-386-2023.08.17.gz
-        mihomo_url=https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-386-v1.19.15.gz
-        yq_url=https://github.com/mikefarah/yq/releases/download/v4.48.1/yq_linux_386.tar.gz
-        subconverter_url=https://github.com/tindy2013/subconverter/releases/download/v0.9.0/subconverter_linux32.tar.gz
+        url_clash=https://downloads.clash.wiki/ClashPremium/clash-linux-386-2023.08.17.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-386-v1.19.15.gz
+        url_yq=https://github.com/mikefarah/yq/releases/download/v4.48.1/yq_linux_386.tar.gz
+        url_subconverter=https://github.com/tindy2013/subconverter/releases/download/v0.9.0/subconverter_linux32.tar.gz
         ;;
     armv*)
-        clash_url=https://downloads.clash.wiki/ClashPremium/clash-linux-armv5-2023.08.17.gz
-        mihomo_url=https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-armv7-v1.19.15.gz
-        yq_url=https://github.com/mikefarah/yq/releases/download/v4.48.1/yq_linux_arm.tar.gz
-        subconverter_url=https://github.com/tindy2013/subconverter/releases/download/v0.9.0/subconverter_armv7.tar.gz
+        url_clash=https://downloads.clash.wiki/ClashPremium/clash-linux-armv5-2023.08.17.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-armv7-v1.19.15.gz
+        url_yq=https://github.com/mikefarah/yq/releases/download/v4.48.1/yq_linux_arm.tar.gz
+        url_subconverter=https://github.com/tindy2013/subconverter/releases/download/v0.9.0/subconverter_armv7.tar.gz
         ;;
     aarch64)
-        clash_url=https://downloads.clash.wiki/ClashPremium/clash-linux-arm64-2023.08.17.gz
-        mihomo_url=https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-arm64-v1.19.15.gz
-        yq_url=https://github.com/mikefarah/yq/releases/download/v4.48.1/yq_linux_arm64.tar.gz
-        subconverter_url=https://github.com/tindy2013/subconverter/releases/download/v0.9.0/subconverter_aarch64.tar.gz
+        url_clash=https://downloads.clash.wiki/ClashPremium/clash-linux-arm64-2023.08.17.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-arm64-v1.19.15.gz
+        url_yq=https://github.com/mikefarah/yq/releases/download/v4.48.1/yq_linux_arm64.tar.gz
+        url_subconverter=https://github.com/tindy2013/subconverter/releases/download/v0.9.0/subconverter_aarch64.tar.gz
         ;;
     *)
         _error_quit "未知的架构版本：$arch，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录"
         ;;
     esac
 
-    [ -n "$ZSH_VERSION" ] && {
-        typeset -A urls
-        urls=(
-            clash "$clash_url"
-            mihomo "$mihomo_url"
-            yq "$yq_url"
-            subconverter "$subconverter_url"
-        )
-        KEYS=("${(@k)urls}")  # zsh 获取 keys
-    }
-    [ -n "$BASH_VERSION" ] && {
-        declare -A urls=(
-            [clash]="$clash_url"
-            [mihomo]="$mihomo_url"
-            [yq]="$yq_url"
-            [subconverter]="$subconverter_url"
-        )
-        KEYS=("${!urls[@]}")  # bash 获取 keys
-    }
+    local -A urls=(
+        [clash]="$url_clash"
+        [mihomo]="$url_mihomo"
+        [yq]="$url_yq"
+        [subconverter]="$url_subconverter"
+    )
 
-    local num=0
-    fail=()
+    local key fail_zip
     for key in "${required_zip[@]}"; do
         local url="${urls[$key]}"
         local proxy_url="${URL_GH_PROXY}${url}"
@@ -349,10 +336,10 @@ _download_zip() {
             --connect-timeout 15 \
             --retry 1 \
             --output "$target" \
-            "$url" || fail+=("$key")
+            "$url" || fail_zip+=("$key")
     done
 
-    [ ${#fail[@]} -gt 0 ] && _error_quit "下载失败：$fail，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录"
+    [ ${#fail_zip[@]} -gt 0 ] && _error_quit "下载失败：${fail_zip[*]}，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录"
 }
 _load_zip() {
     ZIP_CLASH=$(echo "${ZIP_BASE_DIR}"/clash*)
