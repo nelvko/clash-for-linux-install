@@ -225,7 +225,6 @@ function clashupdate() {
     _valid_config "$CLASH_CONFIG_RAW" || _rollback "转换失败：已回滚配置，转换日志：$BIN_SUBCONVERTER_LOG"
 
     _merge_config_restart && _okcat '🍃' '订阅更新成功'
-    _set_env CLASH_CONFIG_URL "$url"
     _okcat '✅' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新成功：$url" | tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
 }
 
@@ -280,7 +279,7 @@ function clashctl() {
     *)
         cat <<EOF
 
-  clashctl | mihomoctl
+  clashctl
 
   优雅地使用基于 $KERNEL_NAME 的代理环境.
   更多信息：https://github.com/nelvko/clash-for-linux-install.
@@ -309,16 +308,4 @@ function clashctl() {
 EOF
         ;;
     esac
-}
-
-function mihomoctl() {
-    clashctl "$@"
-}
-
-function clash() {
-    clashctl "$@"
-}
-
-function mihomo() {
-    clashctl "$@"
 }

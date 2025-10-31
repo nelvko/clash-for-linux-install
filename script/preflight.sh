@@ -5,6 +5,13 @@
 set +o noglob >&/dev/null
 setopt glob no_nomatch >&/dev/null
 
+home=$HOME
+[[ -n "$SUDO_USER" && $CLASH_BASE_DIR == /root* ]] && {
+    home=$(awk -F: -v user="$SUDO_USER" '$1==user{print $6}' /etc/passwd)
+    CLASH_BASE_DIR=${CLASH_BASE_DIR/\/root/$home}
+    _load_base_dir
+}
+
 ZIP_BASE_DIR="${RESOURCES_BASE_DIR}/zip"
 ZIP_CLASH=$(echo "${ZIP_BASE_DIR}"/clash*)
 ZIP_MIHOMO=$(echo "${ZIP_BASE_DIR}"/mihomo*)
@@ -344,6 +351,8 @@ _set_bin() {
         /bin/mv -f "${BIN_BASE_DIR}"/yq_* "${BIN_BASE_DIR}/yq"
         tar -xf "$ZIP_SUBCONVERTER" -C "$BIN_BASE_DIR"
         /bin/cp "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
+        tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"
+
     }
 
     [ "$_IS_CONTAINER" = 'true' ] && {
@@ -352,4 +361,25 @@ _set_bin() {
 
     }
     BIN_VAR=$(typeset -f $_bin_var | sed '1,2d;$d')
+}
+
+_set_env() {
+    local key=$1
+    local value=$2
+    local env_path="${CLASH_BASE_DIR}/.env"
+
+    grep -qE "^${key}=" "$env_path" && {
+        value=${value//&/\\&}
+        sed -i "s|^${key}=.*|${key}=${value}|" "$env_path"
+        return $?
+    }
+    echo "${key}=${value}" >>"$env_path"
+}
+
+_set_envs() {
+    _set_env CLASH_CONFIG_URL "$CLASH_CONFIG_URL"
+    _set_env INIT_TYPE "$INIT_TYPE"
+    _set_env KERNEL_NAME "$KERNEL_NAME"
+    _set_env CLASH_BASE_DIR "$CLASH_BASE_DIR"
+
 }

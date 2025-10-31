@@ -42,10 +42,8 @@ git clone --branch master --depth 1 https://gh-proxy.com/https://github.com/nelv
 ```bash
 $ clash
 Usage:
-    clash     COMMAND [OPTION]
-    mihomo    COMMAND [OPTION]
+
     clashctl  COMMAND [OPTION]
-    mihomoctl COMMAND [OPTION]
 
 Commands:
     on                   开启代理

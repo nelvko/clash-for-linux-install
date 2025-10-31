@@ -11,8 +11,7 @@ _parse_args "$@"
 _valid_required
 
 [ -d "$CLASH_BASE_DIR" ] && _error_quit "请先执行卸载脚本,以清除安装路径：$CLASH_BASE_DIR"
-mkdir -p "$CLASH_BASE_DIR" || _error_quit "无写入权限：$CLASH_BASE_DIR，请前往 .env 文件更换安装路径"
-
+mkdir -p "$CLASH_RESOURCES_DIR" || _error_quit "无写入权限：$CLASH_BASE_DIR，请前往 .env 文件更换安装路径"
 
 _get_kernel
 _get_init
@@ -31,18 +30,10 @@ _valid_config "$(pwd)/$RESOURCES_CONFIG" || {
 }
 _okcat '✅' '配置可用'
 
-mkdir -p "$CLASH_BASE_DIR"
 /bin/cp -rf . "$CLASH_BASE_DIR"
-tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"
-_set_env CLASH_CONFIG_URL "$CLASH_CONFIG_URL"
 _merge_config
 
-[ -n "$*" ] && {
-    _set_env INIT_TYPE "$INIT_TYPE"
-    _set_env KERNEL_NAME "$KERNEL_NAME"
-    _set_env IMAGE_KERNEL "$IMAGE_KERNEL"
-}
-
+_set_envs
 _set_rc
 _set_init
 
