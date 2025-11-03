@@ -5,10 +5,7 @@
 # shellcheck disable=SC1091
 
 . "$(dirname "$(dirname "$SCRIPT_DIR")")/.env"
-[ -n "$SUDO_USER" ] && {
-    home=$(awk -F: -v user="$SUDO_USER" '$1==user{print $6}' /etc/passwd)
-    CLASH_BASE_DIR=${CLASH_BASE_DIR/\/root/$home}
-}
+
 SCRIPT_BASE_DIR='script'
 SCRIPT_INIT_DIR="${SCRIPT_BASE_DIR}/init"
 SCRIPT_CMD_DIR="${SCRIPT_BASE_DIR}/cmd"
@@ -18,13 +15,16 @@ RESOURCES_BASE_DIR='resources'
 RESOURCES_CONFIG="${RESOURCES_BASE_DIR}/config.yaml"
 RESOURCES_CONFIG_MIXIN="${RESOURCES_BASE_DIR}/mixin.yaml"
 
-CLASH_RESOURCES_DIR="${CLASH_BASE_DIR}/$RESOURCES_BASE_DIR"
-CLASH_CMD_DIR="${CLASH_BASE_DIR}/$SCRIPT_CMD_DIR"
-CLASH_CONFIG_RAW="${CLASH_BASE_DIR}/$RESOURCES_CONFIG"
-CLASH_CONFIG_RAW_BAK="${CLASH_CONFIG_RAW}.bak"
-CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/$RESOURCES_CONFIG_MIXIN"
-CLASH_CONFIG_RUNTIME="${CLASH_RESOURCES_DIR}/runtime.yaml"
-CLASH_UPDATE_LOG="${CLASH_RESOURCES_DIR}/clashupdate.log"
+_load_base_dir() {
+    CLASH_RESOURCES_DIR="${CLASH_BASE_DIR}/$RESOURCES_BASE_DIR"
+    CLASH_CMD_DIR="${CLASH_BASE_DIR}/$SCRIPT_CMD_DIR"
+    CLASH_CONFIG_RAW="${CLASH_BASE_DIR}/$RESOURCES_CONFIG"
+    CLASH_CONFIG_RAW_BAK="${CLASH_CONFIG_RAW}.bak"
+    CLASH_CONFIG_MIXIN="${CLASH_BASE_DIR}/$RESOURCES_CONFIG_MIXIN"
+    CLASH_CONFIG_RUNTIME="${CLASH_RESOURCES_DIR}/runtime.yaml"
+    CLASH_UPDATE_LOG="${CLASH_RESOURCES_DIR}/clashupdate.log"
+}
+_load_base_dir
 
 BIN_SUBCONVERTER_PORT=25500
 $placeholder_bin
@@ -37,19 +37,6 @@ $placeholder_bin
 }
 [ -n "$fish_version" ] && {
     EXEC_SHELL=fish
-}
-
-_set_env() {
-    local key=$1
-    local value=$2
-    local env_path="${CLASH_BASE_DIR}/.env"
-
-    grep -qE "^${key}=" "$env_path" && {
-        value=${value//&/\\&}
-        sed -i "s|^${key}=.*|${key}=${value}|" "$env_path"
-        return $?
-    }
-    echo "${key}=${value}" >>"$env_path"
 }
 
 _get_random_port() {
@@ -131,11 +118,11 @@ function _failcat() {
 }
 
 function _quit() {
-    _has_root && {
+    _has_root && command -v sudo >&/dev/null && {
         local user=root
         [ -n "$SUDO_USER" ] && user=$SUDO_USER
         exec sudo -u "$user" -- "$EXEC_SHELL" -i
-    } 
+    }
     exec "$EXEC_SHELL" -i
 }
 
@@ -152,7 +139,7 @@ function _error_quit() {
 
 _is_bind() {
     local port=$1
-    {  ss -lnptu 2>/dev/null ||  netstat -lnptu; } | grep ":${port}\b"
+    { ss -lnptu 2>/dev/null || netstat -lnptu; } | grep ":${port}\b"
 }
 
 _is_already_in_use() {
@@ -170,7 +157,6 @@ function _has_root() {
     [ "$(id -u)" -eq 0 ]
 }
 
-
 # function _is_root() {
 #     [ "$(id -un)" = "root" ]
 # }
@@ -178,8 +164,6 @@ function _has_root() {
 # function _is_sudo() {
 #     [ -n "$SUDO_USER" ]
 # }
-
-
 
 function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {

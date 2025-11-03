@@ -4,18 +4,15 @@
 . .env
 . script/cmd/common.sh
 . "${CLASH_CMD_DIR}/clashctl.sh" 2>/dev/null
-. script/preflight.sh unset
+. script/preflight.sh
 
 _valid_env
 clashoff >&/dev/null
 
-[ -z "$CONTAINER_TYPE" ] && {
-    _get_init
-    _set_init
-}
+_unset_init
+_unset_rc
 
-_set_rc
-crontab -l 2>/dev/null | grep -v "clashupdate" | crontab -
+command -v crontab >&/dev/null && crontab -l | grep -v "clashupdate" | crontab -
 
 rm -rf "$CLASH_BASE_DIR" >&/dev/null || _error_quit '请使用 sudo 执行'
 
