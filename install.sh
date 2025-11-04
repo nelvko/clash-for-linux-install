@@ -32,6 +32,7 @@ _okcat '✅' '配置可用'
 
 /bin/cp -rf . "$CLASH_BASE_DIR"
 _merge_config
+[ -n "$SUDO_USER" ] && chown -R "$SUDO_USER" "$CLASH_BASE_DIR"
 
 _set_envs
 _set_rc

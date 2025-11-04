@@ -95,12 +95,12 @@ function clashui() {
 }
 
 _merge_config() {
-    local backup="/tmp/rt.backup"
-    cat "$CLASH_CONFIG_RUNTIME" 2>/dev/null | tee $backup >&/dev/null
+    local backup="${CLASH_CONFIG_RUNTIME}.bak"
+    cat "$CLASH_CONFIG_RUNTIME" > "$backup" 2>/dev/null 
     "$BIN_YQ" eval-all '. as $item ireduce ({}; . *+ $item) | (.. | select(tag == "!!seq")) |= unique' \
-        "$CLASH_CONFIG_MIXIN" "$CLASH_CONFIG_RAW" "$CLASH_CONFIG_MIXIN" | tee "$CLASH_CONFIG_RUNTIME" >&/dev/null
+        "$CLASH_CONFIG_MIXIN" "$CLASH_CONFIG_RAW" "$CLASH_CONFIG_MIXIN" > "$CLASH_CONFIG_RUNTIME"
     _valid_config "$CLASH_CONFIG_RUNTIME" || {
-        cat $backup | tee "$CLASH_CONFIG_RUNTIME" >&/dev/null
+        cat "$backup" > "$CLASH_CONFIG_RUNTIME"
         _error_quit "验证失败：请检查 Mixin 配置"
     }
 }
@@ -277,35 +277,29 @@ function clashctl() {
         clashupdate "$@"
         ;;
     *)
-        cat <<EOF
-
-  clashctl
-
-  优雅地使用基于 $KERNEL_NAME 的代理环境.
-  更多信息：https://github.com/nelvko/clash-for-linux-install.
-
-  - 开启/关闭代理环境
-    clash <on|off>
-
-  - 打印 Web 控制台信息
-    clash ui
-
-  - 查看/设置 Web 密钥
-    clash secret [SECRET]
-
-  - 查看代理内核状况
-    clash status
-
-  - 查看/设置 Tun 模式
-    clash tun [on|off]
-
-  - 查看/编辑 Mixin 配置
-    clash mixin [-e|-r]
-
-  - 更新订阅、查看订阅更新日志
-    clash update [auto|log] [URL]
-
-EOF
+        shift
+        clashhelp "$@"
         ;;
     esac
+}
+
+clashhelp() {
+    cat <<EOF
+    
+Usage:
+    clashctl COMMAND  [OPTION]
+
+Commands:
+    on                      开启代理
+    off                     关闭代理
+    proxy    [on|off]       系统代理
+    ui                      面板地址
+    status                  内核状况
+    tun      [on|off]       Tun 模式
+    mixin    [-e|-r]        Mixin 配置
+    secret   [SECRET]       Web 密钥
+    update   [auto|log]     更新订阅
+    upgrade                 升级内核
+
+EOF
 }
