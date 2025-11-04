@@ -21,7 +21,6 @@ body:
       options:
         - master
         - feat-init
-        - arch-*
     validations:
       required: true
 
