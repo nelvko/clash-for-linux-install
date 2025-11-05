@@ -39,22 +39,34 @@ $placeholder_bin
     EXEC_SHELL=fish
 }
 
+_is_bind() {
+    local port=$1
+    { ss -lnptu 2>/dev/null || netstat -lnptu; } | grep ":${port}\b"
+}
+_is_already_in_use() {
+    local port=$1
+    local progress=$2
+    _is_bind "$port" >&/dev/null && {
+        _is_bind "$port" | grep -qs "$progress" && return 1
+        pgrep -f "$progress" >&/dev/null && return 1
+        return 0
+    }
+    return 1
+}
 _get_random_port() {
     local randomPort=$(shuf -i 1024-65535 -n 1)
     ! _is_bind "$randomPort" && { echo "$randomPort" && return; }
     _get_random_port
 }
-_format_port() {
-    printf %-5d "$1"
-}
-function _get_proxy_port() {
-    local mixed_port=$("$BIN_YQ" '.mixed-port // ""' "$CLASH_CONFIG_RUNTIME")
-    MIXED_PORT=${mixed_port:-7890}
 
-    _is_already_in_use "$MIXED_PORT" "$KERNEL_NAME" && {
+function _get_proxy_port() {
+    MIXED_PORT=$("$BIN_YQ" '.mixed-port' "$CLASH_CONFIG_RUNTIME")
+
+    _is_already_in_use "$MIXED_PORT" "$BIN_KERNEL" && {
         local newPort=$(_get_random_port)
-        local msg="端口占用：$(_format_port "$MIXED_PORT") 🎲 随机分配：$newPort"
-        "$BIN_YQ" -i ".mixed-port = $newPort" "$CLASH_CONFIG_RUNTIME"
+        local msg="端口占用：${MIXED_PORT} 🎲 随机分配：$newPort"
+        "$BIN_YQ" -i ".mixed-port = $newPort" "$CLASH_CONFIG_MIXIN"
+        _merge_config
         MIXED_PORT=$newPort
         _failcat '🎯' "$msg"
     }
@@ -62,20 +74,24 @@ function _get_proxy_port() {
 
 function _get_ui_port() {
     local ext_addr=$("$BIN_YQ" '.external-controller // ""' "$CLASH_CONFIG_RUNTIME")
-    local ext_port=${ext_addr##*:}
-    UI_PORT=${ext_port:-9090}
+    local ext_ip=${ext_addr%%:*}
+    EXT_IP=$ext_ip
+    EXT_PORT=${ext_addr##*:}
 
-    _is_already_in_use "$UI_PORT" "$KERNEL_NAME" && {
+    # ip route get 1.1.1.1 | grep -oP 'src \K\S+'
+    [ "$ext_ip" = '0.0.0.0' ] && EXT_IP=$(hostname -I | awk '{print $1}')
+    _is_already_in_use "$EXT_PORT" "$BIN_KERNEL" && {
         local newPort=$(_get_random_port)
-        local msg="端口占用：$(_format_port "$UI_PORT") 🎲 随机分配：$newPort"
-        "$BIN_YQ" -i ".external-controller = \"0.0.0.0:$newPort\"" "$CLASH_CONFIG_RUNTIME"
-        UI_PORT=$newPort
+        local msg="端口占用：${EXT_PORT} 🎲 随机分配：$newPort"
+        "$BIN_YQ" -i ".external-controller = \"$ext_ip:$newPort\"" "$CLASH_CONFIG_MIXIN"
+        _merge_config
+        EXT_PORT=$newPort
         _failcat '🎯' "$msg"
     }
 }
 
 function _get_subconverter_port() {
-    _is_already_in_use $BIN_SUBCONVERTER_PORT 'subconverter' && {
+    _is_already_in_use "$BIN_SUBCONVERTER_PORT" "$BIN_SUBCONVERTER" && {
         local newPort=$(_get_random_port)
         _failcat '🎯' "端口占用：$(_format_port "$BIN_SUBCONVERTER_PORT") 🎲 随机分配：$newPort"
         "$BIN_YQ" -i ".server.port = $newPort" "$BIN_SUBCONVERTER_CONFIG" 2>/dev/null
@@ -83,22 +99,19 @@ function _get_subconverter_port() {
     }
 }
 
-_get_color() {
-    local hex="${1#\#}"
+_color_log() {
+    local color="$1"
+    local msg="$2"
+
+    local hex="${color#\#}"
     local r=$((16#${hex:0:2}))
     local g=$((16#${hex:2:2}))
     local b=$((16#${hex:4:2}))
-    printf "\e[38;2;%d;%d;%dm" "$r" "$g" "$b"
-}
-_get_color_msg() {
-    local color=$(_get_color "$1")
-    local msg=$2
-    local reset="\033[0m"
-    printf "%b%s%b\n" "$color" "$msg" "$reset"
-}
 
-_get_random_val() {
-    cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 6
+    local color_code="\033[38;2;${r};${g};${b}m"
+    local reset_code="\033[0m"
+
+    printf "%b%s%b\n" "$color_code" "$msg" "$reset_code"
 }
 
 function _okcat() {
@@ -106,7 +119,8 @@ function _okcat() {
     local emoji=😼
     [ $# -gt 1 ] && emoji=$1 && shift
     local msg="${emoji} $1"
-    _get_color_msg "$color" "$msg" && return 0
+    _color_log "$color" "$msg"
+    return 0
 }
 
 function _failcat() {
@@ -114,7 +128,8 @@ function _failcat() {
     local emoji=😾
     [ $# -gt 1 ] && emoji=$1 && shift
     local msg="${emoji} $1"
-    _get_color_msg "$color" "$msg" >&2 && return 1
+    _color_log "$color" "$msg" >&2
+    return 1
 }
 
 function _quit() {
@@ -132,25 +147,9 @@ function _error_quit() {
         local emoji=📢
         [ $# -gt 1 ] && emoji=$1 && shift
         local msg="${emoji} $1"
-        _get_color_msg "$color" "$msg"
+        _color_log "$color" "$msg"
     }
     exec $EXEC_SHELL -i
-}
-
-_is_bind() {
-    local port=$1
-    { ss -lnptu 2>/dev/null || netstat -lnptu; } | grep ":${port}\b"
-}
-
-_is_already_in_use() {
-    local port=$1
-    local progress=$2
-    _is_bind "$port" >&/dev/null && {
-        _is_bind "$port" | grep -qs "$progress" && return 1
-        [ -n "$CONTAINER_TYPE" ] && sudo docker ps --format '{{.Names}} {{.Ports}}' | grep "$port" | grep -qs "$progress" && return 1
-        return 0
-    }
-    return 1
 }
 
 function _has_root() {
@@ -171,8 +170,9 @@ function _valid_config() {
         msg=$(eval "$valid_config_cmd") || {
             eval "$valid_config_cmd"
             echo "$msg" | grep -qs "unsupport proxy type" && {
-                local proxy_type=$(awk -F': ' '{print $3}' <<<"$msg" | awk '{print $1}')
-                _error_quit "订阅中包含不支持的代理协议：${proxy_type}，请安装使用 mihomo 内核"
+                local prefix="检测到订阅中包含不受支持的代理协议"
+                [ "$KERNEL_NAME" = "clash" ] && _error_quit "${prefix}, 推荐安装使用 mihomo 内核"
+                _error_quit "${prefix}, 请检查并升级内核版本"
             }
         }
     }
@@ -187,7 +187,8 @@ _download_raw_config() {
         --silent \
         --show-error \
         --insecure \
-        --connect-timeout 4 \
+        --location \
+        --max-time 5 \
         --retry 1 \
         --user-agent "$agent" \
         --output "$dest" \
@@ -195,7 +196,7 @@ _download_raw_config() {
         wget \
             --no-verbose \
             --no-check-certificate \
-            --timeout 3 \
+            --timeout 5 \
             --tries 1 \
             --user-agent "$agent" \
             --output-document "$dest" \
@@ -211,6 +212,7 @@ _download_convert_config() {
         curl \
             --get \
             --silent \
+            --location \
             --output /dev/null \
             --data-urlencode "target=$target" \
             --data-urlencode "url=$url" \

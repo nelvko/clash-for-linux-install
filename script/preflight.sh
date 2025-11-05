@@ -15,7 +15,6 @@ home=$HOME
 ZIP_BASE_DIR="${RESOURCES_BASE_DIR}/zip"
 ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
 
-FILE_PID="${CLASH_RESOURCES_DIR}/pid"
 FILE_LOG="${CLASH_RESOURCES_DIR}/log"
 
 _valid_required() {
@@ -147,9 +146,9 @@ _nohup() {
     service_enable=""
     service_disable=""
 
-    service_start="( nohup ${BIN_KERNEL} -d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME} >\&$FILE_LOG \& echo \$!>$FILE_PID )"
-    service_is_active="pgrep --pidfile $FILE_PID"
-    service_stop="pkill -9 --pidfile $FILE_PID"
+    service_start="( nohup ${BIN_KERNEL} -d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME} >\&$FILE_LOG \& )"
+    service_is_active="pgrep -f $BIN_KERNEL"
+    service_stop="pkill -9 -f $BIN_KERNEL"
     service_restart=""
     service_status="less $FILE_LOG"
 }
@@ -333,7 +332,8 @@ _download_zip() {
             --show-error \
             --fail \
             --insecure \
-            --connect-timeout 15 \
+            --location \
+            --max-time 30 \
             --retry 1 \
             --output "$target" \
             "$url" || fail_zip+=("$key")
@@ -429,4 +429,8 @@ _set_envs() {
     _set_env KERNEL_NAME "$KERNEL_NAME"
     _set_env CLASH_BASE_DIR "$CLASH_BASE_DIR"
 
+}
+
+_get_random_val() {
+    cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 6
 }

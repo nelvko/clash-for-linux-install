@@ -11,19 +11,15 @@ SCRIPT_PATH=$(
 SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
 . "$SCRIPT_DIR/common.sh"
 
-function clashon() {
-    _get_proxy_port
-    placeholder_is_active >&/dev/null || {
-        placeholder_start || {
-            _failcat '启动失败: 执行 clashstatus 查看日志'
-            return 1
-        }
-    }
-    local auth=$("$BIN_YQ" '.authentication[0] // ""' "$CLASH_CONFIG_RUNTIME")
-    [ -n "$auth" ] && auth="${auth}@"
 
-    local http_proxy_addr="http://${auth}127.0.0.1:${MIXED_PORT}"
-    local socks_proxy_addr="socks5h://${auth}127.0.0.1:${MIXED_PORT}"
+_set_system_proxy() {
+    local auth=$("$BIN_YQ" '.authentication[0] // ""' "$CLASH_CONFIG_RUNTIME")
+    [ -n "$auth" ] && auth=$auth@
+
+    local bind_addr=$("$BIN_YQ" '.bind-address // ""' "$CLASH_CONFIG_RUNTIME")
+    case $bind_addr in "" | "*" | "0.0.0.0") bind_addr=127.0.0.1 ;; esac
+    local http_proxy_addr="http://${auth}${bind_addr}:${MIXED_PORT}"
+    local socks_proxy_addr="socks5h://${auth}${bind_addr}:${MIXED_PORT}"
     local no_proxy_addr="localhost,127.0.0.1,::1"
 
     export http_proxy=$http_proxy_addr
@@ -36,6 +32,27 @@ function clashon() {
 
     export no_proxy=$no_proxy_addr
     export NO_PROXY=$no_proxy
+}
+_unset_system_proxy() {
+    unset http_proxy
+    unset https_proxy
+    unset HTTP_PROXY
+    unset HTTPS_PROXY
+    unset all_proxy
+    unset ALL_PROXY
+    unset no_proxy
+    unset NO_PROXY
+}
+
+function clashon() {
+    _get_proxy_port
+    placeholder_is_active >&/dev/null || {
+        placeholder_start || {
+            _failcat '启动失败: 执行 clashstatus 查看日志'
+            return 1
+        }
+    }
+    clashproxy status >/dev/null && _set_system_proxy
     _okcat '已开启代理环境'
 }
 
@@ -49,20 +66,49 @@ watch_proxy() {
 function clashoff() {
     placeholder_stop >/dev/null && _okcat '已关闭代理环境' ||
         _failcat '关闭失败: 执行 clashstatus 查看日志' || return 1
-
-    unset http_proxy
-    unset https_proxy
-    unset HTTP_PROXY
-    unset HTTPS_PROXY
-    unset all_proxy
-    unset ALL_PROXY
-    unset no_proxy
-    unset NO_PROXY
+    _unset_system_proxy
 }
 
 clashrestart() {
     clashoff >/dev/null
     clashon
+}
+
+function clashproxy() {
+    case "$1" in
+    on)
+        placeholder_is_active >&/dev/null || {
+            _failcat '代理程序未运行，请执行 clashon 开启代理环境'
+            return 1
+        }
+        "$BIN_YQ" -i '.system-proxy.enable = true' "$CLASH_CONFIG_MIXIN"
+        _set_system_proxy
+        _okcat '已开启系统代理'
+        ;;
+    off)
+        "$BIN_YQ" -i '.system-proxy.enable = false' "$CLASH_CONFIG_MIXIN"
+        _unset_system_proxy
+        _okcat '已关闭系统代理'
+        ;;
+    status)
+        local system_proxy_status=$("$BIN_YQ" '.system-proxy.enable' "$CLASH_CONFIG_MIXIN" 2>/dev/null)
+        [ "$system_proxy_status" = "false" ] && {
+            _failcat "系统代理：关闭"
+            return 1
+        }
+        _okcat "系统代理：开启
+http_proxy： $http_proxy
+socks_proxy：$all_proxy"
+        ;;
+    *)
+        cat <<EOF
+用法: clashproxy [on|off|status]
+    on      开启系统代理
+    off     关闭系统代理
+    status  查看系统代理
+EOF
+        ;;
+    esac
 }
 
 function clashstatus() {
@@ -71,21 +117,18 @@ function clashstatus() {
 
 function clashui() {
     _get_ui_port
-    # 公网ip
-    # ifconfig.me
-    local query_url='api64.ipify.org'
-    local public_ip=$(curl -s --noproxy "*" --connect-timeout 2 $query_url)
-    local public_address="http://${public_ip:-公网}:${UI_PORT}/ui"
-    # 内网ip
-    local local_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7}' )
-    [ -z "$local_ip" ] && local_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
-    local local_address="http://${local_ip:-内网}:${UI_PORT}/ui"
+    local query_url='api64.ipify.org' # ifconfig.me
+    local public_ip=$(curl -s --noproxy "*" --location --max-time 2 $query_url)
+    local public_address="http://${public_ip:-公网}:${EXT_PORT}/ui"
+
+    local local_ip=$EXT_IP
+    local local_address="http://${local_ip}:${EXT_PORT}/ui"
     printf "\n"
     printf "╔═══════════════════════════════════════════════╗\n"
     printf "║                %s                  ║\n" "$(_okcat 'Web 控制台')"
     printf "║═══════════════════════════════════════════════║\n"
     printf "║                                               ║\n"
-    printf "║     🔓 注意放行端口：%-5s                    ║\n" "$UI_PORT"
+    printf "║     🔓 注意放行端口：%-5s                    ║\n" "$EXT_PORT"
     printf "║     🏠 内网：%-31s  ║\n" "$local_address"
     printf "║     🌏 公网：%-31s  ║\n" "$public_address"
     printf "║     ☁️  公共：%-31s  ║\n" "$URL_CLASH_UI"
@@ -107,7 +150,7 @@ _merge_config() {
 
 _merge_config_restart() {
     _merge_config
-    clashrestart >&/dev/null
+    clashrestart >/dev/null
 }
 
 function clashsecret() {
@@ -244,22 +287,80 @@ function clashmixin() {
     esac
 }
 
+function clashupgrade() {
+    case "$1" in
+    -h | --help)
+        cat <<EOF
+
+- 升级当前版本
+  clashupgrade
+
+- 升级到稳定版
+  clashupgrade release
+
+- 升级到测试版
+  clashupgrade alpha
+
+EOF
+        return 0
+        ;;
+    release)
+        channel="release"
+        ;;
+    alpha)
+        channel="alpha"
+        ;;
+    *)
+        channel=""
+        ;;
+    esac
+
+    _okcat '⏳' "请求内核升级..."
+    _get_ui_port
+    local secret=$("$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME")
+    local res=$(
+        curl -X POST \
+            --silent \
+            --noproxy "*" \
+            --location \
+            -H "Authorization: Bearer $secret" \
+            "http://${EXT_IP}:${EXT_PORT}/upgrade?channel=$channel"
+    )
+
+    grep -qs '"status":"ok"' <<<"$res" && {
+        _okcat "内核升级成功"
+        return 0
+    }
+    grep 'already using latest version' <<<"$res" && {
+        _okcat "已是最新版本"
+        return 0
+    }
+    _failcat "升级请求失败，请检查网络或稍后重试"
+
+}
+
 function clashctl() {
     case "$1" in
     on)
+        shift
         clashon
         ;;
     off)
+        shift
         clashoff
         ;;
     ui)
+        shift
         clashui
         ;;
     status)
         shift
         clashstatus "$@"
         ;;
-
+    proxy)
+        shift
+        clashproxy "$@"
+        ;;
     tun)
         shift
         clashtun "$@"
@@ -275,6 +376,10 @@ function clashctl() {
     update)
         shift
         clashupdate "$@"
+        ;;
+    upgrade)
+        shift
+        clashupgrade "$@"
         ;;
     *)
         shift
