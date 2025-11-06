@@ -219,7 +219,7 @@ _start_convert() {
     _get_subconverter_port
     local test_cmd="curl http://localhost:${BIN_SUBCONVERTER_PORT}/version"
     $test_cmd >&/dev/null && return 0
-    eval "$BIN_SUBCONVERTER_START >/dev/null"
+    ("$BIN_SUBCONVERTER_START" >&"$BIN_SUBCONVERTER_LOG" &)
     local start=$(date +%s)
     while ! $test_cmd >&/dev/null; do
         sleep 0.5s
