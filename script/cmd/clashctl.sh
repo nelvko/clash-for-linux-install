@@ -45,8 +45,15 @@ _unset_system_proxy() {
 }
 
 function clashon() {
-    _get_proxy_port
-    placeholder_is_active >&/dev/null || {
+    MIXED_PORT=$("$BIN_YQ" '.mixed-port' "$CLASH_CONFIG_RUNTIME")
+    clashstatus >&/dev/null || {
+        _is_port_used "$MIXED_PORT" && {
+            local newPort=$(_get_random_port)
+            _failcat '🎯' "端口占用：${MIXED_PORT} 🎲 随机分配：$newPort"
+            MIXED_PORT=$newPort
+            "$BIN_YQ" -i ".mixed-port = $newPort" "$CLASH_CONFIG_MIXIN"
+            _merge_config
+        }
         placeholder_start || {
             _failcat '启动失败: 执行 clashstatus 查看日志'
             return 1
@@ -58,15 +65,20 @@ function clashon() {
 
 watch_proxy() {
     [ -z "$http_proxy" ] && [[ $- == *i* ]] && { # 新开交互式shell时开启代理环境
-    # [[ "$0" == *-* ]] && { # 登录时开启代理环境
+        # [[ "$0" == *-* ]] && { # 登录时开启代理环境
         _has_root || _failcat '未检测到代理变量，可执行 clashon 开启代理环境' && clashon
     }
 }
 
 function clashoff() {
-    placeholder_stop >/dev/null && _okcat '已关闭代理环境' ||
-        _failcat '关闭失败: 执行 clashstatus 查看日志' || return 1
+    clashstatus >/dev/null && {
+        placeholder_stop >/dev/null || {
+            _failcat '关闭失败: 可执行 clashstatus 查看日志'
+            return 1
+        }
+    }
     _unset_system_proxy
+    _okcat '已关闭代理环境'
 }
 
 clashrestart() {
@@ -77,8 +89,8 @@ clashrestart() {
 function clashproxy() {
     case "$1" in
     on)
-        placeholder_is_active >&/dev/null || {
-            _failcat '代理程序未运行，请执行 clashon 开启代理环境'
+        clashstatus >&/dev/null || {
+            _failcat "$KERNEL_NAME 未运行，请先执行 clashon"
             return 1
         }
         "$BIN_YQ" -i '.system-proxy.enable = true' "$CLASH_CONFIG_MIXIN"
@@ -113,6 +125,7 @@ EOF
 
 function clashstatus() {
     placeholder_status "$@"
+    placeholder_is_active >&/dev/null
 }
 
 function clashui() {
@@ -139,11 +152,11 @@ function clashui() {
 
 _merge_config() {
     local backup="${CLASH_CONFIG_RUNTIME}.bak"
-    cat "$CLASH_CONFIG_RUNTIME" > "$backup" 2>/dev/null 
+    cat "$CLASH_CONFIG_RUNTIME" >"$backup" 2>/dev/null
     "$BIN_YQ" eval-all '. as $item ireduce ({}; . *+ $item) | (.. | select(tag == "!!seq")) |= unique' \
-        "$CLASH_CONFIG_MIXIN" "$CLASH_CONFIG_RAW" "$CLASH_CONFIG_MIXIN" > "$CLASH_CONFIG_RUNTIME"
+        "$CLASH_CONFIG_MIXIN" "$CLASH_CONFIG_RAW" "$CLASH_CONFIG_MIXIN" >"$CLASH_CONFIG_RUNTIME"
     _valid_config "$CLASH_CONFIG_RUNTIME" || {
-        cat "$backup" > "$CLASH_CONFIG_RUNTIME"
+        cat "$backup" >"$CLASH_CONFIG_RUNTIME"
         _error_quit "验证失败：请检查 Mixin 配置"
     }
 }
@@ -315,8 +328,12 @@ EOF
         ;;
     esac
 
-    _okcat '⏳' "请求内核升级..."
+    clashstatus >&/dev/null || {
+        _failcat "$KERNEL_NAME 未运行，请先执行 clashon"
+        return 1
+    }
     _get_ui_port
+    _okcat '⏳' "请求内核升级..."
     local secret=$("$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME")
     local res=$(
         curl -X POST \

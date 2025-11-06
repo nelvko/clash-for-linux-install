@@ -26,7 +26,6 @@ _load_base_dir() {
 }
 _load_base_dir
 
-BIN_SUBCONVERTER_PORT=25500
 $placeholder_bin
 
 [ -n "$BASH_VERSION" ] && {
@@ -39,37 +38,15 @@ $placeholder_bin
     EXEC_SHELL=fish
 }
 
-_is_bind() {
+_is_port_used() {
     local port=$1
-    { ss -lnptu 2>/dev/null || netstat -lnptu; } | grep ":${port}\b"
+    { ss -tunl 2>/dev/null || netstat -tunl; } | grep -qs ":${port}\b"
 }
-_is_already_in_use() {
-    local port=$1
-    local progress=$2
-    _is_bind "$port" >&/dev/null && {
-        _is_bind "$port" | grep -qs "$progress" && return 1
-        pgrep -f "$progress" >&/dev/null && return 1
-        return 0
-    }
-    return 1
-}
+
 _get_random_port() {
     local randomPort=$(shuf -i 1024-65535 -n 1)
-    ! _is_bind "$randomPort" && { echo "$randomPort" && return; }
+    ! _is_port_used "$randomPort" && { echo "$randomPort" && return; }
     _get_random_port
-}
-
-function _get_proxy_port() {
-    MIXED_PORT=$("$BIN_YQ" '.mixed-port' "$CLASH_CONFIG_RUNTIME")
-
-    _is_already_in_use "$MIXED_PORT" "$BIN_KERNEL" && {
-        local newPort=$(_get_random_port)
-        local msg="端口占用：${MIXED_PORT} 🎲 随机分配：$newPort"
-        "$BIN_YQ" -i ".mixed-port = $newPort" "$CLASH_CONFIG_MIXIN"
-        _merge_config
-        MIXED_PORT=$newPort
-        _failcat '🎯' "$msg"
-    }
 }
 
 function _get_ui_port() {
@@ -77,25 +54,19 @@ function _get_ui_port() {
     local ext_ip=${ext_addr%%:*}
     EXT_IP=$ext_ip
     EXT_PORT=${ext_addr##*:}
-
-    # ip route get 1.1.1.1 | grep -oP 'src \K\S+'
-    [ "$ext_ip" = '0.0.0.0' ] && EXT_IP=$(hostname -I | awk '{print $1}')
-    _is_already_in_use "$EXT_PORT" "$BIN_KERNEL" && {
-        local newPort=$(_get_random_port)
-        local msg="端口占用：${EXT_PORT} 🎲 随机分配：$newPort"
-        "$BIN_YQ" -i ".external-controller = \"$ext_ip:$newPort\"" "$CLASH_CONFIG_MIXIN"
-        _merge_config
-        EXT_PORT=$newPort
-        _failcat '🎯' "$msg"
+    [ "$ext_ip" = '0.0.0.0' ] && {
+        EXT_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {print $NF}')
+        [ -z "$EXT_IP" ] && EXT_IP=$(hostname -I | awk '{print $1}')
     }
-}
 
-function _get_subconverter_port() {
-    _is_already_in_use "$BIN_SUBCONVERTER_PORT" "$BIN_SUBCONVERTER" && {
-        local newPort=$(_get_random_port)
-        _failcat '🎯' "端口占用：$(_format_port "$BIN_SUBCONVERTER_PORT") 🎲 随机分配：$newPort"
-        "$BIN_YQ" -i ".server.port = $newPort" "$BIN_SUBCONVERTER_CONFIG" 2>/dev/null
-        BIN_SUBCONVERTER_PORT=$newPort
+    clashstatus >&/dev/null || {
+        _is_port_used "$EXT_PORT" && {
+            local newPort=$(_get_random_port)
+            _failcat '🎯' "端口占用：${EXT_PORT} 🎲 随机分配：$newPort"
+            EXT_PORT=$newPort
+            "$BIN_YQ" -i ".external-controller = \"$ext_ip:$newPort\"" "$CLASH_CONFIG_MIXIN"
+            _merge_config
+        }
     }
 }
 
@@ -231,6 +202,16 @@ function _download_config() {
     _valid_config "$dest" || {
         _failcat '🍂' "验证失败：尝试订阅转换..."
         _download_convert_config "$dest" "$url" || _failcat '🍂' "转换失败：请检查日志：$BIN_SUBCONVERTER_LOG"
+    }
+}
+
+_get_subconverter_port() {
+    BIN_SUBCONVERTER_PORT=$("$BIN_YQ" '.server.port' "$BIN_SUBCONVERTER_CONFIG")
+    _is_port_used "$BIN_SUBCONVERTER_PORT" && {
+        local newPort=$(_get_random_port)
+        _failcat '🎯' "端口占用：${BIN_SUBCONVERTER_PORT} 🎲 随机分配：$newPort"
+        BIN_SUBCONVERTER_PORT=$newPort
+        "$BIN_YQ" -i ".server.port = $newPort" "$BIN_SUBCONVERTER_CONFIG" 2>/dev/null
     }
 }
 

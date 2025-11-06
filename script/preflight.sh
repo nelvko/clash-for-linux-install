@@ -224,7 +224,6 @@ _set_init() {
     }
 
     sed -i \
-        -e "s#placeholder_bin_kernel#$BIN_KERNEL#g" \
         -e "s#placeholder_start#$service_start#g" \
         -e "s#placeholder_status#$service_status#g" \
         -e "s#placeholder_stop#$service_stop#g" \
