@@ -62,7 +62,7 @@ _set_var() {
 
     # 定时任务路径
     local os_info=$(cat /etc/os-release)
-    echo "$os_info" | grep -iqsE "rhel|centos" && CLASH_CRON_TAB="/var/spool/cron/$user"
+    echo "$os_info" | grep -iqsE "rhel|centos|openEuler|Rocky|AlmaLinux" && CLASH_CRON_TAB="/var/spool/cron/$user"
     echo "$os_info" | grep -iqsE "debian|ubuntu" && CLASH_CRON_TAB="/var/spool/cron/crontabs/$user"
 }
 _set_var
