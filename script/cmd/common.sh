@@ -200,6 +200,7 @@ function _download_config() {
     _download_raw_config "$dest" "$url" || return 1
     _okcat '🍃' '下载成功：内核验证配置...'
     _valid_config "$dest" || {
+        cat "$dest" > "${dest}.raw"
         _failcat '🍂' "验证失败：尝试订阅转换..."
         _download_convert_config "$dest" "$url" || _failcat '🍂' "转换失败：请检查日志：$BIN_SUBCONVERTER_LOG"
     }
