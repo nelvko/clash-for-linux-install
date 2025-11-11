@@ -319,12 +319,12 @@ _download_zip() {
         [subconverter]="$url_subconverter"
     )
 
-    local key fail_zip
+    local key ls
     for key in "${required_zip[@]}"; do
         local url="${urls[$key]}"
         local proxy_url="${URL_GH_PROXY}${url}"
         [ "$key" != 'clash' ] && url="$proxy_url"
-        _okcat '⏳' "正在下载：${key}..."
+        _okcat '⏳' "正在下载：${key}：$url"
         local target="${ZIP_BASE_DIR}/$(basename "$url")"
         curl \
             --progress-bar \
@@ -332,13 +332,12 @@ _download_zip() {
             --fail \
             --insecure \
             --location \
-            --max-time 30 \
             --retry 1 \
             --output "$target" \
-            "$url" || fail_zip+=("$key")
+            "$url"
+        ls+=("$target")
     done
-
-    [ ${#fail_zip[@]} -gt 0 ] && _error_quit "下载失败：${fail_zip[*]}，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录"
+    _valid_zip "${ls[@]}"
     _load_zip
 }
 _load_zip() {
@@ -387,12 +386,19 @@ _bin_container() {
     BIN_SUBCONVERTER_STOP="sudo docker stop subconverter"
     BIN_SUBCONVERTER_LOG="sudo docker logs subconverter"
 }
-
+_valid_zip() {
+    local item fail_zip
+    for item in "$@"; do
+        gzip -t "$item" || fail_zip+=("${item}")
+    done
+    [ ${#fail_zip[@]} -gt 0 ] && _error_quit "文件验证失败：请删除后重试，或自行下载对应版本至 ${ZIP_BASE_DIR} 目录"
+}
 _set_bin() {
     local _bin_var
     [ "$_IS_CONTAINER" != 'true' ] && {
         _bin_host
         _bin_var=_bin_host
+        _valid_zip "$ZIP_KERNEL" "$ZIP_YQ" "$ZIP_SUBCONVERTER"
         /usr/bin/install -D <(gzip -dc "$ZIP_KERNEL") "$BIN_KERNEL"
         tar -xf "$ZIP_YQ" -C "${BIN_BASE_DIR}"
         /bin/mv -f "${BIN_BASE_DIR}"/yq_* "${BIN_BASE_DIR}/yq"
