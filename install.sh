@@ -12,6 +12,7 @@ _parse_args "$@"
 mkdir -p "$CLASH_RESOURCES_DIR" || _error_quit "无写入权限：$CLASH_BASE_DIR，请前往 .env 文件更换安装路径"
 
 _get_kernel
+_set_bin
 _get_init
 
 _okcat "安装内核：$KERNEL_NAME by ${INIT_TYPE}"

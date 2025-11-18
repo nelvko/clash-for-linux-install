@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC1091
-. .env
+. ./.env
 . script/cmd/common.sh
 . "${CLASH_CMD_DIR}/clashctl.sh" 2>/dev/null
 . script/preflight.sh

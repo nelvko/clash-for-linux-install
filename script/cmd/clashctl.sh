@@ -3,12 +3,7 @@
 # shellcheck disable=SC2155
 # shellcheck disable=SC1091
 
-SCRIPT_PATH=$(
-  [ -n "$BASH_SOURCE" ] && readlink -f "$BASH_SOURCE"
-  [ -n "${ZSH_VERSION-}" ] && readlink -f "${(%):-%N}"
-)
-# SCRIPT_PATH=$(readlink -f "${BASH_SOURCE[0]}")
-SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE:-${(%):-%N}}")" >/dev/null 2>&1 && pwd)"
 . "$SCRIPT_DIR/common.sh"
 
 
@@ -399,7 +394,7 @@ function clashctl() {
         clashupgrade "$@"
         ;;
     *)
-        shift
+        [ $# -gt 0 ] && shift
         clashhelp "$@"
         ;;
     esac

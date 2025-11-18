@@ -90,8 +90,8 @@ _openrc() {
     service_src="${SCRIPT_INIT_DIR}/OpenRC.sh"
     service_target="/etc/init.d/$KERNEL_NAME"
 
-    service_enable="rc-update add $KERNEL_NAME default"
-    service_disable="rc-update del $KERNEL_NAME default"
+    service_enable=(rc-update add "$KERNEL_NAME" default)
+    service_disable=(rc-update del "$KERNEL_NAME" default)
 
     service_start="rc-service $KERNEL_NAME start"
     service_is_active="rc-service $KERNEL_NAME status"
@@ -105,18 +105,18 @@ _sysvinit() {
     service_target="/etc/init.d/$KERNEL_NAME"
 
     command -v chkconfig >&/dev/null && {
-        service_add="chkconfig --add $KERNEL_NAME"
-        service_del="chkconfig --del $KERNEL_NAME"
+        service_add=(chkconfig --add "$KERNEL_NAME")
+        service_del=(chkconfig --del "$KERNEL_NAME")
 
-        service_enable="chkconfig $KERNEL_NAME on"
-        service_disable="chkconfig $KERNEL_NAME off"
+        service_enable=(chkconfig "$KERNEL_NAME" on)
+        service_disable=(chkconfig "$KERNEL_NAME" off)
     }
     command -v update-rc.d >&/dev/null && {
-        service_add="update-rc.d $KERNEL_NAME defaults"
-        service_del="update-rc.d $KERNEL_NAME remove"
+        service_add=(update-rc.d "$KERNEL_NAME" defaults)
+        service_del=(update-rc.d "$KERNEL_NAME" remove)
 
-        service_enable="update-rc.d $KERNEL_NAME enable"
-        service_disable="update-rc.d $KERNEL_NAME disable"
+        service_enable=(update-rc.d "$KERNEL_NAME" enable)
+        service_disable=(update-rc.d "$KERNEL_NAME" disable)
     }
 
     service_start="service $KERNEL_NAME start"
@@ -130,10 +130,13 @@ _systemd() {
     service_src="${SCRIPT_INIT_DIR}/systemd.sh"
     service_target="/etc/systemd/system/${KERNEL_NAME}.service"
 
-    service_reload="sudo systemctl daemon-reload"
+    service_add=()
+    service_del=()
 
-    service_enable="sudo systemctl enable $KERNEL_NAME"
-    service_disable="sudo systemctl disable $KERNEL_NAME"
+    service_reload=(sudo systemctl daemon-reload)
+
+    service_enable=(sudo systemctl enable "$KERNEL_NAME")
+    service_disable=(sudo systemctl disable "$KERNEL_NAME")
 
     service_start="sudo systemctl start $KERNEL_NAME"
     service_is_active="sudo systemctl is-active $KERNEL_NAME"
@@ -143,8 +146,8 @@ _systemd() {
 }
 
 _nohup() {
-    service_enable=""
-    service_disable=""
+    service_enable=()
+    service_disable=()
 
     service_start="( nohup ${BIN_KERNEL} -d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME} >\&$FILE_LOG \& )"
     service_is_active="pgrep -f $BIN_KERNEL"
@@ -170,8 +173,6 @@ _container() {
 }
 # nohup：无root、容器环境、autodl
 _get_init() {
-    _set_bin
-
     [ -z "$INIT_TYPE" ] && {
         INIT_TYPE=$(cat /proc/1/comm 2>/dev/null)
         [ -z "$INIT_TYPE" ] && INIT_TYPE=$(ps -p 1 -o comm= 2>/dev/null)
@@ -211,7 +212,7 @@ _set_init() {
 
     [ -n "$service_src" ] && {
         /usr/bin/install -m +x "$service_src" "$service_target"
-        $service_add
+        "${service_add[@]}"
         sed -i \
             -e "s#placeholder_cmd_path#$cmd_path#g" \
             -e "s#placeholder_cmd_args#$cmd_arg#g" \
@@ -232,8 +233,8 @@ _set_init() {
         -e "s#placeholder_check_tun#$service_check_tun#g" \
         "$CLASH_CMD_DIR/clashctl.sh" "$CLASH_CMD_DIR/common.sh"
 
-    $service_reload
-    $service_enable >&/dev/null && _okcat '🚀' '已设置开机自启'
+    "${service_reload[@]}"
+    "${service_enable[@]}" >&/dev/null && _okcat '🚀' '已设置开机自启'
 
     sed -i "/\$placeholder_bin/{
         r /dev/stdin
@@ -242,12 +243,11 @@ _set_init() {
 
 }
 _unset_init() {
-    $service_disable >&/dev/null
-    $service_del
+    _get_init
+    "${service_disable[@]}" >&/dev/null
+    "${service_del[@]}"
     rm -f "$service_target"
-    rm -f "$FILE_PID"
-    rm -f "$FILE_LOG"
-    $service_reload
+    "${service_reload[@]}"
 }
 
 _get_rc() {
@@ -320,7 +320,8 @@ _download_zip() {
     )
 
     local key ls
-    for key in "${required_zip[@]}"; do
+
+    ((${#required_zip[@]})) && for key in "${required_zip[@]}"; do
         local url="${urls[$key]}"
         local proxy_url="${URL_GH_PROXY}${url}"
         [ "$key" != 'clash' ] && url="$proxy_url"
@@ -337,7 +338,7 @@ _download_zip() {
             "$url"
         ls+=("$target")
     done
-    _valid_zip "${ls[@]}"
+    ((${#ls[@]})) && _valid_zip "${ls[@]}"
     _load_zip
 }
 _load_zip() {
@@ -387,11 +388,14 @@ _bin_container() {
     BIN_SUBCONVERTER_LOG="sudo docker logs subconverter"
 }
 _valid_zip() {
-    local item fail_zip
+    local item
+    local fail_zip=()
+
     for item in "$@"; do
-        gzip -t "$item" || fail_zip+=("${item}")
+        gzip -t "$item" || fail_zip+=("$item")
     done
-    [ ${#fail_zip[@]} -gt 0 ] && _error_quit "文件验证失败：请删除后重试，或自行下载对应版本至 ${ZIP_BASE_DIR} 目录"
+
+    ((${#fail_zip[@]})) && _error_quit "文件验证失败：请删除后重试，或自行下载对应版本至 ${ZIP_BASE_DIR} 目录"
 }
 _set_bin() {
     local _bin_var
