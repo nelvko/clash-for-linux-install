@@ -162,7 +162,7 @@ _merge_config_restart() {
 }
 
 function clashsecret() {
-    case "$#" in
+    case $# in
     0)
         _okcat "当前密钥：$("$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME")"
         ;;
@@ -394,7 +394,7 @@ function clashctl() {
         clashupgrade "$@"
         ;;
     *)
-        [ $# -gt 0 ] && shift
+        (($#)) && shift
         clashhelp "$@"
         ;;
     esac

@@ -55,7 +55,7 @@ function _get_ui_port() {
     EXT_IP=$ext_ip
     EXT_PORT=${ext_addr##*:}
     [ "$ext_ip" = '0.0.0.0' ] && {
-        EXT_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {print $NF}')
+        EXT_IP=$(ip route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
         [ -z "$EXT_IP" ] && EXT_IP=$(hostname -I | awk '{print $1}')
     }
 
@@ -101,15 +101,6 @@ function _failcat() {
     local msg="${emoji} $1"
     _color_log "$color" "$msg" >&2
     return 1
-}
-
-function _quit() {
-    _has_root && command -v sudo >&/dev/null && {
-        local user=root
-        [ -n "$SUDO_USER" ] && user=$SUDO_USER
-        exec sudo -u "$user" -- "$EXEC_SHELL" -i
-    }
-    exec "$EXEC_SHELL" -i
 }
 
 function _error_quit() {
