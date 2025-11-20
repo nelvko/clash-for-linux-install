@@ -295,27 +295,27 @@ _download_zip() {
     case "$arch" in
     x86_64)
         url_clash=https://downloads.clash.wiki/ClashPremium/clash-linux-amd64-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-amd64-v1.19.15.gz
-        url_yq=https://github.com/mikefarah/yq/releases/download/v4.48.1/yq_linux_amd64.tar.gz
-        url_subconverter=https://github.com/tindy2013/subconverter/releases/download/v0.9.0/subconverter_linux64.tar.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO}/mihomo-linux-amd64-${VERSION_MIHOMO}.gz
+        url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_amd64.tar.gz
+        url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_linux64.tar.gz
         ;;
     *86*)
         url_clash=https://downloads.clash.wiki/ClashPremium/clash-linux-386-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-386-v1.19.15.gz
-        url_yq=https://github.com/mikefarah/yq/releases/download/v4.48.1/yq_linux_386.tar.gz
-        url_subconverter=https://github.com/tindy2013/subconverter/releases/download/v0.9.0/subconverter_linux32.tar.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO}/mihomo-linux-386-${VERSION_MIHOMO}.gz
+        url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_386.tar.gz
+        url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_linux32.tar.gz
         ;;
     armv*)
         url_clash=https://downloads.clash.wiki/ClashPremium/clash-linux-armv5-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-armv7-v1.19.15.gz
-        url_yq=https://github.com/mikefarah/yq/releases/download/v4.48.1/yq_linux_arm.tar.gz
-        url_subconverter=https://github.com/tindy2013/subconverter/releases/download/v0.9.0/subconverter_armv7.tar.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO}/mihomo-linux-armv7-${VERSION_MIHOMO}.gz
+        url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_arm.tar.gz
+        url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_armv7.tar.gz
         ;;
     aarch64)
         url_clash=https://downloads.clash.wiki/ClashPremium/clash-linux-arm64-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-arm64-v1.19.15.gz
-        url_yq=https://github.com/mikefarah/yq/releases/download/v4.48.1/yq_linux_arm64.tar.gz
-        url_subconverter=https://github.com/tindy2013/subconverter/releases/download/v0.9.0/subconverter_aarch64.tar.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO}/mihomo-linux-arm64-${VERSION_MIHOMO}.gz
+        url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_arm64.tar.gz
+        url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_aarch64.tar.gz
         ;;
     *)
         _error_quit "未知的架构版本：$arch，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录"
@@ -453,6 +453,7 @@ _get_random_val() {
 }
 
 _quit() {
-    [ -n "$SUDO_USER" ] && exec su "$SUDO_USER"
+    [ -n "$SUDO_USER" ] && _has_root && [ "$SUDO_USER" != 'root' ] && exec su "$SUDO_USER"
+    _get_shell
     exec "$EXEC_SHELL" -i
 }

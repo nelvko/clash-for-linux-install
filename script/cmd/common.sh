@@ -28,14 +28,10 @@ _load_base_dir
 
 $placeholder_bin
 
-[ -n "$BASH_VERSION" ] && {
-    EXEC_SHELL=bash
-}
-[ -n "$ZSH_VERSION" ] && {
-    EXEC_SHELL=zsh
-}
-[ -n "$fish_version" ] && {
-    EXEC_SHELL=fish
+_get_shell() {
+    [ -n "$BASH_VERSION" ] && EXEC_SHELL=bash
+    [ -n "$ZSH_VERSION" ] && EXEC_SHELL=zsh
+    [ -n "$fish_version" ] && EXEC_SHELL=fish
 }
 
 _is_port_used() {
@@ -111,6 +107,7 @@ function _error_quit() {
         local msg="${emoji} $1"
         _color_log "$color" "$msg"
     }
+    _get_shell
     exec $EXEC_SHELL -i
 }
 
@@ -191,7 +188,7 @@ function _download_config() {
     _download_raw_config "$dest" "$url" || return 1
     _okcat '🍃' '下载成功：内核验证配置...'
     _valid_config "$dest" || {
-        cat "$dest" > "${dest}.raw"
+        cat "$dest" >"${dest}.raw"
         _failcat '🍂' "验证失败：尝试订阅转换..."
         _download_convert_config "$dest" "$url" || _failcat '🍂' "转换失败：请检查日志：$BIN_SUBCONVERTER_LOG"
     }
