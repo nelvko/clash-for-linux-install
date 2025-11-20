@@ -24,7 +24,7 @@ _valid_config "$RESOURCES_CONFIG" || {
     _valid_config "$RESOURCES_CONFIG" || _error_quit "配置无效，请检查配置：$RESOURCES_CONFIG，转换日志：$BIN_SUBCONVERTER_LOG"
 }
 _okcat '✅' '配置可用'
-mkdir "$CLASH_BASE_DIR"
+mkdir -p "$CLASH_BASE_DIR"
 echo "$url" >"$CLASH_CONFIG_URL"
 
 /bin/cp -rf "$SCRIPT_BASE_DIR" "$CLASH_BASE_DIR"
