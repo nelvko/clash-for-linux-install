@@ -100,10 +100,6 @@ _openrc() {
     service_src="${SCRIPT_INIT_DIR}/OpenRC.sh"
     service_target="/etc/init.d/$KERNEL_NAME"
 
-    service_add=()
-    service_del=()
-    service_reload=()
-
     service_enable=(rc-update add "$KERNEL_NAME" default)
     service_disable=(rc-update del "$KERNEL_NAME" default)
 
@@ -132,7 +128,6 @@ _sysvinit() {
         service_enable=(update-rc.d "$KERNEL_NAME" enable)
         service_disable=(update-rc.d "$KERNEL_NAME" disable)
     }
-    service_reload=()
 
     service_start=(service "$KERNEL_NAME" start)
     service_is_active=(service "$KERNEL_NAME" is-active)
@@ -144,9 +139,6 @@ _sysvinit() {
 _systemd() {
     service_src="${SCRIPT_INIT_DIR}/systemd.sh"
     service_target="/etc/systemd/system/${KERNEL_NAME}.service"
-
-    service_add=()
-    service_del=()
 
     service_reload=(sudo systemctl daemon-reload)
 
@@ -161,12 +153,8 @@ _systemd() {
 }
 
 _nohup() {
-    service_add=()
-    service_del=()
-    service_reload=()
-
-    service_enable=()
-    service_disable=()
+    service_enable=(false)
+    service_disable=(false)
 
     service_start="( nohup ${BIN_KERNEL} -d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME} >\&$FILE_LOG \& )"
     service_is_active=(pgrep -f "$BIN_KERNEL")
@@ -231,7 +219,7 @@ _set_init() {
 
     [ -n "$service_src" ] && {
         /usr/bin/install -m +x "$service_src" "$service_target"
-        "${service_add[@]}"
+        ((${#service_add[@]})) && "${service_add[@]}"
         sed -i \
             -e "s#placeholder_cmd_path#$cmd_path#g" \
             -e "s#placeholder_cmd_args#$cmd_arg#g" \
@@ -252,7 +240,7 @@ _set_init() {
         -e "s#placeholder_check_tun#${service_check_tun[*]}#g" \
         "$CLASH_CMD_DIR/clashctl.sh" "$CLASH_CMD_DIR/common.sh"
 
-    "${service_reload[@]}"
+    ((${#service_reload[@]})) && "${service_reload[@]}"
     "${service_enable[@]}" >&/dev/null && _okcat '🚀' '已设置开机自启'
 
     sed -i "/^_load_base_dir$/{
@@ -264,9 +252,9 @@ _set_init() {
 _unset_init() {
     _get_init
     "${service_disable[@]}" >&/dev/null
-    "${service_del[@]}"
+    ((${#service_del[@]})) && "${service_del[@]}"
     rm -f "$service_target"
-    "${service_reload[@]}"
+    ((${#service_reload[@]})) && "${service_reload[@]}"
 }
 
 _get_rc() {
