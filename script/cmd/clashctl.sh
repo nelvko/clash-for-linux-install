@@ -263,11 +263,12 @@ function clashupdate() {
     }
 
     _okcat '👌' "正在下载：原配置已备份..."
-    cat "$CLASH_CONFIG_RAW" | tee "$CLASH_CONFIG_RAW_BAK" >&/dev/null
+    local bak="${CLASH_CONFIG_RAW}.bak"
+    cat "$CLASH_CONFIG_RAW" | tee "$bak" >&/dev/null
 
     _rollback() {
         _failcat '🍂' "$1"
-        cat "$CLASH_CONFIG_RAW_BAK" | tee "$CLASH_CONFIG_RAW" >&/dev/null
+        cat "$bak" | tee "$CLASH_CONFIG_RAW" >&/dev/null
         _failcat '❌' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新失败：$url" 2>&1 | tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
         _error_quit
     }

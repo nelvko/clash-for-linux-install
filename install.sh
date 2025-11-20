@@ -38,8 +38,8 @@ _merge_config
 [ -n "$SUDO_USER" ] && chown -R "$SUDO_USER" "$CLASH_BASE_DIR"
 
 _set_envs
-_set_rc
 _set_init
+_set_rc
 
 clashui
 clashsecret

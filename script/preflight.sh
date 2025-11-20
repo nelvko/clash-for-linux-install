@@ -9,9 +9,19 @@ home=$HOME
     CLASH_BASE_DIR=${CLASH_BASE_DIR/\/root/$home}
     _load_base_dir
 }
+RESOURCES_BASE_DIR='resources'
+RESOURCES_CONFIG="${RESOURCES_BASE_DIR}/config.yaml"
+RESOURCES_CONFIG_MIXIN="${RESOURCES_BASE_DIR}/mixin.yaml"
 
 ZIP_BASE_DIR="${RESOURCES_BASE_DIR}/zip"
 ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
+
+SCRIPT_BASE_DIR='script'
+SCRIPT_INIT_DIR="${SCRIPT_BASE_DIR}/init"
+SCRIPT_CMD_DIR="${SCRIPT_BASE_DIR}/cmd"
+SCRIPT_CMD_FISH="${SCRIPT_CMD_DIR}/clashctl.fish"
+
+CLASH_CMD_DIR="${CLASH_BASE_DIR}/$SCRIPT_CMD_DIR"
 
 FILE_LOG="${CLASH_RESOURCES_DIR}/log"
 FILE_PID="${CLASH_RESOURCES_DIR}/pid"
@@ -97,11 +107,11 @@ _openrc() {
     service_enable=(rc-update add "$KERNEL_NAME" default)
     service_disable=(rc-update del "$KERNEL_NAME" default)
 
-    service_start=(rc-service $KERNEL_NAME start)
-    service_is_active=(rc-service $KERNEL_NAME status)
-    service_stop=(rc-service $KERNEL_NAME stop)
-    service_restart=(rc-service $KERNEL_NAME restart)
-    service_status=(rc-service $KERNEL_NAME status)
+    service_start=(rc-service "$KERNEL_NAME" start)
+    service_is_active=(rc-service "$KERNEL_NAME" status)
+    service_stop=(rc-service "$KERNEL_NAME" stop)
+    service_restart=(rc-service "$KERNEL_NAME" restart)
+    service_status=(rc-service "$KERNEL_NAME" status)
 }
 
 _sysvinit() {
@@ -124,11 +134,11 @@ _sysvinit() {
     }
     service_reload=()
 
-    service_start=(service $KERNEL_NAME start)
-    service_is_active=(service $KERNEL_NAME is-active)
-    service_stop=(service $KERNEL_NAME stop)
-    service_restart=(service $KERNEL_NAME restart)
-    service_status=(service $KERNEL_NAME status)
+    service_start=(service "$KERNEL_NAME" start)
+    service_is_active=(service "$KERNEL_NAME" is-active)
+    service_stop=(service "$KERNEL_NAME" stop)
+    service_restart=(service "$KERNEL_NAME" restart)
+    service_status=(service "$KERNEL_NAME" status)
 }
 
 _systemd() {
@@ -143,11 +153,11 @@ _systemd() {
     service_enable=(sudo systemctl enable "$KERNEL_NAME")
     service_disable=(sudo systemctl disable "$KERNEL_NAME")
 
-    service_start=(sudo systemctl start $KERNEL_NAME)
-    service_is_active=(sudo systemctl is-active $KERNEL_NAME)
-    service_stop=(sudo systemctl stop $KERNEL_NAME)
-    service_restart=(sudo systemctl restart $KERNEL_NAME)
-    service_status=(sudo systemctl status $KERNEL_NAME)
+    service_start=(sudo systemctl start "$KERNEL_NAME")
+    service_is_active=(sudo systemctl is-active "$KERNEL_NAME")
+    service_stop=(sudo systemctl stop "$KERNEL_NAME")
+    service_restart=(sudo systemctl restart "$KERNEL_NAME")
+    service_status=(sudo systemctl status "$KERNEL_NAME")
 }
 
 _nohup() {
@@ -159,10 +169,10 @@ _nohup() {
     service_disable=()
 
     service_start="( nohup ${BIN_KERNEL} -d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME} >\&$FILE_LOG \& )"
-    service_is_active=(pgrep -f $BIN_KERNEL)
-    service_stop=(pkill -9 -f $BIN_KERNEL)
+    service_is_active=(pgrep -f "$BIN_KERNEL")
+    service_stop=(pkill -9 -f "$BIN_KERNEL")
     service_restart=()
-    service_status=(less $FILE_LOG)
+    service_status=(less "$FILE_LOG")
 }
 
 _container() {
@@ -174,10 +184,10 @@ _container() {
                         -v $CLASH_CONFIG_RUNTIME:/root/.config/${KERNEL_NAME}/config.yaml:ro \
                         -v $CLASH_RESOURCES_DIR:/root/.config/${KERNEL_NAME} \
                         ${URL_CR_PROXY}${IMAGE_KERNEL} >/dev/null"
-    service_restart=(sudo docker restart $KERNEL_NAME)
+    service_restart=(sudo docker restart "$KERNEL_NAME")
     service_is_active="sudo docker inspect -f {{.State.Running}} $KERNEL_NAME 2>/dev/null | grep -q true"
-    service_stop="sudo docker stop $KERNEL_NAME"
-    service_status="sudo docker logs $KERNEL_NAME"
+    service_stop=(sudo docker stop "$KERNEL_NAME")
+    service_status=(sudo docker logs "$KERNEL_NAME")
     service_check_tun="clashstatus"
 }
 # nohup：无root、容器环境、autodl
@@ -245,9 +255,9 @@ _set_init() {
     "${service_reload[@]}"
     "${service_enable[@]}" >&/dev/null && _okcat '🚀' '已设置开机自启'
 
-    sed -i "/\$placeholder_bin/{
+    sed -i "/^_load_base_dir$/{
+        n
         r /dev/stdin
-        d
     }" "$CLASH_CMD_DIR/common.sh" <<<"$BIN_VAR"
 
 }
@@ -278,7 +288,8 @@ _set_rc() {
     _get_rc
     echo "source $CLASH_CMD_DIR/clashctl.sh && watch_proxy" |
         tee -a "$SHELL_RC_BASH" "$SHELL_RC_ZSH" >&/dev/null
-    [ -n "$SHELL_RC_FISH" ] && /usr/bin/install "$SCRIPT_FISH" "$SHELL_RC_FISH"
+    [ -n "$SHELL_RC_FISH" ] && /usr/bin/install "$SCRIPT_CMD_FISH" "$SHELL_RC_FISH"
+    source "$CLASH_CMD_DIR/clashctl.sh"
 }
 _unset_rc() {
     _get_rc
