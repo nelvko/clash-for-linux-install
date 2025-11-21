@@ -3,12 +3,6 @@
 # shellcheck disable=SC2034
 # shellcheck disable=SC2153
 
-home=$HOME
-[[ -n "$SUDO_USER" && $CLASH_BASE_DIR == /root* ]] && {
-    home=$(awk -F: -v user="$SUDO_USER" '$1==user{print $6}' /etc/passwd)
-    CLASH_BASE_DIR=${CLASH_BASE_DIR/\/root/$home}
-    _load_base_dir
-}
 RESOURCES_BASE_DIR='resources'
 RESOURCES_CONFIG="${RESOURCES_BASE_DIR}/config.yaml"
 RESOURCES_CONFIG_MIXIN="${RESOURCES_BASE_DIR}/mixin.yaml"
@@ -48,33 +42,13 @@ _parse_args() {
         clash)
             KERNEL_NAME=clash
             ;;
-        docker)
-            command -v docker >&/dev/null || _error_quit "暂未安装 docker"
-            docker info &>/dev/null || _error_quit "当前用户无权限运行 docker，需加入 docker 组或使用 sudo 执行安装"
-            INIT_TYPE=docker
-            _IS_CONTAINER='true'
-            ;;
         esac
     done
 }
 
 _get_kernel() {
-    [ "$_IS_CONTAINER" = 'true' ] && {
-        case "${KERNEL_NAME}" in
-        clash)
-            IMAGE_KERNEL=$IMAGE_CLASH
-            ;;
-        mihomo | *)
-            IMAGE_KERNEL=$IMAGE_MIHOMO
-            ;;
-        esac
-        return
-    }
-
     _load_zip >&/dev/null
     local required_zip=()
-    [ ! -f "$ZIP_YQ" ] && required_zip+=("yq")
-    [ ! -f "$ZIP_SUBCONVERTER" ] && required_zip+=("subconverter")
     case "${KERNEL_NAME}" in
     clash)
         [ ! -f "$ZIP_CLASH" ] && required_zip+=("clash")
@@ -83,6 +57,8 @@ _get_kernel() {
         [ ! -f "$ZIP_MIHOMO" ] && required_zip+=("mihomo")
         ;;
     esac
+    [ ! -f "$ZIP_YQ" ] && required_zip+=("yq")
+    [ ! -f "$ZIP_SUBCONVERTER" ] && required_zip+=("subconverter")
 
     _download_zip "${required_zip[@]}"
 
@@ -156,28 +132,12 @@ _nohup() {
     service_enable=(false)
     service_disable=(false)
 
-    service_start="( nohup ${BIN_KERNEL} -d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME} >\&$FILE_LOG \& )"
+    service_start=( '(' nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>\&' "$FILE_LOG" '\&' ')' )
     service_is_active=(pgrep -f "$BIN_KERNEL")
     service_stop=(pkill -9 -f "$BIN_KERNEL")
-    service_restart=()
     service_status=(less "$FILE_LOG")
 }
 
-_container() {
-    service_start="sudo docker run \
-                        -d \
-                        --rm \
-                        --network host \
-                        --name $KERNEL_NAME \
-                        -v $CLASH_CONFIG_RUNTIME:/root/.config/${KERNEL_NAME}/config.yaml:ro \
-                        -v $CLASH_RESOURCES_DIR:/root/.config/${KERNEL_NAME} \
-                        ${URL_CR_PROXY}${IMAGE_KERNEL} >/dev/null"
-    service_restart=(sudo docker restart "$KERNEL_NAME")
-    service_is_active="sudo docker inspect -f {{.State.Running}} $KERNEL_NAME 2>/dev/null | grep -q true"
-    service_stop=(sudo docker stop "$KERNEL_NAME")
-    service_status=(sudo docker logs "$KERNEL_NAME")
-    service_check_tun="clashstatus"
-}
 # nohup：无root、容器环境、autodl
 _get_init() {
     [ -z "$INIT_TYPE" ] && {
@@ -198,9 +158,6 @@ _get_init() {
         }
         _sysvinit
         service_check_tun="clashstatus"
-        ;;
-    docker)
-        _container
         ;;
     nohup | *)
         _nohup
@@ -235,19 +192,12 @@ _set_init() {
         -e "s#placeholder_start#${service_start[*]}#g" \
         -e "s#placeholder_status#${service_status[*]}#g" \
         -e "s#placeholder_stop#${service_stop[*]}#g" \
-        -e "s#placeholder_restart#${service_restart[*]}#g" \
         -e "s#placeholder_is_active#${service_is_active[*]}#g" \
         -e "s#placeholder_check_tun#${service_check_tun[*]}#g" \
         "$CLASH_CMD_DIR/clashctl.sh" "$CLASH_CMD_DIR/common.sh"
 
     ((${#service_reload[@]})) && "${service_reload[@]}"
     "${service_enable[@]}" >&/dev/null && _okcat '🚀' '已设置开机自启'
-
-    sed -i "/^_load_base_dir$/{
-        n
-        r /dev/stdin
-    }" "$CLASH_CMD_DIR/common.sh" <<<"$BIN_VAR"
-
 }
 _unset_init() {
     _get_init
@@ -355,46 +305,7 @@ _load_zip() {
     ZIP_YQ=$(echo "${ZIP_BASE_DIR}"/yq*)
     ZIP_SUBCONVERTER=$(echo "${ZIP_BASE_DIR}"/subconverter*)
 }
-# shellcheck disable=SC2016
-_bin_host() {
-    valid_config_cmd='$BIN_KERNEL -d $(dirname $1) -f $1 -t'
-    BIN_BASE_DIR="${CLASH_BASE_DIR}/bin"
-    BIN_KERNEL="${BIN_BASE_DIR}/$KERNEL_NAME"
-    BIN_YQ="${BIN_BASE_DIR}/yq"
-    BIN_SUBCONVERTER_DIR="${BIN_BASE_DIR}/subconverter"
-    BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
-    BIN_SUBCONVERTER_START="$BIN_SUBCONVERTER"
-    BIN_SUBCONVERTER_STOP="pkill -9 -f $BIN_SUBCONVERTER"
-    BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
-    BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
-}
-# shellcheck disable=SC2329
-_bin_container() {
-    valid_config_cmd='sudo docker run \
-                            --rm \
-                            -v $1:/root/.config/${KERNEL_NAME}/config.yaml:ro \
-                            -v $(dirname $1):/root/.config/${KERNEL_NAME} \
-                            ${URL_CR_PROXY}${IMAGE_KERNEL} \
-                            -t'
-    yq1() {
-        sudo docker run \
-            --rm \
-            -i \
-            -u "$(id -u):$(id -u)" \
-            -v "${CLASH_BASE_DIR}":"${CLASH_BASE_DIR}" \
-            "${URL_CR_PROXY}"mikefarah/yq "$@"
-    }
-    BIN_YQ="yq1"
-    BIN_SUBCONVERTER_START="sudo docker run \
-                                --rm \
-                                -d \
-                                -p ${BIN_SUBCONVERTER_PORT}:25500 \
-                                --network bridge \
-                                --name subconverter \
-                                ${URL_CR_PROXY}tindy2013/subconverter"
-    BIN_SUBCONVERTER_STOP="sudo docker stop subconverter"
-    BIN_SUBCONVERTER_LOG="sudo docker logs subconverter"
-}
+
 _valid_zip() {
     (($#)) || return 1
     local item fail_zip=()
@@ -405,25 +316,13 @@ _valid_zip() {
     ((${#fail_zip[@]})) && _error_quit "文件验证失败：${fail_zip[*]} 请删除后重试，或自行下载对应版本至 ${ZIP_BASE_DIR} 目录"
 }
 _set_bin() {
-    local _bin_var
-    [ "$_IS_CONTAINER" != 'true' ] && {
-        _bin_host
-        _bin_var=_bin_host
-        _valid_zip "$ZIP_KERNEL" "$ZIP_YQ" "$ZIP_SUBCONVERTER"
-        /usr/bin/install -D <(gzip -dc "$ZIP_KERNEL") "$BIN_KERNEL"
-        tar -xf "$ZIP_YQ" -C "${BIN_BASE_DIR}"
-        /bin/mv -f "${BIN_BASE_DIR}"/yq_* "${BIN_BASE_DIR}/yq"
-        tar -xf "$ZIP_SUBCONVERTER" -C "$BIN_BASE_DIR"
-        /bin/cp "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
-    }
-
-    [ "$_IS_CONTAINER" = 'true' ] && {
-        _bin_container
-        _bin_var=_bin_container
-
-    }
+    _valid_zip "$ZIP_KERNEL" "$ZIP_YQ" "$ZIP_SUBCONVERTER"
+    /usr/bin/install -D <(gzip -dc "$ZIP_KERNEL") "$BIN_KERNEL"
+    tar -xf "$ZIP_YQ" -C "${BIN_BASE_DIR}"
+    /bin/mv -f "${BIN_BASE_DIR}"/yq_* "${BIN_BASE_DIR}/yq"
+    tar -xf "$ZIP_SUBCONVERTER" -C "$BIN_BASE_DIR"
+    /bin/cp "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
     tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"
-    BIN_VAR=$(typeset -f $_bin_var | sed '1,2d;$d')
 }
 
 _set_env() {
