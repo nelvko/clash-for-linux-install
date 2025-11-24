@@ -236,6 +236,10 @@ function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
         local cmd msg
         cmd="sudo $BIN_KERNEL -d $(dirname "$1") -f $1 -t"
+        local is_dat=$(sudo "$BIN_YQ" '.geodata-mode // false' "$1")
+        [ "$is_dat" = "true" ] && {
+            sudo "$BIN_YQ" -i ".geodata-mode = false" "$1"
+        }
         msg=$(eval "$cmd") || {
             eval "$cmd"
             echo "$msg" | grep -qs "unsupport proxy type" && {
