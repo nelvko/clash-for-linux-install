@@ -354,7 +354,6 @@ function clashctl() {
         clashupgrade "$@"
         ;;
     *)
-        shift
         clashhelp "$@"
         ;;
     esac
