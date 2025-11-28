@@ -88,17 +88,17 @@ function clashproxy() {
             _failcat "$KERNEL_NAME 未运行，请先执行 clashon"
             return 1
         }
-        "$BIN_YQ" -i '.system-proxy.enable = true' "$CLASH_CONFIG_MIXIN"
+        "$BIN_YQ" -i '._custom.system-proxy.enable = true' "$CLASH_CONFIG_MIXIN"
         _set_system_proxy
         _okcat '已开启系统代理'
         ;;
     off)
-        "$BIN_YQ" -i '.system-proxy.enable = false' "$CLASH_CONFIG_MIXIN"
+        "$BIN_YQ" -i '._custom.system-proxy.enable = false' "$CLASH_CONFIG_MIXIN"
         _unset_system_proxy
         _okcat '已关闭系统代理'
         ;;
     status)
-        local system_proxy_status=$("$BIN_YQ" '.system-proxy.enable' "$CLASH_CONFIG_MIXIN" 2>/dev/null)
+        local system_proxy_status=$("$BIN_YQ" '._custom.system-proxy.enable' "$CLASH_CONFIG_MIXIN" 2>/dev/null)
         [ "$system_proxy_status" = "false" ] && {
             _failcat "系统代理：关闭"
             return 1
@@ -148,8 +148,66 @@ function clashui() {
 _merge_config() {
     local backup="${CLASH_CONFIG_RUNTIME}.bak"
     cat "$CLASH_CONFIG_RUNTIME" >"$backup" 2>/dev/null
-    "$BIN_YQ" eval-all '. as $item ireduce ({}; . *+ $item) | (.. | select(tag == "!!seq")) |= unique' \
-        "$CLASH_CONFIG_MIXIN" "$CLASH_CONFIG_RAW" "$CLASH_CONFIG_MIXIN" >"$CLASH_CONFIG_RUNTIME"
+    # shellcheck disable=SC2016
+    "$BIN_YQ" eval-all '
+      ########################################
+      #              Load Files              #
+      ########################################
+      select(fileIndex==0) as $config |
+      select(fileIndex==1) as $mixin |
+      
+      ########################################
+      #              Deep Merge              #
+      ########################################
+      $mixin |= del(._custom) |
+      ($config * $mixin) as $base |
+      $base |
+      
+      ########################################
+      #               Rules                  #
+      ########################################
+      .rules = (
+        ($mixin.rules.prefix // []) +
+        ($config.rules // []) +
+        ($mixin.rules.suffix // [])
+      ) |
+      
+      ########################################
+      #                Proxies               #
+      ########################################
+      .proxies = (
+        ($mixin.proxies.prefix // []) +
+        (
+          ($config.proxies // []) as $configList |
+          ($mixin.proxies.override // []) as $overrideList |
+          $configList | map(
+            . as $configItem |
+            (
+              $overrideList[] | select(.name == $configItem.name)
+            ) // $configItem
+          )
+        ) +
+        ($mixin.proxies.suffix // [])
+      ) |
+      
+      ########################################
+      #             ProxyGroups              #
+      ########################################
+      .proxy-groups = (
+        ($mixin.proxy-groups.prefix // []) +
+        (
+          ($config.proxy-groups // []) as $configList |
+          ($mixin.proxy-groups.override // []) as $overrideList |
+          $configList | map(
+            . as $configItem |
+            (
+              $overrideList[] | select(.name == $configItem.name)
+            ) // $configItem
+          )
+        ) +
+        ($mixin.proxy-groups.suffix // [])
+      )
+    ' "$CLASH_CONFIG_RAW" "$CLASH_CONFIG_MIXIN" >"$CLASH_CONFIG_RUNTIME"
     _valid_config "$CLASH_CONFIG_RUNTIME" || {
         cat "$backup" >"$CLASH_CONFIG_RUNTIME"
         _error_quit "验证失败：请检查 Mixin 配置"

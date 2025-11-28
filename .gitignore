@@ -1,7 +1,7 @@
 .idea
 .vscode
 config.yaml
-resources/bin/**
+resources/zip/*
 test.sh
 
 
