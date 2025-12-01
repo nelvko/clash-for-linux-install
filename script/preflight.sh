@@ -138,33 +138,30 @@ _nohup() {
     service_status=(less "$FILE_LOG")
 }
 
-# nohup：无root、容器环境、autodl
 _get_init() {
     [ -z "$INIT_TYPE" ] && {
-        INIT_TYPE=$(cat /proc/1/comm 2>/dev/null)
-        [ -z "$INIT_TYPE" ] && INIT_TYPE=$(ps -p 1 -o comm= 2>/dev/null)
+        INIT_TYPE=$(readlink /proc/1/exe)
         _has_root || INIT_TYPE='nohup'
-        grep -qsE "docker|kubepods|containerd|podman" /proc/1/cgroup && INIT_TYPE='nohup'
+        grep -qsE "docker|kubepods|containerd|podman|lxc" /proc/1/cgroup && INIT_TYPE='nohup'
     }
+    service_check_tun="clashstatus"
     case "${INIT_TYPE}" in
-    systemd)
+    *systemd*)
         _systemd
         service_check_tun="sudo journalctl -u $KERNEL_NAME --since '1 min ago'"
         ;;
-    init)
-        [ "$(basename "$(readlink -f /sbin/init)")" = "busybox" ] && {
-            _openrc
-            return
-        }
+    *init*)
         _sysvinit
-        service_check_tun="clashstatus"
+        ;;
+    *busybox*)
+        _openrc
         ;;
     nohup | *)
-        _nohup
-        service_check_tun="clashstatus"
         INIT_TYPE='nohup'
+        _nohup
         ;;
     esac
+    INIT_TYPE=$(basename "$INIT_TYPE")
 }
 
 _set_init() {
