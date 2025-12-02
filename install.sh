@@ -8,9 +8,6 @@ _valid_env
 _valid_required
 _parse_args "$@"
 
-[ -d "$CLASH_BASE_DIR" ] && _error_quit "请先执行卸载脚本,以清除安装路径：$CLASH_BASE_DIR"
-mkdir -p "$CLASH_RESOURCES_DIR" || _error_quit "无写入权限：$CLASH_BASE_DIR，请前往 .env 文件更换安装路径"
-
 _get_kernel
 _set_bin
 _get_init

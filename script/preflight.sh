@@ -30,6 +30,12 @@ _valid_required() {
 }
 
 _valid_env() {
+    [ -d "$CLASH_BASE_DIR" ] && _error_quit "请先执行卸载脚本,以清除安装路径：$CLASH_BASE_DIR"
+
+    local msg="${CLASH_BASE_DIR}：当前路径不可用，请在 .env 中更换安装路径。"
+    mkdir -p "$CLASH_RESOURCES_DIR" || _error_quit "$msg"
+    [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != 'root' ] && [[ $CLASH_BASE_DIR == /root* ]] && _error_quit "$msg"
+
     [ -z "$ZSH_VERSION" ] && [ -z "$BASH_VERSION" ] && _error_quit "仅支持：bash、zsh 执行"
 }
 
@@ -132,7 +138,7 @@ _nohup() {
     service_enable=(false)
     service_disable=(false)
 
-    service_start=( '(' nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>\&' "$FILE_LOG" '\&' ')' )
+    service_start=('(' nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>\&' "$FILE_LOG" '\&' ')')
     service_is_active=(pgrep -f "$BIN_KERNEL")
     service_stop=(pkill -9 -f "$BIN_KERNEL")
     service_status=(less "$FILE_LOG")
@@ -348,7 +354,6 @@ _get_random_val() {
 }
 
 _quit() {
-    [ -n "$SUDO_USER" ] && _has_root && [ "$SUDO_USER" != 'root' ] && exec su "$SUDO_USER"
-    _get_shell
-    exec "$EXEC_SHELL" -i
+    [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != 'root' ] && exec su "$SUDO_USER"
+    _get_shell && exec "$EXEC_SHELL" -i
 }

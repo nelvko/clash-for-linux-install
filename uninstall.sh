@@ -5,7 +5,6 @@
 . script/preflight.sh
 . "$CLASH_CMD_DIR/clashctl.sh" 2>/dev/null
 
-_valid_env
 clashoff >&/dev/null
 
 _unset_init
