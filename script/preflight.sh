@@ -8,7 +8,6 @@ RESOURCES_CONFIG="${RESOURCES_BASE_DIR}/config.yaml"
 RESOURCES_CONFIG_MIXIN="${RESOURCES_BASE_DIR}/mixin.yaml"
 
 ZIP_BASE_DIR="${RESOURCES_BASE_DIR}/zip"
-ZIP_UI="${ZIP_BASE_DIR}/yacd.tar.xz"
 
 SCRIPT_BASE_DIR='script'
 SCRIPT_INIT_DIR="${SCRIPT_BASE_DIR}/init"
@@ -21,7 +20,7 @@ FILE_LOG="${CLASH_RESOURCES_DIR}/log"
 FILE_PID="${CLASH_RESOURCES_DIR}/pid"
 
 _valid_required() {
-    local required_cmds=("xz" "pgrep" "curl" "tar")
+    local required_cmds=("xz" "pgrep" "curl" "tar" 'unzip')
     local missing=()
     for cmd in "${required_cmds[@]}"; do
         command -v "$cmd" >&/dev/null || missing+=("$cmd")
@@ -325,7 +324,8 @@ _set_bin() {
     /bin/mv -f "${BIN_BASE_DIR}"/yq_* "${BIN_BASE_DIR}/yq"
     tar -xf "$ZIP_SUBCONVERTER" -C "$BIN_BASE_DIR"
     /bin/cp "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
-    tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"
+    # tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"
+    unzip -q "$ZIP_UI" -d "$CLASH_RESOURCES_DIR"
 }
 
 _set_env() {
@@ -355,5 +355,6 @@ _get_random_val() {
 
 _quit() {
     [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != 'root' ] && exec su "$SUDO_USER"
-    _get_shell && exec "$EXEC_SHELL" -i
+    _get_shell
+    exec "$EXEC_SHELL" -i
 }

@@ -5,7 +5,8 @@ _custom:
 mixed-port: 7890
 
 external-controller: "0.0.0.0:9090"
-external-ui: public
+external-ui: dist
+external-ui-url: https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip
 secret:
 
 allow-lan: false # 若开启务必设置用户验证以防暴露公网后被滥用

@@ -2,6 +2,7 @@
 .vscode
 config.yaml
 resources/zip/*
+!resources/zip/dist.zip
 test.sh
 
 
