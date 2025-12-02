@@ -66,6 +66,21 @@ clashrestart() {
 
 function clashproxy() {
     case "$1" in
+    -h | --help)
+        cat <<EOF
+
+- 查看系统代理状态
+  clashproxy
+
+- 开启系统代理
+  clashproxy on
+
+- 关闭系统代理
+  clashproxy off
+
+EOF
+        return 0
+        ;;
     on)
         systemctl is-active "$BIN_KERNEL_NAME" >&/dev/null || {
             _failcat '代理程序未运行，请执行 clashon 开启代理环境'
@@ -80,7 +95,7 @@ function clashproxy() {
         _unset_system_proxy
         _okcat '已关闭系统代理'
         ;;
-    status)
+    *)
         local system_proxy_status=$(sudo "$BIN_YQ" '._custom.system-proxy.enable' "$CLASH_CONFIG_MIXIN" 2>/dev/null)
         [ "$system_proxy_status" = "false" ] && {
             _failcat "系统代理：关闭"
@@ -89,14 +104,6 @@ function clashproxy() {
         _okcat "系统代理：开启
 http_proxy： $http_proxy
 socks_proxy：$all_proxy"
-        ;;
-    *)
-        cat <<EOF
-用法: clashproxy [on|off|status]
-    on      开启系统代理
-    off     关闭系统代理
-    status  查看系统代理状态
-EOF
         ;;
     esac
 }
@@ -201,6 +208,21 @@ _merge_config_restart() {
 }
 
 function clashsecret() {
+    case "$1" in
+    -h | --help)
+        cat <<EOF
+
+- 查看 Web 密钥
+  clashsecret
+
+- 修改 Web 密钥
+  clashsecret <new_secret>
+
+EOF
+        return 0
+        ;;
+    esac
+
     case "$#" in
     0)
         _okcat "当前密钥：$(sudo "$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME")"
@@ -245,6 +267,21 @@ _tunon() {
 
 function clashtun() {
     case "$1" in
+    -h | --help)
+        cat <<EOF
+
+- 查看 Tun 状态
+  clashtun
+
+- 开启 Tun 模式
+  clashtun on
+
+- 关闭 Tun 模式
+  clashtun off
+  
+EOF
+        return 0
+        ;;
     on)
         _tunon
         ;;
@@ -307,6 +344,24 @@ function clashupdate() {
 
 function clashmixin() {
     case "$1" in
+    -h | --help)
+        cat <<EOF
+
+- 查看 Mixin 配置：$CLASH_CONFIG_MIXIN
+  clashmixin
+
+- 编辑 Mixin 配置
+  clashmixin -e
+
+- 查看原始订阅配置：$CLASH_CONFIG_RAW
+  clashmixin -o
+
+- 查看运行时配置：$CLASH_CONFIG_RUNTIME
+  clashmixin -r
+
+EOF
+        return 0
+        ;;
     -e)
         sudo vim "$CLASH_CONFIG_MIXIN" && {
             _merge_config_restart && _okcat "配置更新成功，已重启生效"
@@ -315,6 +370,9 @@ function clashmixin() {
     -r)
         less -f "$CLASH_CONFIG_RUNTIME"
         ;;
+    -o)
+        less -f "$CLASH_CONFIG_RAW"
+        ;;
     *)
         less -f "$CLASH_CONFIG_MIXIN"
         ;;
@@ -322,36 +380,44 @@ function clashmixin() {
 }
 
 function clashupgrade() {
-    case "$1" in
-    -h | --help)
-        cat <<EOF
+    for arg in "$@"; do
+        case $arg in
+        -h | --help)
+            cat <<EOF
+Usage:
+  clashupgrade [OPTIONS]
 
-- 升级当前版本
-  clashupgrade
-
-- 升级到稳定版
-  clashupgrade release
-
-- 升级到测试版
-  clashupgrade alpha
+Options:
+  -v, --verbose       输出内核升级日志
+  -r, --release       升级至稳定版
+  -a, --alpha         升级至测试版
+  -h, --help          显示帮助信息
 
 EOF
-        return 0
-        ;;
-    release)
-        channel="release"
-        ;;
-    alpha)
-        channel="alpha"
-        ;;
-    *)
-        channel=""
-        ;;
-    esac
-
-    _okcat "请求内核升级..."
+            return 0
+            ;;
+        -v | --verbose)
+            local log_flag=true log_pid
+            ;;
+        -r | --release)
+            channel="release"
+            ;;
+        -a | --alpha)
+            channel="alpha"
+            ;;
+        *)
+            channel=""
+            ;;
+        esac
+    done
     _get_ui_port
     local secret=$(sudo "$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME")
+    _okcat "请求内核升级..."
+    [ "$log_flag" = true ] && {
+        sudo journalctl -u "$BIN_KERNEL_NAME" -q -f -n 0 &
+        log_pid=$!
+        disown "$log_pid" 2>/dev/null
+    }
     local res=$(
         curl -X POST \
             --silent \
@@ -360,8 +426,9 @@ EOF
             -H "Authorization: Bearer $secret" \
             "http://${EXT_IP}:${EXT_PORT}/upgrade?channel=$channel"
     )
+    [ "$log_flag" = true ] && kill -9 "$log_pid" >&/dev/null
 
-    grep -qs '"status":"ok"' <<<"$res" && {
+    grep '"status":"ok"' <<<"$res" && {
         _okcat "内核升级成功"
         return 0
     }
@@ -369,8 +436,7 @@ EOF
         _okcat "已是最新版本"
         return 0
     }
-    _failcat "升级请求失败，请检查网络或稍后重试"
-
+    _failcat "内核升级失败，请检查网络或稍后重试"
 }
 
 function clashctl() {
@@ -421,20 +487,24 @@ function clashctl() {
 clashhelp() {
     cat <<EOF
     
-Usage:
-    clashctl COMMAND  [OPTION]
+Usage: 
+  clashctl COMMAND [OPTIONS]
 
 Commands:
-    on                      开启代理
-    off                     关闭代理
-    proxy    [on|off]       系统代理
-    ui                      面板地址
-    status                  内核状况
-    tun      [on|off]       Tun 模式
-    mixin    [-e|-r]        Mixin 配置
-    secret   [SECRET]       Web 密钥
-    update   [auto|log]     更新订阅
-    upgrade                 升级内核
+  on                    开启代理
+  off                   关闭代理
+  proxy                 系统代理
+  ui                    面板地址
+  status                内核状况
+  tun                   Tun 模式
+  mixin                 Mixin 配置
+  secret                Web 密钥
+  update                更新订阅
+  upgrade               升级内核
 
+Global Options:
+  -h, --help            显示帮助信息
+
+For more help on how to use clashctl, head to https://github.com/nelvko/clash-for-linux-install
 EOF
 }
