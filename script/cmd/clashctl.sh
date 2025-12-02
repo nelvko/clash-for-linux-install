@@ -153,14 +153,14 @@ _merge_config() {
       ########################################
       #              Load Files              #
       ########################################
-      select(fileIndex==0) as $config |
+      select(fileIndex==0) as $origin |
       select(fileIndex==1) as $mixin |
       
       ########################################
       #              Deep Merge              #
       ########################################
       $mixin |= del(._custom) |
-      ($config * $mixin) as $base |
+      ($origin * $mixin) as $base |
       $base |
       
       ########################################
@@ -168,7 +168,7 @@ _merge_config() {
       ########################################
       .rules = (
         ($mixin.rules.prefix // []) +
-        ($config.rules // []) +
+        ($origin.rules // []) +
         ($mixin.rules.suffix // [])
       ) |
       
@@ -178,13 +178,13 @@ _merge_config() {
       .proxies = (
         ($mixin.proxies.prefix // []) +
         (
-          ($config.proxies // []) as $configList |
+          ($origin.proxies // []) as $originList |
           ($mixin.proxies.override // []) as $overrideList |
-          $configList | map(
-            . as $configItem |
+          $originList | map(
+            . as $originItem |
             (
-              $overrideList[] | select(.name == $configItem.name)
-            ) // $configItem
+              $overrideList[] | select(.name == $originItem.name)
+            ) // $originItem
           )
         ) +
         ($mixin.proxies.suffix // [])
@@ -196,18 +196,18 @@ _merge_config() {
       .proxy-groups = (
         ($mixin.proxy-groups.prefix // []) +
         (
-          ($config.proxy-groups // []) as $configList |
+          ($origin.proxy-groups // []) as $originList |
           ($mixin.proxy-groups.override // []) as $overrideList |
-          $configList | map(
-            . as $configItem |
+          $originList | map(
+            . as $originItem |
             (
-              $overrideList[] | select(.name == $configItem.name)
-            ) // $configItem
+              $overrideList[] | select(.name == $originItem.name)
+            ) // $originItem
           )
         ) +
         ($mixin.proxy-groups.suffix // [])
       )
-    ' "$CLASH_CONFIG_RAW" "$CLASH_CONFIG_MIXIN" >"$CLASH_CONFIG_RUNTIME"
+    ' "$CLASH_CONFIG_ORIGIN" "$CLASH_CONFIG_MIXIN" >"$CLASH_CONFIG_RUNTIME"
     _valid_config "$CLASH_CONFIG_RUNTIME" || {
         cat "$backup" >"$CLASH_CONFIG_RUNTIME"
         _error_quit "验证失败：请检查 Mixin 配置"
@@ -304,8 +304,8 @@ function clashupdate() {
 
     # 如果没有提供有效的订阅链接（url为空或者不是http开头），则使用默认配置文件
     [ "${url:0:4}" != "http" ] && {
-        _failcat "没有提供有效的订阅链接：使用 ${CLASH_CONFIG_RAW} 进行更新..."
-        url="file://$CLASH_CONFIG_RAW"
+        _failcat "没有提供有效的订阅链接：使用 ${CLASH_CONFIG_ORIGIN} 进行更新..."
+        url="file://$CLASH_CONFIG_ORIGIN"
     }
 
     # 如果是自动更新模式，则设置定时任务
@@ -321,18 +321,18 @@ function clashupdate() {
     }
 
     _okcat '👌' "正在下载：原配置已备份..."
-    local bak="${CLASH_CONFIG_RAW}.bak"
-    cat "$CLASH_CONFIG_RAW" | tee "$bak" >&/dev/null
+    local bak="${CLASH_CONFIG_ORIGIN}.bak"
+    cat "$CLASH_CONFIG_ORIGIN" | tee "$bak" >&/dev/null
 
     _rollback() {
         _failcat '🍂' "$1"
-        cat "$bak" | tee "$CLASH_CONFIG_RAW" >&/dev/null
+        cat "$bak" | tee "$CLASH_CONFIG_ORIGIN" >&/dev/null
         _failcat '❌' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新失败：$url" 2>&1 | tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
         _error_quit
     }
 
-    _download_config "$CLASH_CONFIG_RAW" "$url" || _rollback "下载失败：已回滚配置"
-    _valid_config "$CLASH_CONFIG_RAW" || _rollback "转换失败：已回滚配置，转换日志：$BIN_SUBCONVERTER_LOG"
+    _download_config "$CLASH_CONFIG_ORIGIN" "$url" || _rollback "下载失败：已回滚配置"
+    _valid_config "$CLASH_CONFIG_ORIGIN" || _rollback "转换失败：已回滚配置，转换日志：$BIN_SUBCONVERTER_LOG"
 
     _merge_config_restart && _okcat '🍃' '订阅更新成功'
     _okcat '✅' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新成功：$url" | tee -a "${CLASH_UPDATE_LOG}" >&/dev/null

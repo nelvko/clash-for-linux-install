@@ -1,6 +1,6 @@
 .idea
 .vscode
-config.yaml
+config.yaml*
 resources/zip/*
 !resources/zip/dist.zip
 test.sh

@@ -7,7 +7,7 @@
 . "$(dirname "$(dirname "$SCRIPT_DIR")")/.env"
 
 CLASH_RESOURCES_DIR="${CLASH_BASE_DIR}/resources"
-CLASH_CONFIG_RAW="${CLASH_RESOURCES_DIR}/config.yaml"
+CLASH_CONFIG_ORIGIN="${CLASH_RESOURCES_DIR}/config.yaml"
 CLASH_CONFIG_MIXIN="${CLASH_RESOURCES_DIR}/mixin.yaml"
 CLASH_CONFIG_RUNTIME="${CLASH_RESOURCES_DIR}/runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_RESOURCES_DIR}/clashupdate.log"
@@ -132,7 +132,7 @@ function _valid_config() {
     }
 }
 
-_download_raw_config() {
+_download_origin_config() {
     local dest=$1
     local url=$2
     local agent='clash-verge/v2.0.4'
@@ -173,17 +173,17 @@ _download_convert_config() {
             --write-out '%{url_effective}' \
             "$base_url"
     )
-    _download_raw_config "$dest" "$convert_url"
+    _download_origin_config "$dest" "$convert_url"
     _stop_convert
 }
 function _download_config() {
     local dest=$1
     local url=$2
     [ "${url:0:4}" = 'file' ] && return 0
-    _download_raw_config "$dest" "$url" || return 1
+    _download_origin_config "$dest" "$url" || return 1
     _okcat '🍃' '下载成功：内核验证配置...'
     _valid_config "$dest" || {
-        cat "$dest" >"${dest}.raw"
+        cat "$dest" >"${dest}.origin"
         _failcat '🍂' "验证失败：尝试订阅转换..."
         _download_convert_config "$dest" "$url" || _failcat '🍂' "转换失败：请检查日志：$BIN_SUBCONVERTER_LOG"
     }
