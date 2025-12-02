@@ -6,7 +6,7 @@
 
 ![preview](resources/preview.png)
 
-- 默认安装 `mihomo` 内核，[可选安装](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ#%E5%AE%89%E8%A3%85-clash-%E5%86%85%E6%A0%B8) `clash`。
+- 默认安装 `mihomo` 内核，[可选安装](https://github.com/nelvko/clash-for-linux-install/wiki) `clash`。
 - 支持使用 [subconverter](https://github.com/tindy2013/subconverter) 进行本地订阅转换。
 - 多架构支持，适配主流 `Linux` 发行版：`CentOS 7.6`、`Debian 12`、`Ubuntu 24.04.1 LTS`。
 
@@ -19,7 +19,7 @@
 
 ### 一键安装
 
-目前 `master` 分支仅适用于 `x86_64` 架构且使用 `systemd` 的系统环境，其他初始化系统/架构请使用 `feat-init` 分支：[一键安装-多架构](https://github.com/nelvko/clash-for-linux-install/wiki#%E4%B8%80%E9%94%AE%E5%AE%89%E8%A3%85-%E5%A4%9A%E6%9E%B6%E6%9E%84)
+目前 `master` 分支仅适用于 `x86_64` 架构且使用 `systemd` 的系统环境，其他初始化系统 / 架构请使用 `feat-init` 分支：[一键安装-多架构](https://github.com/nelvko/clash-for-linux-install/wiki#%E4%B8%80%E9%94%AE%E5%AE%89%E8%A3%85-%E5%A4%9A%E6%9E%B6%E6%9E%84)
 
 ```bash
 git clone --branch master --depth 1 https://gh-proxy.com/https://github.com/nelvko/clash-for-linux-install.git \
@@ -35,27 +35,28 @@ git clone --branch master --depth 1 https://gh-proxy.com/https://github.com/nelv
 
 ### 命令一览
 
-执行 `clashctl` 列出开箱即用的快捷命令。
-
 
 ```bash
-$ clashctl
-Usage:
-    clashctl    COMMAND [OPTION]
-    
-Commands:
-    on                   开启代理
-    off                  关闭代理
-    ui                   面板地址
-    status               内核状况
-    proxy    [on|off]    系统代理
-    tun      [on|off]    Tun 模式
-    mixin    [-e|-r]     Mixin 配置
-    secret   [SECRET]    Web 密钥
-    update   [auto|log]  更新订阅
-```
+Usage: 
+  clashctl COMMAND [OPTIONS]
 
-💡`clashon` 等同于 `clashctl on`，`Tab` 补全更方便！
+Commands:
+    on                    开启代理
+    off                   关闭代理
+    proxy                 系统代理
+    ui                    面板地址
+    status                内核状况
+    tun                   Tun 模式
+    mixin                 Mixin 配置
+    secret                Web 密钥
+    update                更新订阅
+    upgrade               升级内核
+
+Global Options:
+    -h, --help            显示帮助信息
+``` 
+
+💡`clashon` 同 `clashctl on`，`Tab` 补全更方便！
 
 ### 优雅启停
 
@@ -66,7 +67,7 @@ $ clashon
 $ clashoff
 😼 已关闭代理环境
 ```
-- 启停代理内核的同时，设置系统代理。
+- 在启停代理内核的同时，自动同步设置系统代理。
 - 亦可通过 `clashproxy` 单独控制系统代理。
 
 ### Web 控制台
@@ -93,6 +94,17 @@ $ clashsecret
 
 - 通过浏览器打开 Web 控制台，实现可视化操作：切换节点、查看日志等。
 - 若暴露到公网使用建议定期更换密钥。
+
+### 升级内核
+```bash
+$ clashupgrade
+😼 请求内核升级...
+{"status":"ok"}
+😼 内核升级成功
+```
+- 代理内核会自动处理升级流程，并从 `GitHub` 获取最新软件包。为避免因网络原因导致拉取失败，建议为相关域名配置代理规则。
+- 可使用 `-v` 参数查看代理内核的升级日志。
+
 
 ### 更新订阅
 
@@ -131,18 +143,20 @@ $ clashtun on
 
 ```bash
 $ clashmixin
-😼 less 查看 mixin 配置
+😼 查看 Mixin 配置
 
 $ clashmixin -e
-😼 vim 编辑 mixin 配置
+😼 编辑 Mixin 配置
+
+$ clashmixin -o
+😼 查看原始订阅配置
 
 $ clashmixin -r
-😼 less 查看 运行时 配置
+😼 查看运行时配置
 ```
-
-- 持久化：将自定义配置项写入`Mixin`（`mixin.yaml`），而非原订阅配置（`config.yaml`），可避免更新订阅后丢失。
-- 配置加载：代理内核启动时使用 `runtime.yaml`，它是订阅配置与 `Mixin` 配置的合并结果集，相同配置项以 `Mixin` 为准。
-- 注意：因此直接修改 `config.yaml` 并不会生效。
+- 通过 `Mixin` 自定义的配置内容会与原始订阅深度合并生成运行时配置，其中 `Mixin` 的优先级最高。
+- `Mixin` 可通过前置、后置或覆盖方式，对原始订阅中的规则、节点和策略组进行新增或修改。
+- 内核启动时加载的是运行时配置，因此直接修改原始订阅内容并不会生效。
 
 ### 卸载
 
