@@ -15,8 +15,8 @@ SCRIPT_CMD_FISH="${SCRIPT_CMD_DIR}/clashctl.fish"
 
 CLASH_CMD_DIR="${CLASH_BASE_DIR}/$SCRIPT_CMD_DIR"
 
-FILE_LOG="${CLASH_RESOURCES_DIR}/log"
-FILE_PID="${CLASH_RESOURCES_DIR}/pid"
+FILE_LOG="/var/log/${KERNEL_NAME}.log"
+FILE_PID="/run/${KERNEL_NAME}.pid"
 
 _valid_required() {
     local required_cmds=("xz" "pgrep" "curl" "tar" 'unzip')
@@ -144,17 +144,18 @@ _nohup() {
 }
 # shellcheck disable=SC2206
 _get_init() {
-    [ -z "$INIT_TYPE" ] && {
-        INIT_TYPE=$(readlink /proc/1/exe)
-        _has_root || INIT_TYPE='nohup'
-        grep -qsE "docker|kubepods|containerd|podman|lxc" /proc/1/cgroup && INIT_TYPE='nohup'
+    [ -z "$INIT_TYPE" ] && INIT_TYPE=$(readlink /proc/1/exe)
+    grep -qsE "docker|kubepods|containerd|podman|lxc" /proc/1/cgroup && INIT_TYPE='nohup'
+    _has_root || {
+        INIT_TYPE='nohup'
+        FILE_LOG="${CLASH_RESOURCES_DIR}/${KERNEL_NAME}.log"
+        FILE_PID="${CLASH_RESOURCES_DIR}/${KERNEL_NAME}.pid"
     }
-
     service_check_tun=(clashstatus)
     service_log_follow=(tail -f -n 0 "$FILE_LOG")
     service_watch_proxy=(clashon)
     _is_regular_sudo && {
-        service_watch_proxy=(_failcat '未检测到代理变量，可执行 clashon 开启代理环境')
+        service_watch_proxy=(_failcat "'未检测到代理变量，可执行 clashon 开启代理环境'")
         _SUDO=sudo
     }
 
