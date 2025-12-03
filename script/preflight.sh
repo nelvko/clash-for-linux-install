@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-# shellcheck disable=SC2153
 
 RESOURCES_CONFIG_ORIGIN=".${CLASH_CONFIG_ORIGIN#"$CLASH_BASE_DIR"}"
 RESOURCES_CONFIG_MIXIN=".${CLASH_CONFIG_MIXIN#"$CLASH_BASE_DIR"}"
@@ -249,7 +248,6 @@ _unset_rc() {
     rm -f "$SHELL_RC_FISH" 2>/dev/null
 }
 
-# shellcheck disable=SC2155
 _download_zip() {
     (($#)) || return 0
     local arch=$(uname -m)

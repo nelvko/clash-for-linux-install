@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 
-# shellcheck disable=SC2034
-# shellcheck disable=SC2155
-
 . "$(dirname "$(dirname "$THIS_SCRIPT_DIR")")/.env"
 
 CLASH_RESOURCES_DIR="${CLASH_BASE_DIR}/resources"
@@ -11,6 +8,7 @@ CLASH_CONFIG_MIXIN="${CLASH_RESOURCES_DIR}/mixin.yaml"
 CLASH_CONFIG_RUNTIME="${CLASH_RESOURCES_DIR}/runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_RESOURCES_DIR}/clashupdate.log"
 
+# shellcheck disable=SC2016
 valid_config_cmd='$BIN_KERNEL -d $(dirname $1) -f $1 -t'
 BIN_BASE_DIR="${CLASH_BASE_DIR}/bin"
 BIN_KERNEL="${BIN_BASE_DIR}/$KERNEL_NAME"
