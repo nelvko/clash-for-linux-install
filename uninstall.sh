@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-# shellcheck disable=SC1091
 . script/cmd/clashctl.sh
 . script/preflight.sh
 . "$CLASH_CMD_DIR/clashctl.sh" 2>/dev/null

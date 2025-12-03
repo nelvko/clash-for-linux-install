@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2155
-# shellcheck disable=SC1091
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE:-${(%):-%N}}")" >/dev/null 2>&1 && pwd)"
-. "$SCRIPT_DIR/common.sh"
-
+# shellcheck disable=SC2296
+THIS_SCRIPT_DIR=$(dirname "$(readlink -f "${BASH_SOURCE:-${(%):-%N}}")")
+. "$THIS_SCRIPT_DIR/common.sh"
 
 _set_system_proxy() {
     local auth=$("$BIN_YQ" '.authentication[0] // ""' "$CLASH_CONFIG_RUNTIME")
@@ -41,7 +39,7 @@ _unset_system_proxy() {
 
 function clashon() {
     MIXED_PORT=$("$BIN_YQ" '.mixed-port' "$CLASH_CONFIG_RUNTIME")
-    clashstatus >&/dev/null || {
+    placeholder_is_active >&/dev/null || {
         _is_port_used "$MIXED_PORT" && {
             local newPort=$(_get_random_port)
             _failcat '🎯' "端口占用：${MIXED_PORT} 🎲 随机分配：$newPort"
@@ -49,7 +47,8 @@ function clashon() {
             "$BIN_YQ" -i ".mixed-port = $newPort" "$CLASH_CONFIG_MIXIN"
             _merge_config
         }
-        placeholder_start || {
+        placeholder_start 
+        placeholder_is_active >&/dev/null || {
             _failcat '启动失败: 执行 clashstatus 查看日志'
             return 1
         }
@@ -59,9 +58,11 @@ function clashon() {
 }
 
 watch_proxy() {
-    [ -z "$http_proxy" ] && [[ $- == *i* ]] && { # 新开交互式shell时开启代理环境
-        # [[ "$0" == *-* ]] && { # 登录时开启代理环境
-        _has_root || _failcat '未检测到代理变量，可执行 clashon 开启代理环境' && clashon
+    [ -z "$http_proxy" ] && {
+        # [[ "$0" == -* ]] && { # 登录式shell
+        [[ $- == *i* ]] && { # 交互式shell
+            placeholder_watch_proxy
+        }
     }
 }
 
@@ -83,7 +84,7 @@ clashrestart() {
 
 function clashproxy() {
     case "$1" in
-        -h | --help)
+    -h | --help)
         cat <<EOF
 
 - 查看系统代理状态
@@ -227,7 +228,7 @@ _merge_config_restart() {
 }
 
 function clashsecret() {
-        case "$1" in
+    case "$1" in
     -h | --help)
         cat <<EOF
 
@@ -294,7 +295,7 @@ _tunon() {
 
 function clashtun() {
     case "$1" in
-        -h | --help)
+    -h | --help)
         cat <<EOF
 
 - 查看 Tun 状态
@@ -377,7 +378,7 @@ function clashupdate() {
 
 function clashmixin() {
     case "$1" in
-        -h | --help)
+    -h | --help)
         cat <<EOF
 
 - 查看 Mixin 配置：$CLASH_CONFIG_MIXIN
@@ -452,8 +453,9 @@ EOF
     local secret=$("$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME")
     _okcat '⏳' "请求内核升级..."
     [ "$log_flag" = true ] && {
-         cmd1=( journalctl -u "$KERNEL_NAME" -q -f -n 0 )
-        "${cmd1[@]}" &
+        log_cmd=(placeholder_log_follow)
+        ("${log_cmd[@]}" &)
+
     }
     local res=$(
         curl -X POST \
@@ -463,8 +465,7 @@ EOF
             -H "Authorization: Bearer $secret" \
             "http://${EXT_IP}:${EXT_PORT}/upgrade?channel=$channel"
     )
-    echo "${cmd1[*]}"
-    [ "$log_flag" = true ] && pkill -9 -f "${cmd1[*]}"
+    [ "$log_flag" = true ] && pkill -9 -f "${log_cmd[*]}"
 
     grep '"status":"ok"' <<<"$res" && {
         _okcat "内核升级成功"

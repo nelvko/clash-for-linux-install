@@ -32,7 +32,7 @@ _valid_env() {
 
     local msg="${CLASH_BASE_DIR}：当前路径不可用，请在 .env 中更换安装路径。"
     mkdir -p "$CLASH_RESOURCES_DIR" || _error_quit "$msg"
-    [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != 'root' ] && [[ $CLASH_BASE_DIR == /root* ]] && _error_quit "$msg"
+    _is_regular_sudo && [[ $CLASH_BASE_DIR == /root* ]] && _error_quit "$msg"
 
     [ -z "$ZSH_VERSION" ] && [ -z "$BASH_VERSION" ] && _error_quit "仅支持：bash、zsh 执行"
 }
@@ -116,43 +116,53 @@ _sysvinit() {
     service_status=(service "$KERNEL_NAME" status)
 }
 
+# shellcheck disable=SC2206
 _systemd() {
     service_src="${SCRIPT_INIT_DIR}/systemd.sh"
     service_target="/etc/systemd/system/${KERNEL_NAME}.service"
 
-    service_reload=(sudo systemctl daemon-reload)
+    service_reload=($_SUDO systemctl daemon-reload)
 
-    service_enable=(sudo systemctl enable "$KERNEL_NAME")
-    service_disable=(sudo systemctl disable "$KERNEL_NAME")
+    service_enable=($_SUDO systemctl enable "$KERNEL_NAME")
+    service_disable=($_SUDO systemctl disable "$KERNEL_NAME")
 
-    service_start=(sudo systemctl start "$KERNEL_NAME")
-    service_is_active=(sudo systemctl is-active "$KERNEL_NAME")
-    service_stop=(sudo systemctl stop "$KERNEL_NAME")
-    service_restart=(sudo systemctl restart "$KERNEL_NAME")
-    service_status=(sudo systemctl status "$KERNEL_NAME")
+    service_start=($_SUDO systemctl start "$KERNEL_NAME")
+    service_is_active=($_SUDO systemctl is-active "$KERNEL_NAME")
+    service_stop=($_SUDO systemctl stop "$KERNEL_NAME")
+    service_restart=($_SUDO systemctl restart "$KERNEL_NAME")
+    service_status=($_SUDO systemctl status "$KERNEL_NAME")
 }
 
 _nohup() {
     service_enable=(false)
     service_disable=(false)
 
-    service_start=('(' nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>\&' "$FILE_LOG" '\&' ')')
+    service_start=(nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>\&' "$FILE_LOG" '\&')
     service_is_active=(pgrep -f "$BIN_KERNEL")
     service_stop=(pkill -9 -f "$BIN_KERNEL")
     service_status=(less "$FILE_LOG")
 }
-
+# shellcheck disable=SC2206
 _get_init() {
     [ -z "$INIT_TYPE" ] && {
         INIT_TYPE=$(readlink /proc/1/exe)
         _has_root || INIT_TYPE='nohup'
         grep -qsE "docker|kubepods|containerd|podman|lxc" /proc/1/cgroup && INIT_TYPE='nohup'
     }
-    service_check_tun="clashstatus"
+
+    service_check_tun=(clashstatus)
+    service_log_follow=(tail -f -n 0 "$FILE_LOG")
+    service_watch_proxy=(clashon)
+    _is_regular_sudo && {
+        service_watch_proxy=(_failcat '未检测到代理变量，可执行 clashon 开启代理环境')
+        _SUDO=sudo
+    }
+
     case "${INIT_TYPE}" in
     *systemd*)
+        service_check_tun=($_SUDO journalctl -u "$KERNEL_NAME" --since '1 min ago')
+        service_log_follow=($_SUDO journalctl -u "$KERNEL_NAME" -q -f -n 0)
         _systemd
-        service_check_tun="sudo journalctl -u $KERNEL_NAME --since '1 min ago'"
         ;;
     *init*)
         _sysvinit
@@ -195,6 +205,8 @@ _set_init() {
         -e "s#placeholder_stop#${service_stop[*]}#g" \
         -e "s#placeholder_is_active#${service_is_active[*]}#g" \
         -e "s#placeholder_check_tun#${service_check_tun[*]}#g" \
+        -e "s#placeholder_log_follow#${service_log_follow[*]}#g" \
+        -e "s#placeholder_watch_proxy#${service_watch_proxy[*]}#g" \
         "$CLASH_CMD_DIR/clashctl.sh" "$CLASH_CMD_DIR/common.sh"
 
     ((${#service_reload[@]})) && "${service_reload[@]}"
@@ -228,7 +240,7 @@ _set_rc() {
     echo "source $CLASH_CMD_DIR/clashctl.sh && watch_proxy" |
         tee -a "$SHELL_RC_BASH" "$SHELL_RC_ZSH" >&/dev/null
     [ -n "$SHELL_RC_FISH" ] && /usr/bin/install "$SCRIPT_CMD_FISH" "$SHELL_RC_FISH"
-    source "$CLASH_CMD_DIR/clashctl.sh"
+    . "$CLASH_CMD_DIR/clashctl.sh"
 }
 _unset_rc() {
     _get_rc
@@ -353,7 +365,15 @@ _get_random_val() {
 }
 
 _quit() {
-    [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != 'root' ] && exec su "$SUDO_USER"
+    _is_regular_sudo && exec su "$SUDO_USER"
     _get_shell
     exec "$EXEC_SHELL" -i
+}
+
+_has_root() {
+    [ "$(id -u)" -eq 0 ]
+}
+
+_is_regular_sudo() {
+    [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != 'root' ]
 }

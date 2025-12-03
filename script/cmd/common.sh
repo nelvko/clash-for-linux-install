@@ -2,9 +2,8 @@
 
 # shellcheck disable=SC2034
 # shellcheck disable=SC2155
-# shellcheck disable=SC1091
 
-. "$(dirname "$(dirname "$SCRIPT_DIR")")/.env"
+. "$(dirname "$(dirname "$THIS_SCRIPT_DIR")")/.env"
 
 CLASH_RESOURCES_DIR="${CLASH_BASE_DIR}/resources"
 CLASH_CONFIG_ORIGIN="${CLASH_RESOURCES_DIR}/config.yaml"
@@ -105,18 +104,6 @@ function _error_quit() {
     _get_shell
     exec $EXEC_SHELL -i
 }
-
-function _has_root() {
-    [ "$(id -u)" -eq 0 ]
-}
-
-# function _is_root() {
-#     [ "$(id -un)" = "root" ]
-# }
-
-# function _is_sudo() {
-#     [ -n "$SUDO_USER" ]
-# }
 
 function _valid_config() {
     [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
