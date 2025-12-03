@@ -18,7 +18,8 @@ authentication:
 # override：根据 name 匹配并替换原项
 rules:
   prefix:
-    - DOMAIN,api64.ipify.org,DIRECT #用于 clashui 获取真实公网 IP
+    - DOMAIN,api64.ipify.org,DIRECT # 用于 clashui 获取真实公网 IP
+    # - DOMAIN-KEYWORD,github,proxy   # 用于 clashupgrade 升级内核
   suffix:
 
 proxies:
