@@ -18,26 +18,28 @@ body:
         - label: 我已确认本地与远程仓库最新提交的哈希一致。 (`git rev-parse --short HEAD`)
           required: true
 
-  - type: dropdown
+  - type: input
     id: branch
     attributes:
-      label: 克隆的分支
-      options:
-        - master
-        - feat-init
+      label: 使用的分支
+      placeholder: master / feat-init / ...
     validations:
       required: true
 
-  - type: dropdown
+  - type: input
+    id: commit_id
+    attributes:
+      label: Commit ID
+      description: |
+        请提供当前 Commit 哈希：`git rev-parse --short HEAD`
+    validations:
+      required: true
+
+  - type: input
     id: shell
     attributes:
       label: Shell 环境
-      options:
-        - Bash
-        - Zsh
-        - Fish
-        - Others
-      default: 0
+      placeholder: bash / zsh / ...
     validations:
       required: true
 
@@ -76,6 +78,5 @@ body:
     id: logs
     attributes:
       label: 日志
-      description: 请提供相关日志输出或截图（自动格式化为代码，无需手动加反引号）
+      description: 请提供相关日志输出或截图
       render: shell
-  

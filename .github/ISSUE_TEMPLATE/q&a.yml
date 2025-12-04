@@ -14,26 +14,28 @@ body:
         - label: 我已使用关键字查询相关 [Issues](https://github.com/nelvko/clash-for-linux-install/issues?q=is%3Aissue)，但仍未找到解决方案
           required: true
 
-  - type: dropdown
+  - type: input
     id: branch
     attributes:
-      label: 克隆的分支
-      options:
-        - master
-        - feat-init
+      label: 使用的分支
+      placeholder: master / feat-init / ...
     validations:
       required: true
 
-  - type: dropdown
+  - type: input
+    id: commit_id
+    attributes:
+      label: Commit ID
+      description: |
+        请提供当前 Commit 哈希：`git rev-parse --short HEAD`
+    validations:
+      required: true
+
+  - type: input
     id: shell
     attributes:
       label: Shell 环境
-      options:
-        - Bash
-        - Zsh
-        - Fish
-        - Others
-      default: 0
+      placeholder: bash / zsh / ...
     validations:
       required: true
 
