@@ -45,7 +45,7 @@ function clashon() {
             "$BIN_YQ" -i ".mixed-port = $newPort" "$CLASH_CONFIG_MIXIN"
             _merge_config
         }
-        placeholder_start 
+        placeholder_start
         placeholder_is_active >&/dev/null || {
             _failcat '启动失败: 执行 clashstatus 查看日志'
             return 1
@@ -213,7 +213,7 @@ _merge_config() {
         ) +
         ($mixin.proxy-groups.suffix // [])
       )
-    ' "$CLASH_CONFIG_ORIGIN" "$CLASH_CONFIG_MIXIN" >"$CLASH_CONFIG_RUNTIME"
+    ' "$CLASH_CONFIG_RAW" "$CLASH_CONFIG_MIXIN" >"$CLASH_CONFIG_RUNTIME"
     _valid_config "$CLASH_CONFIG_RUNTIME" || {
         cat "$backup" >"$CLASH_CONFIG_RUNTIME"
         _error_quit "验证失败：请检查 Mixin 配置"
@@ -261,8 +261,14 @@ EOF
 
 _tunstatus() {
     local tun_status=$("$BIN_YQ" '.tun.enable' "${CLASH_CONFIG_RUNTIME}")
-    # shellcheck disable=SC2015
-    [ "$tun_status" = 'true' ] && _okcat 'Tun 状态：启用' || _failcat 'Tun 状态：关闭'
+    case $tun_status in
+    true)
+        _okcat 'Tun 状态：启用'
+        ;;
+    *)
+        _failcat 'Tun 状态：关闭'
+        ;;
+    esac
 }
 
 _tunoff() {
@@ -340,8 +346,8 @@ function clashupdate() {
 
     # 如果没有提供有效的订阅链接（url为空或者不是http开头），则使用默认配置文件
     [ "${url:0:4}" != "http" ] && {
-        _failcat "没有提供有效的订阅链接：使用 ${CLASH_CONFIG_ORIGIN} 进行更新..."
-        url="file://$CLASH_CONFIG_ORIGIN"
+        _failcat "没有提供有效的订阅链接：使用 ${CLASH_CONFIG_RAW} 进行更新..."
+        url="file://$CLASH_CONFIG_RAW"
     }
 
     # 如果是自动更新模式，则设置定时任务
@@ -357,18 +363,18 @@ function clashupdate() {
     }
 
     _okcat '👌' "正在下载：原配置已备份..."
-    local bak="${CLASH_CONFIG_ORIGIN}.bak"
-    cat "$CLASH_CONFIG_ORIGIN" | tee "$bak" >&/dev/null
+    local bak="${CLASH_CONFIG_RAW}.bak"
+    cat "$CLASH_CONFIG_RAW" | tee "$bak" >&/dev/null
 
     _rollback() {
         _failcat '🍂' "$1"
-        cat "$bak" | tee "$CLASH_CONFIG_ORIGIN" >&/dev/null
+        cat "$bak" | tee "$CLASH_CONFIG_RAW" >&/dev/null
         _failcat '❌' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新失败：$url" 2>&1 | tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
         _error_quit
     }
 
-    _download_config "$CLASH_CONFIG_ORIGIN" "$url" || _rollback "下载失败：已回滚配置"
-    _valid_config "$CLASH_CONFIG_ORIGIN" || _rollback "转换失败：已回滚配置，转换日志：$BIN_SUBCONVERTER_LOG"
+    _download_config "$CLASH_CONFIG_RAW" "$url" || _rollback "下载失败：已回滚配置"
+    _valid_config "$CLASH_CONFIG_RAW" || _rollback "转换失败：已回滚配置，转换日志：$BIN_SUBCONVERTER_LOG"
 
     _merge_config_restart && _okcat '🍃' '订阅更新成功'
     _okcat '✅' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新成功：$url" | tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
@@ -385,7 +391,7 @@ function clashmixin() {
 - 编辑 Mixin 配置
   clashmixin -e
 
-- 查看原始订阅配置：$CLASH_CONFIG_ORIGIN
+- 查看原始订阅配置：$CLASH_CONFIG_RAW
   clashmixin -o
 
 - 查看运行时配置：$CLASH_CONFIG_RUNTIME
@@ -403,7 +409,7 @@ EOF
         less -f "$CLASH_CONFIG_RUNTIME"
         ;;
     -o)
-        less -f "$CLASH_CONFIG_ORIGIN"
+        less -f "$CLASH_CONFIG_RAW"
         ;;
     *)
         less -f "$CLASH_CONFIG_MIXIN"

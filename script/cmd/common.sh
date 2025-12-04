@@ -3,13 +3,11 @@
 . "$(dirname "$(dirname "$THIS_SCRIPT_DIR")")/.env"
 
 CLASH_RESOURCES_DIR="${CLASH_BASE_DIR}/resources"
-CLASH_CONFIG_ORIGIN="${CLASH_RESOURCES_DIR}/config.yaml"
+CLASH_CONFIG_RAW="${CLASH_RESOURCES_DIR}/config.yaml"
 CLASH_CONFIG_MIXIN="${CLASH_RESOURCES_DIR}/mixin.yaml"
 CLASH_CONFIG_RUNTIME="${CLASH_RESOURCES_DIR}/runtime.yaml"
 CLASH_UPDATE_LOG="${CLASH_RESOURCES_DIR}/clashupdate.log"
 
-# shellcheck disable=SC2016
-valid_config_cmd='$BIN_KERNEL -d $(dirname $1) -f $1 -t'
 BIN_BASE_DIR="${CLASH_BASE_DIR}/bin"
 BIN_KERNEL="${BIN_BASE_DIR}/$KERNEL_NAME"
 BIN_YQ="${BIN_BASE_DIR}/yq"
@@ -104,20 +102,22 @@ function _error_quit() {
 }
 
 function _valid_config() {
-    [ -e "$1" ] && [ "$(wc -l <"$1")" -gt 1 ] && {
-        local msg
-        msg=$(eval "$valid_config_cmd") || {
-            eval "$valid_config_cmd"
-            echo "$msg" | grep -qs "unsupport proxy type" && {
-                local prefix="检测到订阅中包含不受支持的代理协议"
-                [ "$KERNEL_NAME" = "clash" ] && _error_quit "${prefix}, 推荐安装使用 mihomo 内核"
-                _error_quit "${prefix}, 请检查并升级内核版本"
-            }
+    local config="$1"
+    [[ ! -e "$config" || "$(wc -l <"$config")" -lt 1 ]] && return 1
+
+    local test_cmd test_log
+    test_cmd=("$BIN_KERNEL" -d "$(dirname "$config")" -f "$config" -t)
+    test_log=$("${test_cmd[@]}") || {
+        "${test_cmd[@]}"
+        grep -qs "unsupport proxy type" <<<"$test_log" && {
+            local prefix="检测到订阅中包含不受支持的代理协议"
+            [ "$KERNEL_NAME" = "clash" ] && _error_quit "${prefix}, 推荐安装使用 mihomo 内核"
+            _error_quit "${prefix}, 请检查并升级内核版本"
         }
     }
 }
 
-_download_origin_config() {
+_download_raw_config() {
     local dest=$1
     local url=$2
     local agent='clash-verge/v2.0.4'
@@ -158,17 +158,17 @@ _download_convert_config() {
             --write-out '%{url_effective}' \
             "$base_url"
     )
-    _download_origin_config "$dest" "$convert_url"
+    _download_raw_config "$dest" "$convert_url"
     _stop_convert
 }
 function _download_config() {
     local dest=$1
     local url=$2
     [ "${url:0:4}" = 'file' ] && return 0
-    _download_origin_config "$dest" "$url" || return 1
+    _download_raw_config "$dest" "$url" || return 1
     _okcat '🍃' '下载成功：内核验证配置...'
     _valid_config "$dest" || {
-        cat "$dest" >"${dest}.origin"
+        cat "$dest" >"${dest}.raw"
         _failcat '🍂' "验证失败：尝试订阅转换..."
         _download_convert_config "$dest" "$url" || _failcat '🍂' "转换失败：请检查日志：$BIN_SUBCONVERTER_LOG"
     }
@@ -186,11 +186,11 @@ _get_subconverter_port() {
 
 _start_convert() {
     _get_subconverter_port
-    local test_cmd="curl http://localhost:${BIN_SUBCONVERTER_PORT}/version"
-    $test_cmd >&/dev/null && return 0
+    local check_cmd="curl http://localhost:${BIN_SUBCONVERTER_PORT}/version"
+    $check_cmd >&/dev/null && return 0
     ("$BIN_SUBCONVERTER_START" >&"$BIN_SUBCONVERTER_LOG" &)
     local start=$(date +%s)
-    while ! $test_cmd >&/dev/null; do
+    while ! $check_cmd >&/dev/null; do
         sleep 0.5s
         local now=$(date +%s)
         [ $((now - start)) -gt 2 ] && _error_quit "订阅转换服务未启动，请检查日志：$BIN_SUBCONVERTER_LOG"

@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 
-# shellcheck disable=SC2034
-
-RESOURCES_CONFIG_ORIGIN=".${CLASH_CONFIG_ORIGIN#"$CLASH_BASE_DIR"}"
+RESOURCES_CONFIG_RAW=".${CLASH_CONFIG_RAW#"$CLASH_BASE_DIR"}"
 RESOURCES_CONFIG_MIXIN=".${CLASH_CONFIG_MIXIN#"$CLASH_BASE_DIR"}"
 
 ZIP_BASE_DIR=".${CLASH_RESOURCES_DIR#"$CLASH_BASE_DIR"}/zip"
@@ -237,8 +235,7 @@ _get_rc() {
 }
 _set_rc() {
     _get_rc
-    echo "source $CLASH_CMD_DIR/clashctl.sh && watch_proxy" |
-        tee -a "$SHELL_RC_BASH" "$SHELL_RC_ZSH" >&/dev/null
+    tee -a "$SHELL_RC_BASH" "$SHELL_RC_ZSH" <<<"source $CLASH_CMD_DIR/clashctl.sh && watch_proxy" >&/dev/null
     [ -n "$SHELL_RC_FISH" ] && /usr/bin/install "$SCRIPT_CMD_FISH" "$SHELL_RC_FISH"
     . "$CLASH_CMD_DIR/clashctl.sh"
 }
