@@ -51,7 +51,7 @@ function clashon() {
             return 1
         }
     }
-    clashproxy status >/dev/null && _set_system_proxy
+    clashproxy >/dev/null && _set_system_proxy
     _okcat '已开启代理环境'
 }
 
@@ -112,14 +112,17 @@ EOF
         _okcat '已关闭系统代理'
         ;;
     *)
-        local system_proxy_status=$("$BIN_YQ" '._custom.system-proxy.enable' "$CLASH_CONFIG_MIXIN" 2>/dev/null)
-        [ "$system_proxy_status" = "false" ] && {
-            _failcat "系统代理：关闭"
-            return 1
-        }
-        _okcat "系统代理：开启
+        local system_proxy_enable=$("$BIN_YQ" '._custom.system-proxy.enable' "$CLASH_CONFIG_MIXIN" 2>/dev/null)
+        case $system_proxy_enable in
+        true)
+            _okcat "系统代理：开启
 http_proxy： $http_proxy
 socks_proxy：$all_proxy"
+            ;;
+        *)
+            _failcat "系统代理：关闭"
+            ;;
+        esac
         ;;
     esac
 }
