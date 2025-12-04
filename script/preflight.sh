@@ -45,6 +45,7 @@ _parse_args() {
             ;;
         esac
     done
+    BIN_KERNEL="${BIN_BASE_DIR}/$KERNEL_NAME"
 }
 
 _get_kernel() {
