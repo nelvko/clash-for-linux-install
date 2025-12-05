@@ -6,8 +6,8 @@
 
 clashoff >&/dev/null
 
-_unset_init
-_unset_rc
+_uninstall_service
+_revoke_rc
 
 command -v crontab >&/dev/null && crontab -l | grep -v "clashupdate" | crontab -
 

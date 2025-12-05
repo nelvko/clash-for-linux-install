@@ -18,7 +18,7 @@ BIN_SUBCONVERTER_STOP="pkill -9 -f $BIN_SUBCONVERTER"
 BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
 BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
 
-_get_shell() {
+_detect_shell() {
     [ -n "$BASH_VERSION" ] && EXEC_SHELL=bash
     [ -n "$ZSH_VERSION" ] && EXEC_SHELL=zsh
     [ -n "$fish_version" ] && EXEC_SHELL=fish
@@ -35,16 +35,34 @@ _get_random_port() {
     _get_random_port
 }
 
-function _get_ui_port() {
+_get_bind_addr() {
+    local allowLan bindAddr
+    bindAddr=$("$BIN_YQ" '.bind-address // "*"' "$CLASH_CONFIG_RUNTIME")
+    allowLan=$("$BIN_YQ" '.allow-lan // false' "$CLASH_CONFIG_RUNTIME")
+
+    case $allowLan in
+    true)
+        [ "$bindAddr" = "*" ] && bindAddr=$(_get_local_ip)
+        ;;
+    false)
+        bindAddr=127.0.0.1
+        ;;
+    esac
+    echo "$bindAddr"
+}
+
+_get_local_ip() {
+    local local_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
+    [ -z "$local_ip" ] && local_ip=$(hostname -I | awk '{print $1}')
+    echo "$local_ip"
+}
+
+function _detect_ext_addr() {
     local ext_addr=$("$BIN_YQ" '.external-controller // ""' "$CLASH_CONFIG_RUNTIME")
     local ext_ip=${ext_addr%%:*}
     EXT_IP=$ext_ip
     EXT_PORT=${ext_addr##*:}
-    [ "$ext_ip" = '0.0.0.0' ] && {
-        EXT_IP=$(ip route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
-        [ -z "$EXT_IP" ] && EXT_IP=$(hostname -I | awk '{print $1}')
-    }
-
+    [ "$ext_ip" = '0.0.0.0' ] && EXT_IP=$(_get_local_ip)
     clashstatus >&/dev/null || {
         _is_port_used "$EXT_PORT" && {
             local newPort=$(_get_random_port)
@@ -97,7 +115,7 @@ function _error_quit() {
         local msg="${emoji} $1"
         _color_log "$color" "$msg"
     }
-    _get_shell
+    _detect_shell
     exec $EXEC_SHELL -i
 }
 
@@ -174,7 +192,7 @@ function _download_config() {
     }
 }
 
-_get_subconverter_port() {
+_detect_subconverter_port() {
     BIN_SUBCONVERTER_PORT=$("$BIN_YQ" '.server.port' "$BIN_SUBCONVERTER_CONFIG")
     _is_port_used "$BIN_SUBCONVERTER_PORT" && {
         local newPort=$(_get_random_port)
@@ -185,7 +203,7 @@ _get_subconverter_port() {
 }
 
 _start_convert() {
-    _get_subconverter_port
+    _detect_subconverter_port
     local check_cmd="curl http://localhost:${BIN_SUBCONVERTER_PORT}/version"
     $check_cmd >&/dev/null && return 0
     ("$BIN_SUBCONVERTER_START" >&"$BIN_SUBCONVERTER_LOG" &)

@@ -48,7 +48,7 @@ _parse_args() {
     BIN_KERNEL="${BIN_BASE_DIR}/$KERNEL_NAME"
 }
 
-_get_kernel() {
+_prepare_kernel() {
     _load_zip >&/dev/null
     local required_zip=()
     case "${KERNEL_NAME}" in
@@ -141,10 +141,10 @@ _nohup() {
     service_status=(less "$FILE_LOG")
 }
 # shellcheck disable=SC2206
-_get_init() {
+_detect_init() {
     [ -z "$INIT_TYPE" ] && INIT_TYPE=$(readlink /proc/1/exe)
     grep -qsE "docker|kubepods|containerd|podman|lxc" /proc/1/cgroup && INIT_TYPE='nohup'
-    _has_root || {
+    _is_root || {
         INIT_TYPE='nohup'
         FILE_LOG="${CLASH_RESOURCES_DIR}/${KERNEL_NAME}.log"
         FILE_PID="${CLASH_RESOURCES_DIR}/${KERNEL_NAME}.pid"
@@ -177,7 +177,7 @@ _get_init() {
     INIT_TYPE=$(basename "$INIT_TYPE")
 }
 
-_set_init() {
+_install_service() {
     local kernel_desc="$KERNEL_NAME Daemon, A[nother] Clash Kernel."
 
     local cmd_path="${BIN_KERNEL}"
@@ -211,15 +211,15 @@ _set_init() {
     ((${#service_reload[@]})) && "${service_reload[@]}"
     "${service_enable[@]}" >&/dev/null && _okcat '🚀' '已设置开机自启'
 }
-_unset_init() {
-    _get_init
+_uninstall_service() {
+    _detect_init
     "${service_disable[@]}" >&/dev/null
     ((${#service_del[@]})) && "${service_del[@]}"
     rm -f "$service_target"
     ((${#service_reload[@]})) && "${service_reload[@]}"
 }
 
-_get_rc() {
+_detect_rc() {
     home=$HOME
     [ -n "$SUDO_USER" ] && {
         home=$(awk -F: -v user="$SUDO_USER" '$1==user{print $6}' /etc/passwd)
@@ -234,14 +234,14 @@ _get_rc() {
         SHELL_RC_FISH="${home}/.config/fish/conf.d/clashctl.fish"
     }
 }
-_set_rc() {
-    _get_rc
+_apply_rc() {
+    _detect_rc
     tee -a "$SHELL_RC_BASH" "$SHELL_RC_ZSH" <<<"source $CLASH_CMD_DIR/clashctl.sh && watch_proxy" >&/dev/null
     [ -n "$SHELL_RC_FISH" ] && /usr/bin/install "$SCRIPT_CMD_FISH" "$SHELL_RC_FISH"
     . "$CLASH_CMD_DIR/clashctl.sh"
 }
-_unset_rc() {
-    _get_rc
+_revoke_rc() {
+    _detect_rc
     sed -i "\|clashctl.sh|d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
     rm -f "$SHELL_RC_FISH" 2>/dev/null
 }
@@ -363,11 +363,11 @@ _get_random_val() {
 
 _quit() {
     _is_regular_sudo && exec su "$SUDO_USER"
-    _get_shell
+    _detect_shell
     exec "$EXEC_SHELL" -i
 }
 
-_has_root() {
+_is_root() {
     [ "$(id -u)" -eq 0 ]
 }
 

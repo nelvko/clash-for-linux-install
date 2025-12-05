@@ -7,9 +7,9 @@ _valid_env
 _valid_required
 _parse_args "$@"
 
-_get_kernel
+_prepare_kernel
 _set_bin
-_get_init
+_detect_init
 
 _okcat "安装内核：$KERNEL_NAME by ${INIT_TYPE}"
 _okcat '📂' "安装路径：$CLASH_BASE_DIR"
@@ -34,8 +34,8 @@ _merge_config
 [ -n "$SUDO_USER" ] && chown -R "$SUDO_USER" "$CLASH_BASE_DIR"
 
 _set_envs
-_set_init
-_set_rc
+_install_service
+_apply_rc
 
 clashui
 clashsecret

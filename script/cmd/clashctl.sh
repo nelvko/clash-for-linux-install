@@ -7,16 +7,16 @@ _set_system_proxy() {
     local auth=$("$BIN_YQ" '.authentication[0] // ""' "$CLASH_CONFIG_RUNTIME")
     [ -n "$auth" ] && auth=$auth@
 
-    local bind_addr=$("$BIN_YQ" '.bind-address // ""' "$CLASH_CONFIG_RUNTIME")
-    case $bind_addr in "" | "*" | "0.0.0.0") bind_addr=127.0.0.1 ;; esac
+    local bind_addr=$(_get_bind_addr)
     local http_proxy_addr="http://${auth}${bind_addr}:${MIXED_PORT}"
     local socks_proxy_addr="socks5h://${auth}${bind_addr}:${MIXED_PORT}"
     local no_proxy_addr="localhost,127.0.0.1,::1"
 
     export http_proxy=$http_proxy_addr
-    export https_proxy=$http_proxy
     export HTTP_PROXY=$http_proxy
-    export HTTPS_PROXY=$http_proxy
+
+    export https_proxy=$http_proxy
+    export HTTPS_PROXY=$https_proxy
 
     export all_proxy=$socks_proxy_addr
     export ALL_PROXY=$all_proxy
@@ -133,7 +133,7 @@ function clashstatus() {
 }
 
 function clashui() {
-    _get_ui_port
+    _detect_ext_addr
     local query_url='api64.ipify.org' # ifconfig.me
     local public_ip=$(curl -s --noproxy "*" --location --max-time 2 $query_url)
     local public_address="http://${public_ip:-公网}:${EXT_PORT}/ui"
@@ -456,7 +456,7 @@ EOF
         _failcat "$KERNEL_NAME 未运行，请先执行 clashon"
         return 1
     }
-    _get_ui_port
+    _detect_ext_addr
     local secret=$("$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME")
     _okcat '⏳' "请求内核升级..."
     [ "$log_flag" = true ] && {
