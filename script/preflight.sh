@@ -88,6 +88,20 @@ _openrc() {
     service_status=(rc-service "$KERNEL_NAME" status)
 }
 
+_runit() {
+    service_src="${SCRIPT_INIT_DIR}/runit.sh"
+    service_target="/etc/sv/${KERNEL_NAME}/run"
+
+    service_enable=(false)
+    service_disable=(false)
+
+    service_start=(sv up "$KERNEL_NAME")
+    service_is_active=(sv status "$KERNEL_NAME")
+    service_stop=(sv down "$KERNEL_NAME")
+    service_restart=(sv restart "$KERNEL_NAME")
+    service_status=(sv status "$KERNEL_NAME")
+}
+
 _sysvinit() {
     service_src="${SCRIPT_INIT_DIR}/SysVinit.sh"
     service_target="/etc/init.d/$KERNEL_NAME"
@@ -159,16 +173,22 @@ _detect_init() {
     }
 
     case "${INIT_TYPE}" in
-    *systemd*)
+    *systemd)
         service_log=($_SUDO journalctl -u "$KERNEL_NAME")
         service_follow_log=("${service_log[@]}" -q -f -n 0)
         _systemd
         ;;
-    *init*)
+    *init)
         _sysvinit
         ;;
-    *busybox*)
+    *busybox)
+        command -v openrc-init >&/dev/null && _openrc
+        ;;
+    *openrc*)
         _openrc
+        ;;
+    *runit)
+        _runit
         ;;
     nohup | *)
         INIT_TYPE='nohup'
@@ -186,7 +206,11 @@ _install_service() {
     local cmd_full="${BIN_KERNEL} -d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME}"
 
     [ -n "$service_src" ] && {
-        /usr/bin/install -m +x "$service_src" "$service_target"
+        /usr/bin/install -D -m +x "$service_src" "$service_target"
+        [ "$INIT_TYPE" = 'runit' ] && {
+            ln -s "$(dirname "$service_target")" /etc/runit/runsvdir/current/
+            sleep 1
+        }
         ((${#service_add[@]})) && "${service_add[@]}"
         sed -i \
             -e "s#placeholder_cmd_path#$cmd_path#g" \
@@ -216,6 +240,10 @@ _uninstall_service() {
     _detect_init
     "${service_disable[@]}" >&/dev/null
     ((${#service_del[@]})) && "${service_del[@]}"
+    [ "$INIT_TYPE" = 'runit' ] && {
+        rm -f "/etc/runit/runsvdir/current/${KERNEL_NAME}"
+        rm -rf "$(dirname "$service_target")"
+    }
     rm -f "$service_target"
     ((${#service_reload[@]})) && "${service_reload[@]}"
 }
