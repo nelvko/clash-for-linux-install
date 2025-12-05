@@ -218,7 +218,6 @@ _openrc() {
     service_disable=(rc-update del "$KERNEL_NAME" default)
 
     service_start=(rc-service "$KERNEL_NAME" start)
-    service_is_active=(rc-service "$KERNEL_NAME" status)
     service_stop=(rc-service "$KERNEL_NAME" stop)
     service_restart=(rc-service "$KERNEL_NAME" restart)
     service_status=(rc-service "$KERNEL_NAME" status)
@@ -231,7 +230,6 @@ _runit() {
     service_disable=(false)
 
     service_start=(sv up "$KERNEL_NAME")
-    service_is_active=(sv status "$KERNEL_NAME")
     service_stop=(sv down "$KERNEL_NAME")
     service_restart=(sv restart "$KERNEL_NAME")
     service_status=(sv status "$KERNEL_NAME")
@@ -256,7 +254,6 @@ _sysvinit() {
     }
 
     service_start=(service "$KERNEL_NAME" start)
-    service_is_active=(service "$KERNEL_NAME" is-active)
     service_stop=(service "$KERNEL_NAME" stop)
     service_restart=(service "$KERNEL_NAME" restart)
     service_status=(service "$KERNEL_NAME" status)
@@ -272,7 +269,6 @@ _systemd() {
     service_disable=($_SUDO systemctl disable "$KERNEL_NAME")
 
     service_start=($_SUDO systemctl start "$KERNEL_NAME")
-    service_is_active=($_SUDO systemctl is-active "$KERNEL_NAME")
     service_stop=($_SUDO systemctl stop "$KERNEL_NAME")
     service_restart=($_SUDO systemctl restart "$KERNEL_NAME")
     service_status=($_SUDO systemctl status "$KERNEL_NAME")
@@ -282,9 +278,8 @@ _nohup() {
     service_disable=(false)
 
     service_start=(nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>\&' "$FILE_LOG" '\&')
-    service_is_active=(pgrep -f "$BIN_KERNEL")
+    service_status=(pgrep -fa "$BIN_KERNEL")
     service_stop=(pkill -9 -f "$BIN_KERNEL")
-    service_status=(less "$FILE_LOG")
 }
 
 _install_service() {
@@ -316,7 +311,6 @@ _install_service() {
         -e "s#placeholder_start#${service_start[*]}#g" \
         -e "s#placeholder_status#${service_status[*]}#g" \
         -e "s#placeholder_stop#${service_stop[*]}#g" \
-        -e "s#placeholder_is_active#${service_is_active[*]}#g" \
         -e "s#placeholder_log#${service_log[*]}#g" \
         -e "s#placeholder_follow_log#${service_follow_log[*]}#g" \
         -e "s#placeholder_watch_proxy#${service_watch_proxy[*]}#g" \

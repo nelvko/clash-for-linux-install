@@ -37,7 +37,7 @@ clashsecret "$(_get_random_val)" >/dev/null
 clashui
 clashsecret
 
-_okcat '🎉' 'enjoy 🎉'
 clashctl
 clashon
+_okcat '🎉' 'enjoy 🎉'
 _quit

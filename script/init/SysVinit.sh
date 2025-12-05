@@ -14,7 +14,7 @@ cmd="placeholder_cmd_full"
 
 case "$1" in
 start)
-  $0 is-active >&/dev/null && exit 0
+  $0 status >&/dev/null && exit 0
   $cmd >&$logfile &
   echo $! >$pidfile
   ;;
@@ -23,17 +23,12 @@ stop)
   [ -n "$pid" ] && kill -9 "$pid"
   rm -f $pidfile
   ;;
-status)
-  echo -n "$(date +"%Y-%m-%d %H:%M:%S") " >>$logfile
-  $0 is-active >>$logfile
-  less $logfile
-  ;;
 restart | reload)
   $0 stop
-  sleep 0.3
+  sleep 0.5
   $0 start
   ;;
-is-active)
+status)
   pid=$(cat $pidfile 2>/dev/null)
   isStart=$(ps ax | awk '{ print $1 }' | grep -e "^${pid}$")
   [ -n "$isStart" ] && {
@@ -44,6 +39,6 @@ is-active)
   exit 1
   ;;
 *)
-  echo "Usage: $0 {start|stop|restart}"
+  echo "Usage: $0 {start|stop|restart|status}"
   ;;
 esac

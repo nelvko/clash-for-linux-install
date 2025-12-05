@@ -37,7 +37,7 @@ _unset_system_proxy() {
 
 function clashon() {
     MIXED_PORT=$("$BIN_YQ" '.mixed-port' "$CLASH_CONFIG_RUNTIME")
-    placeholder_is_active >&/dev/null || {
+    clashstatus >&/dev/null || {
         _is_port_used "$MIXED_PORT" && {
             local newPort=$(_get_random_port)
             _failcat '🎯' "端口占用：${MIXED_PORT} 🎲 随机分配：$newPort"
@@ -46,7 +46,7 @@ function clashon() {
             _merge_config
         }
         placeholder_start
-        placeholder_is_active >&/dev/null || {
+        clashstatus >&/dev/null || {
             _failcat '启动失败: 执行 clashlog 查看日志'
             return 1
         }
@@ -128,7 +128,7 @@ socks_proxy：$all_proxy"
 }
 
 function clashstatus() {
-    placeholder_is_active
+    placeholder_status "$@"
 }
 
 function clashlog() {
@@ -165,14 +165,14 @@ _merge_config() {
       ########################################
       #              Load Files              #
       ########################################
-      select(fileIndex==0) as $origin |
+      select(fileIndex==0) as $raw |
       select(fileIndex==1) as $mixin |
       
       ########################################
       #              Deep Merge              #
       ########################################
       $mixin |= del(._custom) |
-      ($origin * $mixin) as $base |
+      ($raw * $mixin) as $base |
       $base |
       
       ########################################
@@ -180,7 +180,7 @@ _merge_config() {
       ########################################
       .rules = (
         ($mixin.rules.prefix // []) +
-        ($origin.rules // []) +
+        ($raw.rules // []) +
         ($mixin.rules.suffix // [])
       ) |
       
@@ -190,13 +190,13 @@ _merge_config() {
       .proxies = (
         ($mixin.proxies.prefix // []) +
         (
-          ($origin.proxies // []) as $originList |
+          ($raw.proxies // []) as $rawList |
           ($mixin.proxies.override // []) as $overrideList |
-          $originList | map(
-            . as $originItem |
+          $rawList | map(
+            . as $rawItem |
             (
-              $overrideList[] | select(.name == $originItem.name)
-            ) // $originItem
+              $overrideList[] | select(.name == $rawItem.name)
+            ) // $rawItem
           )
         ) +
         ($mixin.proxies.suffix // [])
@@ -208,13 +208,13 @@ _merge_config() {
       .proxy-groups = (
         ($mixin.proxy-groups.prefix // []) +
         (
-          ($origin.proxy-groups // []) as $originList |
+          ($raw.proxy-groups // []) as $rawList |
           ($mixin.proxy-groups.override // []) as $overrideList |
-          $originList | map(
-            . as $originItem |
+          $rawList | map(
+            . as $rawItem |
             (
-              $overrideList[] | select(.name == $originItem.name)
-            ) // $originItem
+              $overrideList[] | select(.name == $rawItem.name)
+            ) // $rawItem
           )
         ) +
         ($mixin.proxy-groups.suffix // [])
@@ -551,8 +551,9 @@ Commands:
   on                    开启代理
   off                   关闭代理
   proxy                 系统代理
+  status                内核状态
   ui                    面板地址
-  status                内核状况
+  log                   内核日志
   tun                   Tun 模式
   mixin                 Mixin 配置
   secret                Web 密钥
