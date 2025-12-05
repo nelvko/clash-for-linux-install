@@ -3,12 +3,10 @@
 . script/cmd/clashctl.sh
 . script/preflight.sh
 
-_valid_env
-_valid_required
+_valid
 _parse_args "$@"
 
-_prepare_kernel
-_set_bin
+_prepare_zip
 _detect_init
 
 _okcat "安装内核：$KERNEL_NAME by ${INIT_TYPE}"
@@ -29,17 +27,17 @@ _valid_config "$RESOURCES_CONFIG_RAW" || {
 _okcat '✅' '配置可用'
 
 /bin/cp -rf . "$CLASH_BASE_DIR"
-"$BIN_YQ" -i ".secret = \"$(_get_random_val)\"" "$CLASH_CONFIG_MIXIN"
-_merge_config
-[ -n "$SUDO_USER" ] && chown -R "$SUDO_USER" "$CLASH_BASE_DIR"
+_is_regular_sudo && chown -R "$SUDO_USER" "$CLASH_BASE_DIR"
 
 _set_envs
 _install_service
 _apply_rc
 
+clashsecret "$(_get_random_val)" >/dev/null
 clashui
 clashsecret
 
 _okcat '🎉' 'enjoy 🎉'
 clashctl
+clashon
 _quit
