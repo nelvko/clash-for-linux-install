@@ -149,8 +149,9 @@ _detect_init() {
         FILE_LOG="${CLASH_RESOURCES_DIR}/${KERNEL_NAME}.log"
         FILE_PID="${CLASH_RESOURCES_DIR}/${KERNEL_NAME}.pid"
     }
-    service_check_tun=(clashstatus)
-    service_log_follow=(tail -f -n 0 "$FILE_LOG")
+
+    service_log=(less '<' $FILE_LOG)
+    service_follow_log=(tail -f -n 0 $FILE_LOG)
     service_watch_proxy=(clashon)
     _is_regular_sudo && {
         service_watch_proxy=(_failcat "'未检测到代理变量，可执行 clashon 开启代理环境'")
@@ -159,8 +160,8 @@ _detect_init() {
 
     case "${INIT_TYPE}" in
     *systemd*)
-        service_check_tun=($_SUDO journalctl -u "$KERNEL_NAME" --since '1 min ago')
-        service_log_follow=($_SUDO journalctl -u "$KERNEL_NAME" -q -f -n 0)
+        service_log=($_SUDO journalctl -u "$KERNEL_NAME")
+        service_follow_log=("${service_log[@]}" -q -f -n 0)
         _systemd
         ;;
     *init*)
@@ -203,8 +204,8 @@ _install_service() {
         -e "s#placeholder_status#${service_status[*]}#g" \
         -e "s#placeholder_stop#${service_stop[*]}#g" \
         -e "s#placeholder_is_active#${service_is_active[*]}#g" \
-        -e "s#placeholder_check_tun#${service_check_tun[*]}#g" \
-        -e "s#placeholder_log_follow#${service_log_follow[*]}#g" \
+        -e "s#placeholder_log#${service_log[*]}#g" \
+        -e "s#placeholder_follow_log#${service_follow_log[*]}#g" \
         -e "s#placeholder_watch_proxy#${service_watch_proxy[*]}#g" \
         "$CLASH_CMD_DIR/clashctl.sh" "$CLASH_CMD_DIR/common.sh"
 

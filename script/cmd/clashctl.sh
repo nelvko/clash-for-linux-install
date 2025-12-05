@@ -47,7 +47,7 @@ function clashon() {
         }
         placeholder_start
         placeholder_is_active >&/dev/null || {
-            _failcat '启动失败: 执行 clashstatus 查看日志'
+            _failcat '启动失败: 执行 clashlog 查看日志'
             return 1
         }
     }
@@ -67,7 +67,7 @@ watch_proxy() {
 function clashoff() {
     clashstatus >/dev/null && {
         placeholder_stop >/dev/null || {
-            _failcat '关闭失败: 可执行 clashstatus 查看日志'
+            _failcat '关闭失败: 可执行 clashlog 查看日志'
             return 1
         }
     }
@@ -128,8 +128,11 @@ socks_proxy：$all_proxy"
 }
 
 function clashstatus() {
-    placeholder_status "$@"
-    placeholder_is_active >&/dev/null
+    placeholder_is_active
+}
+
+function clashlog() {
+    placeholder_log "$@"
 }
 
 function clashui() {
@@ -285,14 +288,14 @@ _tunon() {
     "$BIN_YQ" -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
     _merge_config_restart
     sleep 0.3s
-    placeholder_check_tun | grep -E -m1 -qs 'unsupported kernel version|Start TUN listening error' && {
+    clashlog | grep -E -m1 -qs 'unsupported kernel version|Start TUN listening error' && {
         [ "$KERNEL_NAME" = 'mihomo' ] && {
             "$BIN_YQ" -i '.tun.auto-redirect = false' "$CLASH_CONFIG_MIXIN"
             _merge_config_restart
             sleep 0.3s
         }
-        placeholder_check_tun | grep -E -m1 -qs 'Tun adapter listening at|TUN listening iface' || {
-            placeholder_check_tun | grep -E -m1 'unsupported kernel version|Start TUN listening error'
+        clashlog | grep -E -m1 -qs 'Tun adapter listening at|TUN listening iface' || {
+            clashlog | grep -E -m1 'unsupported kernel version|Start TUN listening error'
             _tunoff >&/dev/null
             _error_quit '系统内核版本不支持 Tun 模式'
         }
@@ -409,13 +412,13 @@ EOF
         }
         ;;
     -r)
-        less -f "$CLASH_CONFIG_RUNTIME"
+        less "$CLASH_CONFIG_RUNTIME"
         ;;
     -o)
-        less -f "$CLASH_CONFIG_RAW"
+        less "$CLASH_CONFIG_RAW"
         ;;
     *)
-        less -f "$CLASH_CONFIG_MIXIN"
+        less "$CLASH_CONFIG_MIXIN"
         ;;
     esac
 }
@@ -460,7 +463,7 @@ EOF
     local secret=$("$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME")
     _okcat '⏳' "请求内核升级..."
     [ "$log_flag" = true ] && {
-        log_cmd=(placeholder_log_follow)
+        log_cmd=(placeholder_follow_log)
         ("${log_cmd[@]}" &)
 
     }
@@ -502,6 +505,10 @@ function clashctl() {
     status)
         shift
         clashstatus "$@"
+        ;;
+    log)
+        shift
+        clashlog "$@"
         ;;
     proxy)
         shift
