@@ -129,6 +129,7 @@ socks_proxy：$all_proxy"
 
 function clashstatus() {
     placeholder_status "$@"
+    placeholder_is_active
 }
 
 function clashlog() {

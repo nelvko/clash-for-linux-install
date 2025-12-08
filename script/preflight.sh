@@ -48,6 +48,7 @@ _parse_args() {
             ;;
         http*)
             CLASH_CONFIG_URL=$arg
+            ;;
         esac
     done
 }
@@ -236,6 +237,7 @@ _runit() {
     service_stop=(sv down "$KERNEL_NAME")
     service_restart=(sv restart "$KERNEL_NAME")
     service_status=(sv status "$KERNEL_NAME")
+    service_is_active=(sv status "$KERNEL_NAME" \| grep -qs '^run')
 }
 _sysvinit() {
     service_src="${SCRIPT_INIT_DIR}/SysVinit.sh"
@@ -309,6 +311,7 @@ _install_service() {
     sed -i \
         -e "s#placeholder_start#${service_start[*]}#g" \
         -e "s#placeholder_status#${service_status[*]}#g" \
+        -e "s#placeholder_is_active#${service_is_active[*]}#g" \
         -e "s#placeholder_stop#${service_stop[*]}#g" \
         -e "s#placeholder_log#${service_log[*]}#g" \
         -e "s#placeholder_follow_log#${service_follow_log[*]}#g" \
@@ -329,7 +332,7 @@ _uninstall_service() {
 _detect_rc() {
     local home=$HOME
     _is_regular_sudo && home=$(awk -F: -v user="$SUDO_USER" '$1==user{print $6}' /etc/passwd)
-    
+
     command -v bash >&/dev/null && {
         SHELL_RC_BASH="${home}/.bashrc"
     }
