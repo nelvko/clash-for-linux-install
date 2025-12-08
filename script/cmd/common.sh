@@ -63,15 +63,15 @@ function _detect_ext_addr() {
     EXT_IP=$ext_ip
     EXT_PORT=${ext_addr##*:}
     [ "$ext_ip" = '0.0.0.0' ] && EXT_IP=$(_get_local_ip)
-    clashstatus >&/dev/null || {
-        _is_port_used "$EXT_PORT" && {
-            local newPort=$(_get_random_port)
-            _failcat '🎯' "端口占用：${EXT_PORT} 🎲 随机分配：$newPort"
-            EXT_PORT=$newPort
-            "$BIN_YQ" -i ".external-controller = \"$ext_ip:$newPort\"" "$CLASH_CONFIG_MIXIN"
-            _merge_config
-        }
+    clashoff >&/dev/null
+    _is_port_used "$EXT_PORT" && {
+        local newPort=$(_get_random_port)
+        _failcat '🎯' "端口占用：${EXT_PORT} 🎲 随机分配：$newPort"
+        EXT_PORT=$newPort
+        "$BIN_YQ" -i ".external-controller = \"$ext_ip:$newPort\"" "$CLASH_CONFIG_MIXIN"
+        _merge_config
     }
+    clashon >&/dev/null
 }
 
 _color_log() {

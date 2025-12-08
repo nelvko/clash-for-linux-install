@@ -456,10 +456,6 @@ EOF
         esac
     done
 
-    clashstatus >&/dev/null || {
-        _failcat "$KERNEL_NAME 未运行，请先执行 clashon"
-        return 1
-    }
     _detect_ext_addr
     local secret=$("$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME")
     _okcat '⏳' "请求内核升级..."
