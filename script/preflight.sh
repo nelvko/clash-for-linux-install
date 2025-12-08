@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+RESOURCES_BASE_DIR=".${CLASH_RESOURCES_DIR#"$CLASH_BASE_DIR"}"
 RESOURCES_CONFIG_RAW=".${CLASH_CONFIG_RAW#"$CLASH_BASE_DIR"}"
 RESOURCES_CONFIG_MIXIN=".${CLASH_CONFIG_MIXIN#"$CLASH_BASE_DIR"}"
 
@@ -30,7 +31,7 @@ _valid() {
     [ -d "$CLASH_BASE_DIR" ] && _error_quit "请先执行卸载脚本,以清除安装路径：$CLASH_BASE_DIR"
 
     local msg="${CLASH_BASE_DIR}：当前路径不可用，请在 .env 中更换安装路径。"
-    mkdir -p "$CLASH_RESOURCES_DIR" || _error_quit "$msg"
+    mkdir -p "$CLASH_BASE_DIR" || _error_quit "$msg"
     _is_regular_sudo && [[ $CLASH_BASE_DIR == /root* ]] && _error_quit "$msg"
 
     [ -z "$ZSH_VERSION" ] && [ -z "$BASH_VERSION" ] && _error_quit "仅支持：bash、zsh 执行"
@@ -163,8 +164,8 @@ _unzip_zip() {
     /bin/mv -f "${BIN_BASE_DIR}"/yq_* "${BIN_BASE_DIR}/yq"
     tar -xf "$ZIP_SUBCONVERTER" -C "$BIN_BASE_DIR"
     /bin/cp "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
-    # tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"
-    unzip -q "$ZIP_UI" -d "$CLASH_RESOURCES_DIR"
+    # tar -xf "$ZIP_UI" -C "$RESOURCES_BASE_DIR"
+    unzip -qo "$ZIP_UI" -d "$RESOURCES_BASE_DIR"
 }
 
 # shellcheck disable=SC2206
@@ -225,9 +226,11 @@ _openrc() {
 _runit() {
     service_src="${SCRIPT_INIT_DIR}/runit.sh"
     service_target="/etc/sv/${KERNEL_NAME}/run"
+    service_del=(rm -rf "/etc/sv/${KERNEL_NAME:-mihomo}")
 
-    service_enable=(false)
-    service_disable=(false)
+    service_reload=(sleep 2)
+    service_enable=(ln -s "$(dirname "$service_target")" "/etc/runit/runsvdir/default/${KERNEL_NAME}")
+    service_disable=(rm -f "/etc/runit/runsvdir/current/${KERNEL_NAME}")
 
     service_start=(sv up "$KERNEL_NAME")
     service_stop=(sv down "$KERNEL_NAME")
@@ -291,10 +294,6 @@ _install_service() {
 
     [ -n "$service_src" ] && {
         /usr/bin/install -D -m +x "$service_src" "$service_target"
-        [ "$INIT_TYPE" = 'runit' ] && {
-            ln -s "$(dirname "$service_target")" /etc/runit/runsvdir/current/
-            sleep 1
-        }
         ((${#service_add[@]})) && "${service_add[@]}"
         sed -i \
             -e "s#placeholder_cmd_path#$cmd_path#g" \
@@ -316,17 +315,13 @@ _install_service() {
         -e "s#placeholder_watch_proxy#${service_watch_proxy[*]}#g" \
         "$CLASH_CMD_DIR/clashctl.sh" "$CLASH_CMD_DIR/common.sh"
 
-    ((${#service_reload[@]})) && "${service_reload[@]}"
     "${service_enable[@]}" >&/dev/null && _okcat '🚀' '已设置开机自启'
+    ((${#service_reload[@]})) && "${service_reload[@]}"
 }
 _uninstall_service() {
     _detect_init
     "${service_disable[@]}" >&/dev/null
     ((${#service_del[@]})) && "${service_del[@]}"
-    [ "$INIT_TYPE" = 'runit' ] && {
-        rm -f "/etc/runit/runsvdir/current/${KERNEL_NAME}"
-        rm -rf "$(dirname "$service_target")"
-    }
     rm -f "$service_target"
     ((${#service_reload[@]})) && "${service_reload[@]}"
 }

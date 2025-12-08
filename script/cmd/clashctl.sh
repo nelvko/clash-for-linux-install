@@ -46,7 +46,7 @@ function clashon() {
             _merge_config
         }
         placeholder_start
-        clashstatus >&/dev/null || {
+        clashstatus >/dev/null || {
             _failcat '启动失败: 执行 clashlog 查看日志'
             return 1
         }

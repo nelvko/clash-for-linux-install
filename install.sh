@@ -28,8 +28,8 @@ _okcat '✅' '配置可用'
 
 /bin/cp -rf . "$CLASH_BASE_DIR"
 _is_regular_sudo && chown -R "$SUDO_USER" "$CLASH_BASE_DIR"
-
 _set_envs
+
 _install_service
 _apply_rc
 
