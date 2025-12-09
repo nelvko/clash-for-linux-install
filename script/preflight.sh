@@ -129,9 +129,10 @@ _download_zip() {
     )
 
     local item target_zips=()
+    _okcat '🖥️ ' "系统架构：$arch"
     for item in "$@"; do
         local url="${urls[$item]}"
-        local proxy_url="${URL_GH_PROXY}${url}"
+        local proxy_url="${URL_GH_PROXY%/}/${url}"
         [ "$item" != 'clash' ] && url="$proxy_url"
         _okcat '⏳' "正在下载：${item}：$url"
         local target="${ZIP_BASE_DIR}/$(basename "$url")"

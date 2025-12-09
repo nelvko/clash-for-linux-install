@@ -10,7 +10,7 @@ _prepare_zip
 _detect_init
 
 _okcat "安装内核：$KERNEL_NAME by ${INIT_TYPE}"
-_okcat '📂' "安装路径：$CLASH_BASE_DIR"
+_okcat '📦' "安装路径：$CLASH_BASE_DIR"
 
 _valid_config "$RESOURCES_CONFIG_RAW" || {
     [ -z "$CLASH_CONFIG_URL" ] && {
