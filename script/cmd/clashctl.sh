@@ -159,29 +159,29 @@ function clashui() {
 }
 
 _merge_config() {
-    local backup="${CLASH_CONFIG_RUNTIME}.bak"
-    cat "$CLASH_CONFIG_RUNTIME" >"$backup" 2>/dev/null
+    local bak="${CLASH_CONFIG_RUNTIME}.bak"
+    cat "$CLASH_CONFIG_RUNTIME" >"$bak" 2>/dev/null
     # shellcheck disable=SC2016
     "$BIN_YQ" eval-all '
       ########################################
       #              Load Files              #
       ########################################
-      select(fileIndex==0) as $raw |
+      select(fileIndex==0) as $config |
       select(fileIndex==1) as $mixin |
       
       ########################################
       #              Deep Merge              #
       ########################################
       $mixin |= del(._custom) |
-      ($raw * $mixin) as $base |
-      $base |
+      ($config * $mixin) as $runtime |
+      $runtime |
       
       ########################################
       #               Rules                  #
       ########################################
       .rules = (
         ($mixin.rules.prefix // []) +
-        ($raw.rules // []) +
+        ($config.rules // []) +
         ($mixin.rules.suffix // [])
       ) |
       
@@ -191,13 +191,13 @@ _merge_config() {
       .proxies = (
         ($mixin.proxies.prefix // []) +
         (
-          ($raw.proxies // []) as $rawList |
+          ($config.proxies // []) as $configList |
           ($mixin.proxies.override // []) as $overrideList |
-          $rawList | map(
-            . as $rawItem |
+          $configList | map(
+            . as $configItem |
             (
-              $overrideList[] | select(.name == $rawItem.name)
-            ) // $rawItem
+              $overrideList[] | select(.name == $configItem.name)
+            ) // $configItem
           )
         ) +
         ($mixin.proxies.suffix // [])
@@ -209,20 +209,20 @@ _merge_config() {
       .proxy-groups = (
         ($mixin.proxy-groups.prefix // []) +
         (
-          ($raw.proxy-groups // []) as $rawList |
+          ($config.proxy-groups // []) as $configList |
           ($mixin.proxy-groups.override // []) as $overrideList |
-          $rawList | map(
-            . as $rawItem |
+          $configList | map(
+            . as $configItem |
             (
-              $overrideList[] | select(.name == $rawItem.name)
-            ) // $rawItem
+              $overrideList[] | select(.name == $configItem.name)
+            ) // $configItem
           )
         ) +
         ($mixin.proxy-groups.suffix // [])
       )
-    ' "$CLASH_CONFIG_RAW" "$CLASH_CONFIG_MIXIN" >"$CLASH_CONFIG_RUNTIME"
+    ' "$CLASH_CONFIG_BASE" "$CLASH_CONFIG_MIXIN" >"$CLASH_CONFIG_RUNTIME"
     _valid_config "$CLASH_CONFIG_RUNTIME" || {
-        cat "$backup" >"$CLASH_CONFIG_RUNTIME"
+        cat "$bak" >"$CLASH_CONFIG_RUNTIME"
         _error_quit "验证失败：请检查 Mixin 配置"
     }
 }
@@ -333,60 +333,6 @@ EOF
     esac
 }
 
-function clashupdate() {
-    local url=$CLASH_CONFIG_URL
-    local is_auto
-
-    case "$1" in
-    auto)
-        is_auto=true
-        [ -n "$2" ] && url=$2
-        ;;
-    log)
-        tail "${CLASH_UPDATE_LOG}" 2>/dev/null || _failcat "暂无更新日志"
-        return 0
-        ;;
-    *)
-        [ -n "$1" ] && url=$1
-        ;;
-    esac
-
-    # 如果没有提供有效的订阅链接（url为空或者不是http开头），则使用默认配置文件
-    [ "${url:0:4}" != "http" ] && {
-        _failcat "没有提供有效的订阅链接：使用 ${CLASH_CONFIG_RAW} 进行更新..."
-        url="file://$CLASH_CONFIG_RAW"
-    }
-
-    # 如果是自动更新模式，则设置定时任务
-    [ "$is_auto" = true ] && {
-        command -v crontab >/dev/null || _error_quit "未检测到 crontab 命令，请先安装 cron 服务"
-        crontab -l | grep -qs 'clashupdate' || {
-            (
-                crontab -l 2>/dev/null
-                echo "0 0 */2 * * $EXEC_SHELL -i -c 'clashupdate $url'"
-            ) | crontab -
-        }
-        _okcat "已设置定时更新订阅" && return 0
-    }
-
-    _okcat '👌' "正在下载：原配置已备份..."
-    local bak="${CLASH_CONFIG_RAW}.bak"
-    cat "$CLASH_CONFIG_RAW" | tee "$bak" >&/dev/null
-
-    _rollback() {
-        _failcat '🍂' "$1"
-        cat "$bak" | tee "$CLASH_CONFIG_RAW" >&/dev/null
-        _failcat '❌' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新失败：$url" 2>&1 | tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
-        _error_quit
-    }
-
-    _download_config "$CLASH_CONFIG_RAW" "$url" || _rollback "下载失败：已回滚配置"
-    _valid_config "$CLASH_CONFIG_RAW" || _rollback "转换失败：已回滚配置，转换日志：$BIN_SUBCONVERTER_LOG"
-
-    _merge_config_restart && _okcat '🍃' '订阅更新成功'
-    _okcat '✅' "[$(date +"%Y-%m-%d %H:%M:%S")] 订阅更新成功：$url" | tee -a "${CLASH_UPDATE_LOG}" >&/dev/null
-}
-
 function clashmixin() {
     case "$1" in
     -h | --help)
@@ -398,7 +344,7 @@ function clashmixin() {
 - 编辑 Mixin 配置
   clashmixin -e
 
-- 查看原始订阅配置：$CLASH_CONFIG_RAW
+- 查看原始订阅配置：$CLASH_CONFIG_BASE
   clashmixin -o
 
 - 查看运行时配置：$CLASH_CONFIG_RUNTIME
@@ -416,7 +362,7 @@ EOF
         less "$CLASH_CONFIG_RUNTIME"
         ;;
     -o)
-        less "$CLASH_CONFIG_RAW"
+        less "$CLASH_CONFIG_BASE"
         ;;
     *)
         less "$CLASH_CONFIG_MIXIN"
@@ -485,6 +431,100 @@ EOF
     _failcat "内核升级失败，请检查网络或稍后重试"
 }
 
+function clashsub() {
+    case "$1" in
+
+    update)
+        shift
+        _sub_update "$@"
+        ;;
+    log)
+        shift
+        _sub_log "$@"
+        ;;
+
+    -h | --help | *)
+        cat <<EOF
+    
+Usage: 
+  clashsub COMMAND [OPTIONS]
+
+Commands:
+  update                 # 更新订阅
+  log                    # 查看更新日志
+
+Options:
+    --auto               # 设置自动更新
+    --convert            # 强制使用订阅转换
+
+EOF
+        ;;
+    esac
+}
+_sub_update() {
+    local url is_convert is_merge
+    for arg in "$@"; do
+        case $arg in
+        --auto)
+            command -v crontab >/dev/null || _error_quit "未检测到 crontab 命令，请先安装 cron 服务"
+            crontab -l | grep -qs 'clashsub update' || {
+                (
+                    crontab -l 2>/dev/null
+                    _detect_shell
+                    echo "0 0 */2 * * $EXEC_SHELL -i -c 'clashsub update'"
+                ) | crontab -
+            }
+            _okcat "已设置定时更新订阅"
+            return 0
+            ;;
+        --convert)
+            is_convert=true
+            shift
+            ;;
+        --merge)
+            is_merge=true
+            shift
+            ;;
+        esac
+    done
+    url=$1
+    [ -z "$url" ] && url=$CLASH_CONFIG_URL
+    [ -n "$url" ] && {
+        curl --silent --insecure --location --head "$url" >/dev/null || _error_quit "订阅链接无效,请检查"
+    }
+    _okcat '👌' "正在下载：原配置已备份..."
+    local bak="${CLASH_CONFIG_BASE}.bak"
+    local raw="${CLASH_CONFIG_BASE}.raw"
+    local convert="${CLASH_CONFIG_BASE}.convert"
+    cat "$CLASH_CONFIG_BASE" >"$bak"
+    _rollback() {
+        _failcat '🍂' "$1"
+        cat "$CLASH_CONFIG_BASE" >"$convert"
+        cat "$bak" >"$CLASH_CONFIG_BASE"
+        _logging_sub "❌ 订阅更新失败：$url"
+        _error_quit
+    }
+    [[ "$is_convert" = true || "$is_merge" = true ]] && {
+        _download_convert_config "$CLASH_CONFIG_BASE" "$url"
+    }
+    [[ "$is_convert" != true && "$is_merge" != true ]] && {
+        _download_config "$CLASH_CONFIG_BASE" "$url" || _rollback "下载失败：已回滚原配置"
+    }
+    _valid_config "$CLASH_CONFIG_BASE" || _rollback "订阅无效：已回滚原配置，请检查：
+    原始订阅：$raw
+    转换订阅：$convert
+    转换日志：$BIN_SUBCONVERTER_LOG"
+
+    _merge_config_restart && _okcat '🍃' '订阅更新成功，已重启生效'
+    _logging_sub "✅ 订阅更新成功：$url"
+}
+_logging_sub() {
+    echo "$(date +"%Y-%m-%d %H:%M:%S") $1" >>"${CLASH_SUB_LOG}"
+}
+_sub_log() {
+    tail <"${CLASH_UPDATE_LOG}" "$@"
+}
+
 function clashctl() {
     case "$1" in
     on)
@@ -523,9 +563,9 @@ function clashctl() {
         shift
         clashsecret "$@"
         ;;
-    update)
+    sub)
         shift
-        clashupdate "$@"
+        clashsub "$@"
         ;;
     upgrade)
         shift
@@ -554,7 +594,7 @@ Commands:
   tun                   Tun 模式
   mixin                 Mixin 配置
   secret                Web 密钥
-  update                更新订阅
+  sub                   更新订阅
   upgrade               升级内核
 
 Global Options:

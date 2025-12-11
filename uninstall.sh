@@ -9,7 +9,7 @@ clashoff >&/dev/null
 _uninstall_service
 _revoke_rc
 
-command -v crontab >&/dev/null && crontab -l | grep -v "clashupdate" | crontab -
+command -v crontab >&/dev/null && crontab -l | grep -v "clashsub" | crontab -
 
 rm -rf "$CLASH_BASE_DIR" >&/dev/null || _error_quit '请使用 sudo 执行'
 

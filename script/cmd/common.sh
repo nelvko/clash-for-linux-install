@@ -3,10 +3,10 @@
 . "$(dirname "$(dirname "$THIS_SCRIPT_DIR")")/.env"
 
 CLASH_RESOURCES_DIR="${CLASH_BASE_DIR}/resources"
-CLASH_CONFIG_RAW="${CLASH_RESOURCES_DIR}/config.yaml"
+CLASH_CONFIG_BASE="${CLASH_RESOURCES_DIR}/config.yaml"
 CLASH_CONFIG_MIXIN="${CLASH_RESOURCES_DIR}/mixin.yaml"
 CLASH_CONFIG_RUNTIME="${CLASH_RESOURCES_DIR}/runtime.yaml"
-CLASH_UPDATE_LOG="${CLASH_RESOURCES_DIR}/clashupdate.log"
+CLASH_SUB_LOG="${CLASH_RESOURCES_DIR}/profiles.log"
 
 BIN_BASE_DIR="${CLASH_BASE_DIR}/bin"
 BIN_KERNEL="${BIN_BASE_DIR}/$KERNEL_NAME"
@@ -135,6 +135,18 @@ function _valid_config() {
     }
 }
 
+function _download_config() {
+    local dest=$1
+    local url=$2
+    [ "${url:0:4}" = 'file' ] && return 0
+    _download_raw_config "$dest" "$url" || return 1
+    _okcat '🍃' '下载成功：内核验证配置...'
+    _valid_config "$dest" || {
+        cat "$dest" >"${dest}.raw"
+        _failcat '🍂' "验证失败：尝试订阅转换..."
+        _download_convert_config "$dest" "$url" || _failcat '🍂' "转换失败：请检查日志：$BIN_SUBCONVERTER_LOG"
+    }
+}
 _download_raw_config() {
     local dest=$1
     local url=$2
@@ -178,18 +190,6 @@ _download_convert_config() {
     )
     _download_raw_config "$dest" "$convert_url"
     _stop_convert
-}
-function _download_config() {
-    local dest=$1
-    local url=$2
-    [ "${url:0:4}" = 'file' ] && return 0
-    _download_raw_config "$dest" "$url" || return 1
-    _okcat '🍃' '下载成功：内核验证配置...'
-    _valid_config "$dest" || {
-        cat "$dest" >"${dest}.raw"
-        _failcat '🍂' "验证失败：尝试订阅转换..."
-        _download_convert_config "$dest" "$url" || _failcat '🍂' "转换失败：请检查日志：$BIN_SUBCONVERTER_LOG"
-    }
 }
 
 _detect_subconverter_port() {
