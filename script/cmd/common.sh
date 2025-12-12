@@ -144,7 +144,7 @@ function _download_config() {
     _valid_config "$dest" || {
         _failcat '🍂' "验证失败：尝试订阅转换..."
         cat "$dest" >"${dest}.raw"
-        _download_convert_config "$dest" "$url" || _failcat '🍂' "转换失败：请检查日志：$BIN_SUBCONVERTER_LOG"
+        _download_convert_config "$dest" "$url"
     }
 }
 _download_raw_config() {
@@ -184,6 +184,7 @@ _download_convert_config() {
         curl \
             --get \
             --silent \
+            --show-error \
             --location \
             --output /dev/null \
             --data-urlencode "target=$target" \
@@ -191,7 +192,7 @@ _download_convert_config() {
             --write-out '%{url_effective}' \
             "$base_url"
     )
-    _download_raw_config "$dest" "$convert_url"
+    curl --silent --output "$dest" "$convert_url"
     flag=$?
     _stop_convert
     return $flag

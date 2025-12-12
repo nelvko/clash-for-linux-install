@@ -499,6 +499,8 @@ _sub_update() {
     local bak="${CLASH_CONFIG_BASE}.bak"
     local raw="${CLASH_CONFIG_BASE}.raw"
     local convert="${CLASH_CONFIG_BASE}.convert"
+    : >"$raw"
+    : >"$convert"
     cat "$CLASH_CONFIG_BASE" >"$bak"
     _rollback() {
         _failcat '🍂' "$1"
@@ -511,7 +513,7 @@ _sub_update() {
         _download_convert_config "$CLASH_CONFIG_BASE" "$url"
     }
     [[ "$is_convert" != true && "$is_merge" != true ]] && {
-        _download_config "$CLASH_CONFIG_BASE" "$url" || _rollback "下载失败：已回滚原配置"
+        _download_config "$CLASH_CONFIG_BASE" "$url"
     }
     _valid_config "$CLASH_CONFIG_BASE" || _rollback "订阅无效：已回滚原配置，请检查：
     原始订阅：$raw
