@@ -488,9 +488,12 @@ _sub_update() {
         esac
     done
     url=$1
-    [ -z "$url" ] && url=$CLASH_CONFIG_URL
-    [ -n "$url" ] && {
-        curl --silent --insecure --location --head "$url" >/dev/null || _error_quit "订阅链接无效,请检查"
+    [ -z "$url" ] && {
+        url=$CLASH_CONFIG_URL
+        [ -z "$url" ] && {
+            _failcat "未提供订阅链接，使用本地配置更新：${CLASH_CONFIG_BASE}"
+            url="file://$CLASH_CONFIG_BASE"  
+        }
     }
     _okcat '👌' "正在下载：原配置已备份..."
     local bak="${CLASH_CONFIG_BASE}.bak"
@@ -514,6 +517,7 @@ _sub_update() {
     原始订阅：$raw
     转换订阅：$convert
     转换日志：$BIN_SUBCONVERTER_LOG"
+    _set_env CLASH_CONFIG_URL "$url"
 
     _merge_config_restart && _okcat '🍃' '订阅更新成功，已重启生效'
     _logging_sub "✅ 订阅更新成功：$url"
@@ -522,7 +526,7 @@ _logging_sub() {
     echo "$(date +"%Y-%m-%d %H:%M:%S") $1" >>"${CLASH_SUB_LOG}"
 }
 _sub_log() {
-    tail <"${CLASH_UPDATE_LOG}" "$@"
+    tail <"${CLASH_SUB_LOG}" "$@"
 }
 
 function clashctl() {

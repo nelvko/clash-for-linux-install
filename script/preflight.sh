@@ -357,18 +357,6 @@ _revoke_rc() {
     [ -n "$SHELL_RC_FISH" ] && rm -f "$SHELL_RC_FISH" 2>/dev/null
 }
 
-_set_env() {
-    local key=$1
-    local value=$2
-    local env_path="${CLASH_BASE_DIR}/.env"
-
-    grep -qE "^${key}=" "$env_path" && {
-        value=${value//&/\\&}
-        sed -i "s|^${key}=.*|${key}=${value}|" "$env_path"
-        return $?
-    }
-    echo "${key}=${value}" >>"$env_path"
-}
 _set_envs() {
     _set_env CLASH_CONFIG_URL "$CLASH_CONFIG_URL"
     _set_env INIT_TYPE "$INIT_TYPE"

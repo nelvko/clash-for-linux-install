@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-
+# shellcheck disable=SC2034
 . "$(dirname "$(dirname "$THIS_SCRIPT_DIR")")/.env"
 
 CLASH_RESOURCES_DIR="${CLASH_BASE_DIR}/resources"
@@ -142,8 +142,8 @@ function _download_config() {
     _download_raw_config "$dest" "$url" || return 1
     _okcat '🍃' '下载成功：内核验证配置...'
     _valid_config "$dest" || {
-        cat "$dest" >"${dest}.raw"
         _failcat '🍂' "验证失败：尝试订阅转换..."
+        cat "$dest" >"${dest}.raw"
         _download_convert_config "$dest" "$url" || _failcat '🍂' "转换失败：请检查日志：$BIN_SUBCONVERTER_LOG"
     }
 }
@@ -155,6 +155,7 @@ _download_raw_config() {
     curl \
         --silent \
         --show-error \
+        --fail \
         --insecure \
         --location \
         --max-time 5 \
@@ -174,6 +175,8 @@ _download_raw_config() {
 _download_convert_config() {
     local dest=$1
     local url=$2
+    local flag
+    [ "${url:0:4}" = 'file' ] && return 0
     _start_convert
     local convert_url=$(
         target='clash'
@@ -189,7 +192,9 @@ _download_convert_config() {
             "$base_url"
     )
     _download_raw_config "$dest" "$convert_url"
+    flag=$?
     _stop_convert
+    return $flag
 }
 
 _detect_subconverter_port() {
@@ -216,4 +221,17 @@ _start_convert() {
 }
 _stop_convert() {
     $BIN_SUBCONVERTER_STOP >/dev/null
+}
+
+_set_env() {
+    local key=$1
+    local value=$2
+    local env_path="${CLASH_BASE_DIR}/.env"
+
+    grep -qE "^${key}=" "$env_path" && {
+        value=${value//&/\\&}
+        sed -i "s|^${key}=.*|${key}=${value}|" "$env_path"
+        return $?
+    }
+    echo "${key}=${value}" >>"$env_path"
 }
