@@ -154,20 +154,19 @@ _valid_zip() {
     (($#)) || return 1
     local zip fail_zips=()
     for zip in "$@"; do
-        gzip -t "$zip" || fail_zips+=("$zip")
+        gzip -tq "$zip" || unzip -tqq "$zip" || fail_zips+=("$zip")
     done
 
     ((${#fail_zips[@]})) && _error_quit "文件验证失败：${fail_zips[*]} 请删除后重试，或自行下载对应版本至 ${ZIP_BASE_DIR} 目录"
 }
 _unzip_zip() {
-    _valid_zip "$ZIP_KERNEL" "$ZIP_YQ" "$ZIP_SUBCONVERTER"
+    _valid_zip "$ZIP_KERNEL" "$ZIP_YQ" "$ZIP_SUBCONVERTER" "$ZIP_UI"
     /usr/bin/install -D <(gzip -dc "$ZIP_KERNEL") "$BIN_KERNEL"
     tar -xf "$ZIP_YQ" -C "${BIN_BASE_DIR}"
     /bin/mv -f "${BIN_BASE_DIR}"/yq_* "${BIN_BASE_DIR}/yq"
     tar -xf "$ZIP_SUBCONVERTER" -C "$BIN_BASE_DIR"
     /bin/cp "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
-    # tar -xf "$ZIP_UI" -C "$RESOURCES_BASE_DIR"
-    unzip -qo "$ZIP_UI" -d "$RESOURCES_BASE_DIR"
+    unzip -oqq "$ZIP_UI" -d "$RESOURCES_BASE_DIR" 2>/dev/null || tar -xf "$ZIP_UI" -C "$RESOURCES_BASE_DIR"
 }
 
 # shellcheck disable=SC2206
@@ -283,7 +282,7 @@ _nohup() {
     service_enable=(false)
     service_disable=(false)
 
-    service_start=(nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>\&' "$FILE_LOG" '\&')
+    service_start=('(' nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>\&' "$FILE_LOG" '\&' ')')
     service_status=(pgrep -fa "$BIN_KERNEL")
     service_stop=(pkill -9 -f "$BIN_KERNEL")
 }
