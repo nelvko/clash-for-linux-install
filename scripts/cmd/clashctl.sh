@@ -4,12 +4,16 @@ THIS_SCRIPT_DIR=$(dirname "$(readlink -f "${BASH_SOURCE:-${(%):-%N}}")")
 . "$THIS_SCRIPT_DIR/common.sh"
 
 _set_system_proxy() {
+    local mixed_port=$("$BIN_YQ" '.mixed-port // ""' "$CLASH_CONFIG_RUNTIME")
+    local http_port=$("$BIN_YQ" '.port // ""' "$CLASH_CONFIG_RUNTIME")
+    local socks_port=$("$BIN_YQ" '.socks-port // ""' "$CLASH_CONFIG_RUNTIME")
+
     local auth=$("$BIN_YQ" '.authentication[0] // ""' "$CLASH_CONFIG_RUNTIME")
     [ -n "$auth" ] && auth=$auth@
 
     local bind_addr=$(_get_bind_addr)
-    local http_proxy_addr="http://${auth}${bind_addr}:${MIXED_PORT}"
-    local socks_proxy_addr="socks5h://${auth}${bind_addr}:${MIXED_PORT}"
+    local http_proxy_addr="http://${auth}${bind_addr}:${http_port:-${mixed_port}}"
+    local socks_proxy_addr="socks5h://${auth}${bind_addr}:${socks_port:-${mixed_port}}"
     local no_proxy_addr="localhost,127.0.0.1,::1"
 
     export http_proxy=$http_proxy_addr
@@ -34,17 +38,35 @@ _unset_system_proxy() {
     unset no_proxy
     unset NO_PROXY
 }
+_detect_proxy_port() {
+    local mixed_port=$("$BIN_YQ" '.mixed-port // ""' "$CLASH_CONFIG_RUNTIME")
+    local http_port=$("$BIN_YQ" '.port // ""' "$CLASH_CONFIG_RUNTIME")
+    local socks_port=$("$BIN_YQ" '.socks-port // ""' "$CLASH_CONFIG_RUNTIME")
+    local newPort
+    _is_port_used "$mixed_port" && {
+        newPort=$(_get_random_port)
+        _failcat '🎯' "端口冲突：[mixed-port] ${mixed_port} 🎲 随机分配 $newPort"
+        mixed_port=$newPort
+        "$BIN_YQ" -i ".mixed-port = $newPort" "$CLASH_CONFIG_MIXIN"
+    }
+    [ -n "$http_port" ] && _is_port_used "$http_port" && {
+        newPort=$(_get_random_port)
+        _failcat '🎯' "端口冲突：[port] ${http_port} 🎲 随机分配 $newPort"
+        http_port=$newPort
+        "$BIN_YQ" -i ".port = $newPort" "$CLASH_CONFIG_MIXIN"
+    }
+    [ -n "$socks_port" ] && _is_port_used "$socks_port" && {
+        newPort=$(_get_random_port)
+        _failcat '🎯' "端口冲突：[port] ${socks_port} 🎲 随机分配 $newPort [socks-port]"
+        socks_port=$newPort
+        "$BIN_YQ" -i ".socks-port = $newPort" "$CLASH_CONFIG_MIXIN"
+    }
+    _merge_config
+}
 
 function clashon() {
-    MIXED_PORT=$("$BIN_YQ" '.mixed-port' "$CLASH_CONFIG_RUNTIME")
     clashstatus >&/dev/null || {
-        _is_port_used "$MIXED_PORT" && {
-            local newPort=$(_get_random_port)
-            _failcat '🎯' "端口占用：${MIXED_PORT} 🎲 随机分配：$newPort"
-            MIXED_PORT=$newPort
-            "$BIN_YQ" -i ".mixed-port = $newPort" "$CLASH_CONFIG_MIXIN"
-            _merge_config
-        }
+        _detect_proxy_port
         placeholder_start
         clashstatus >/dev/null || {
             _failcat '启动失败: 执行 clashlog 查看日志'
@@ -116,8 +138,7 @@ EOF
         case $system_proxy_enable in
         true)
             _okcat "系统代理：开启
-http_proxy： $http_proxy
-socks_proxy：$all_proxy"
+$(env | grep -E '.*_proxy=')"
             ;;
         *)
             _failcat "系统代理：关闭"
@@ -470,8 +491,7 @@ _sub_update() {
             crontab -l | grep -qs 'clashsub update' || {
                 (
                     crontab -l 2>/dev/null
-                    _detect_shell
-                    echo "0 0 */2 * * $EXEC_SHELL -i -c 'clashsub update'"
+                    echo "0 0 */2 * * $SHELL -i -c 'clashsub update'"
                 ) | crontab -
             }
             _okcat "已设置定时更新订阅"
@@ -492,7 +512,7 @@ _sub_update() {
         url=$CLASH_CONFIG_URL
         [ -z "$url" ] && {
             _failcat "未提供订阅链接，使用本地配置更新：${CLASH_CONFIG_BASE}"
-            url="file://$CLASH_CONFIG_BASE"  
+            url="file://$CLASH_CONFIG_BASE"
         }
     }
     _okcat '👌' "正在下载：原配置已备份..."

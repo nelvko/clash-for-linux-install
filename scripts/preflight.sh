@@ -343,17 +343,26 @@ _detect_rc() {
     command -v fish >&/dev/null && {
         SHELL_RC_FISH="${home}/.config/fish/conf.d/clashctl.fish"
     }
+    start_flag="# clashctl START"
+    end_flag="# clashctl END"
 }
 _apply_rc() {
     _detect_rc
-    local source_clashctl=". $CLASH_CMD_DIR/clashctl.sh && watch_proxy"
-    tee -a "$SHELL_RC_BASH" "$SHELL_RC_ZSH" <<<"$source_clashctl" >&/dev/null
+    local source_clashctl=". $CLASH_CMD_DIR/clashctl.sh"
+    tee -a "$SHELL_RC_BASH" "$SHELL_RC_ZSH" >/dev/null <<EOF
+$start_flag
+# 加载 clashctl 命令
+$source_clashctl
+# 自动开启代理环境
+watch_proxy
+$end_flag
+EOF
     [ -n "$SHELL_RC_FISH" ] && /usr/bin/install "$SCRIPT_CMD_FISH" "$SHELL_RC_FISH"
     $source_clashctl
 }
 _revoke_rc() {
     _detect_rc
-    sed -i -e '/clashctl/d' -e '/watch_proxy/d' "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
+    sed -i.bak "/$start_flag/,/$end_flag/d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
     [ -n "$SHELL_RC_FISH" ] && rm -f "$SHELL_RC_FISH" 2>/dev/null
 }
 
@@ -378,6 +387,5 @@ _is_root() {
 
 _quit() {
     _is_regular_sudo && exec su "$SUDO_USER"
-    _detect_shell
-    exec "$EXEC_SHELL" -i
+    exec "$SHELL" -i
 }

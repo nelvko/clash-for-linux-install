@@ -18,12 +18,6 @@ BIN_SUBCONVERTER_STOP="pkill -9 -f $BIN_SUBCONVERTER"
 BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
 BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
 
-_detect_shell() {
-    [ -n "$BASH_VERSION" ] && EXEC_SHELL=bash
-    [ -n "$ZSH_VERSION" ] && EXEC_SHELL=zsh
-    [ -n "$fish_version" ] && EXEC_SHELL=fish
-}
-
 _is_port_used() {
     local port=$1
     { ss -tunl 2>/dev/null || netstat -tunl; } | grep -qs ":${port}\b"
@@ -66,7 +60,7 @@ function _detect_ext_addr() {
     clashoff >&/dev/null
     _is_port_used "$EXT_PORT" && {
         local newPort=$(_get_random_port)
-        _failcat '🎯' "端口占用：${EXT_PORT} 🎲 随机分配：$newPort"
+        _failcat '🎯' "端口冲突：[external-controller] ${EXT_PORT} 🎲 随机分配 $newPort"
         EXT_PORT=$newPort
         "$BIN_YQ" -i ".external-controller = \"$ext_ip:$newPort\"" "$CLASH_CONFIG_MIXIN"
         _merge_config
@@ -115,8 +109,7 @@ function _error_quit() {
         local msg="${emoji} $1"
         _color_log "$color" "$msg"
     }
-    _detect_shell
-    exec $EXEC_SHELL -i
+    exec $SHELL -i
 }
 
 function _valid_config() {
@@ -202,7 +195,7 @@ _detect_subconverter_port() {
     BIN_SUBCONVERTER_PORT=$("$BIN_YQ" '.server.port' "$BIN_SUBCONVERTER_CONFIG")
     _is_port_used "$BIN_SUBCONVERTER_PORT" && {
         local newPort=$(_get_random_port)
-        _failcat '🎯' "端口占用：${BIN_SUBCONVERTER_PORT} 🎲 随机分配：$newPort"
+        _failcat '🎯' "端口冲突：[subconverter] ${BIN_SUBCONVERTER_PORT} 🎲 随机分配：$newPort"
         BIN_SUBCONVERTER_PORT=$newPort
         "$BIN_YQ" -i ".server.port = $newPort" "$BIN_SUBCONVERTER_CONFIG" 2>/dev/null
     }
