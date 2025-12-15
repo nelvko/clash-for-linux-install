@@ -366,7 +366,7 @@ function clashmixin() {
   clashmixin -e
 
 - 查看原始订阅配置：$CLASH_CONFIG_BASE
-  clashmixin -o
+  clashmixin -c
 
 - 查看运行时配置：$CLASH_CONFIG_RUNTIME
   clashmixin -r
@@ -382,7 +382,7 @@ EOF
     -r)
         less "$CLASH_CONFIG_RUNTIME"
         ;;
-    -o)
+    -c)
         less "$CLASH_CONFIG_BASE"
         ;;
     *)
