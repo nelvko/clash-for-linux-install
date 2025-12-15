@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-. script/cmd/clashctl.sh
-. script/preflight.sh
+. scripts/cmd/clashctl.sh
+. scripts/preflight.sh
 
 _valid
 _parse_args "$@"
