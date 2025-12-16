@@ -6,35 +6,42 @@
 
 ![preview](resources/preview.png)
 
-- 默认安装 `mihomo` 内核，[可选安装](https://github.com/nelvko/clash-for-linux-install/wiki) `clash`。
-- 支持使用 [subconverter](https://github.com/tindy2013/subconverter) 进行本地订阅转换。
-- 多架构支持，适配主流 `Linux` 发行版：`CentOS 7.6`、`Debian 12`、`Ubuntu 24.04.1 LTS`。
+## ✨ 功能特性
 
-## 快速开始
+- 支持一键安装 `mihomo` 与 `clash` 代理内核。
+- 兼容 `root` 与普通用户环境。
+- 适配主流 `Linux` 发行版，并兼容 `AutoDL` 等容器化环境。
+- 自动检测端口占用情况，在冲突时随机分配可用端口。
+- 自动识别系统架构与初始化系统，下载匹配的内核与依赖，并生成对应的服务管理配置。
+- 在需要时调用 [subconverter](https://github.com/tindy2013/subconverter) 进行本地订阅转换。
 
-### 环境要求
-
-- 用户权限：`root` 或 `sudo` 用户。普通用户请戳：[#91](https://github.com/nelvko/clash-for-linux-install/issues/91)
-- `shell` 支持：`bash`、`zsh`、`fish`。
-
-### 一键安装
-
-目前 `master` 分支仅适用于 `x86_64` 架构且使用 `systemd` 的系统环境，其他初始化系统 / 架构请使用 `feat-init` 分支：[一键安装-多架构](https://github.com/nelvko/clash-for-linux-install/wiki#%E4%B8%80%E9%94%AE%E5%AE%89%E8%A3%85-%E5%A4%9A%E6%9E%B6%E6%9E%84)
+## 🚀 一键安装
+在终端中执行以下命令即可完成安装：
 
 ```bash
-git clone --branch master --depth 1 https://gh-proxy.com/https://github.com/nelvko/clash-for-linux-install.git \
+git clone --branch master --depth 1 https://gh-proxy.org/https://github.com/nelvko/clash-for-linux-install.git \
   && cd clash-for-linux-install \
-  && sudo bash install.sh
+  && bash install.sh
 ```
 
-> 如遇问题，请在查阅[常见问题](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)及 [issue](https://github.com/nelvko/clash-for-linux-install/issues?q=is%3Aissue) 未果后进行反馈。
-
-- 上述克隆命令使用了[加速前缀](https://gh-proxy.com/)，如失效请更换其他[可用链接](https://ghproxy.link/)。
-- 默认通过远程订阅获取配置进行安装，本地配置安装详见：[#39](https://github.com/nelvko/clash-for-linux-install/issues/39)
+- 上述命令使用了[加速前缀](https://gh-proxy.org/)，如失效可更换其他[可用链接](https://ghproxy.link/)。
+- 可通过 `.env` 文件或脚本参数自定义安装选项。
 - 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
 
-### 命令一览
+**示例：**
 
+```bash
+# 默认安装 mihomo
+bash install.sh
+
+# 安装 clash
+bash install.sh clash
+
+# 普通用户提权安装
+sudo bash install.sh
+```
+
+## ⌨️ 命令一览
 
 ```bash
 Usage: 
@@ -43,18 +50,18 @@ Usage:
 Commands:
     on                    开启代理
     off                   关闭代理
-    proxy                 系统代理
-    ui                    面板地址
     status                内核状况
+    proxy                 系统代理
+    ui                    Web 面板
+    secret                Web 密钥
+    sub                   订阅管理
+    upgrade               升级内核
     tun                   Tun 模式
     mixin                 Mixin 配置
-    secret                Web 密钥
-    update                更新订阅
-    upgrade               升级内核
 
 Global Options:
     -h, --help            显示帮助信息
-``` 
+```
 
 💡`clashon` 同 `clashctl on`，`Tab` 补全更方便！
 
@@ -67,7 +74,7 @@ $ clashon
 $ clashoff
 😼 已关闭代理环境
 ```
-- 在启停代理内核的同时，自动同步设置系统代理。
+- 在启停代理内核的同时，同步设置系统代理。
 - 亦可通过 `clashproxy` 单独控制系统代理。
 
 ### Web 控制台
@@ -80,20 +87,40 @@ $ clashui
 ║                                               ║
 ║     🔓 注意放行端口：9090                      ║
 ║     🏠 内网：http://192.168.0.1:9090/ui       ║
-║     🌏 公网：http://255.255.255.255:9090/ui   ║
+║     🌏 公网：http://8.8.8.8:9090/ui          ║
 ║     ☁️ 公共：http://board.zash.run.place      ║
 ║                                               ║
 ╚═══════════════════════════════════════════════╝
 
-$ clashsecret 666
+$ clashsecret mysecret
 😼 密钥更新成功，已重启生效
 
 $ clashsecret
-😼 当前密钥：666
+😼 当前密钥：mysecret
 ```
 
-- 通过浏览器打开 Web 控制台，实现可视化操作：切换节点、查看日志等。
-- 若暴露到公网使用建议定期更换密钥。
+- 可通过浏览器打开 `Web` 控制台进行可视化操作，例如切换节点、查看日志等。
+- 默认使用 [zashboard](https://github.com/Zephyruso/zashboard) 作为控制台前端，如需更换可自行配置。
+- 若需将控制台暴露到公网，建议定期更换访问密钥，或通过 `SSH` 端口转发方式进行安全访问。
+
+### `Mixin` 配置
+
+```bash
+$ clashmixin
+😼 查看 Mixin 配置
+
+$ clashmixin -e
+😼 编辑 Mixin 配置
+
+$ clashmixin -c
+😼 查看原始订阅配置
+
+$ clashmixin -r
+😼 查看运行时配置
+```
+
+- 通过 `Mixin` 自定义的配置内容会与原始订阅进行深度合并，且 `Mixin` 具有最高优先级，最终生成内核启动时加载的运行时配置。
+- `Mixin` 支持以前置、后置或覆盖的方式，对原始订阅中的规则、节点及策略组进行新增或修改。
 
 ### 升级内核
 ```bash
@@ -102,28 +129,27 @@ $ clashupgrade
 {"status":"ok"}
 😼 内核升级成功
 ```
-- 代理内核会自动处理升级流程，并从 `GitHub` 获取最新软件包。为避免因网络原因导致拉取失败，建议为相关域名配置代理规则。
-- 可使用 `-v` 参数查看代理内核的升级日志。
+- 升级过程由代理内核自动完成；如需查看详细的升级日志，可添加 `-v` 参数。
+- 建议通过 `clashmixin` 为 `github` 配置代理规则，以避免因网络问题导致请求失败。
 
-
-### 更新订阅
+### 管理订阅
 
 ```bash
-$ clashupdate https://example.com
+$ clashsub update https://example.com
 👌 正在下载：原配置已备份...
 🍃 下载成功：内核验证配置...
 🍃 订阅更新成功
 
-$ clashupdate auto [url]
+$ clashsub update --auto
 😼 已设置定时更新订阅
 
-$ clashupdate log
-✅ [2025-02-23 22:45:23] 订阅更新成功：https://example.com
+$ clashsub log
+2025-12-12 18:03:21 ✅ 订阅更新成功：https://example.com
 ```
 
-- `clashupdate` 会记住上次更新成功的订阅链接，后续执行无需再指定。
-- 可通过 `crontab -e` 修改定时更新频率及订阅链接。
-- 通过配置文件进行更新：[pr#24](https://github.com/nelvko/clash-for-linux-install/pull/24#issuecomment-2565054701)
+- 可通过 `.env` 文件配置默认订阅链接。
+- 若不存在可用的订阅链接，则基于当前原始订阅配置（`config.yaml`）进行更新。
+- 可通过 `crontab -e` 修改定时更新配置。
 
 ### `Tun` 模式
 
@@ -139,48 +165,28 @@ $ clashtun on
 - 原理：[clash-verge-rev](https://www.clashverge.dev/guide/term.html#tun)、 [clash.wiki](https://clash.wiki/premium/tun-device.html)。
 - 注意事项：[#100](https://github.com/nelvko/clash-for-linux-install/issues/100#issuecomment-2782680205)
 
-### `Mixin` 配置
+## 🗑️ 卸载
 
 ```bash
-$ clashmixin
-😼 查看 Mixin 配置
-
-$ clashmixin -e
-😼 编辑 Mixin 配置
-
-$ clashmixin -o
-😼 查看原始订阅配置
-
-$ clashmixin -r
-😼 查看运行时配置
-```
-- 通过 `Mixin` 自定义的配置内容会与原始订阅深度合并生成运行时配置，其中 `Mixin` 的优先级最高。
-- `Mixin` 可通过前置、后置或覆盖方式，对原始订阅中的规则、节点和策略组进行新增或修改。
-- 内核启动时加载的是运行时配置，因此直接修改原始订阅内容并不会生效。
-
-### 卸载
-
-```bash
-sudo bash uninstall.sh
+bash uninstall.sh
 ```
 
-## 常见问题
+## 📖 常见问题
 
-[wiki](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)
+👉 [Wiki · FAQ](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)
 
-## 引用
+## 🔗 引用
 
-- [Clash 知识库](https://clash.wiki/)
-- [Clash 家族下载](https://www.clash.la/releases/)
-- [Clash Premium](https://downloads.clash.wiki/ClashPremium/)
+- [clash](https://clash.wiki/)
 - [mihomo](https://github.com/MetaCubeX/mihomo)
-- [subconverter: 订阅转换](https://github.com/tindy2013/subconverter)
-- [yacd: Web 控制台](https://github.com/haishanh/yacd)
-- [yq: 处理 yaml](https://github.com/mikefarah/yq)
+- [subconverter](https://github.com/tindy2013/subconverter)
+- [yq](https://github.com/mikefarah/yq)
+- [zashboard](https://github.com/Zephyruso/zashboard)
 
-## Star History
+## ⭐ Star History
 
 <a href="https://www.star-history.com/#nelvko/clash-for-linux-install&Date">
+
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=nelvko/clash-for-linux-install&type=Date&theme=dark" />
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=nelvko/clash-for-linux-install&type=Date" />
@@ -188,11 +194,11 @@ sudo bash uninstall.sh
  </picture>
 </a>
 
-## Thanks
+## 🙏 Thanks
 
 [@鑫哥](https://github.com/TrackRay)
 
-## 特别声明
+## ⚠️ 特别声明
 
 1. 编写本项目主要目的为学习和研究 `Shell` 编程，不得将本项目中任何内容用于违反国家/地区/组织等的法律法规或相关规定的其他用途。
 2. 本项目保留随时对免责声明进行补充或更改的权利，直接或间接使用本项目内容的个人或组织，视为接受本项目的特别声明。

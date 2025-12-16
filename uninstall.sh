@@ -1,20 +1,16 @@
-# shellcheck disable=SC2148
-# shellcheck disable=SC1091
-. script/common.sh >&/dev/null
-. script/clashctl.sh >&/dev/null
+#!/usr/bin/env bash
+. .env
+. "$CLASH_BASE_DIR/scripts/cmd/clashctl.sh" 2>/dev/null
+. scripts/preflight.sh
 
-_valid_env
+pgrep -f "$BIN_KERNEL" -u 0 >/dev/null && ! _is_root && _error_quit '请使用 sudo 执行卸载'
+clashoff 2>/dev/null
+_uninstall_service
+_revoke_rc
 
-clashoff >&/dev/null
+command -v crontab >&/dev/null && crontab -l | grep -v "clashsub" | crontab -
 
-systemctl disable "$BIN_KERNEL_NAME" >&/dev/null
-rm -f "/etc/systemd/system/${BIN_KERNEL_NAME}.service"
-systemctl daemon-reload
+/usr/bin/rm -rf "$CLASH_BASE_DIR"
 
-rm -rf "$CLASH_BASE_DIR"
-rm -rf "$RESOURCES_BIN_DIR"
-sed -i '/clashupdate/d' "$CLASH_CRON_TAB" >&/dev/null
-_set_rc unset
-
-_okcat '✨' '已卸载，相关配置已清除'
+echo '✨' '已卸载，相关配置已清除'
 _quit

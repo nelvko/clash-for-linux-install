@@ -5,7 +5,8 @@ _custom:
 mixed-port: 7890
 
 external-controller: "0.0.0.0:9090"
-external-ui: public
+external-ui: dist
+external-ui-url: https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip
 secret:
 
 allow-lan: false # 若开启务必设置用户验证以防暴露公网后被滥用
@@ -43,9 +44,11 @@ tun:
     - any:53
     - tcp://any:53
   strict-route: true
+  route-exclude-address:
+    - 1.1.1.1/32 # 用于 clashui 获取真实内网 IP
   exclude-interface:
-    # - docker0
-    # - podman0
+    - docker0 # 避免无法访问容器内服务
+    - podman0 # 详见：https://github.com/nelvko/clash-for-linux-install/issues/100#issuecomment-2995667368
 
 # DNS 配置
 dns:

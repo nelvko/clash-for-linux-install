@@ -1,5 +1,11 @@
 .idea
 .vscode
-config.yaml
-resources/bin/**
+config.yaml*
+resources/zip/*
+!resources/zip/dist.zip
+resources/dist/
+test.sh
+
+
+
 !.gitkeep
