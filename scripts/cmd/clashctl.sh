@@ -138,7 +138,7 @@ EOF
         case $system_proxy_enable in
         true)
             _okcat "系统代理：开启
-$(env | grep -E '.*_proxy=')"
+$(env | grep -i 'proxy=')"
             ;;
         *)
             _failcat "系统代理：关闭"
@@ -310,14 +310,16 @@ _tunon() {
     "$BIN_YQ" -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
     _merge_config_restart
     sleep 0.3s
-    clashlog | grep -E -m1 -qs 'unsupported kernel version|Start TUN listening error' && {
+    local fail_msg="Start TUN listening error|unsupported kernel version"
+    local ok_msg="Tun adapter listening at|TUN listening iface"
+    clashlog | grep -E -m1 -qs "$fail_msg" && {
         [ "$KERNEL_NAME" = 'mihomo' ] && {
             "$BIN_YQ" -i '.tun.auto-redirect = false' "$CLASH_CONFIG_MIXIN"
             _merge_config_restart
             sleep 0.3s
         }
-        clashlog | grep -E -m1 -qs 'Tun adapter listening at|TUN listening iface' || {
-            clashlog | grep -E -m1 'unsupported kernel version|Start TUN listening error'
+        clashlog | grep -E -m1 -qs "$ok_msg" || {
+            clashlog | grep -E -m1 "$fail_msg"
             _tunoff >&/dev/null
             _error_quit '系统内核版本不支持 Tun 模式'
         }
