@@ -18,6 +18,10 @@ BIN_SUBCONVERTER_STOP="pkill -9 -f $BIN_SUBCONVERTER"
 BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
 BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
 
+CLASH_PROFILES_DIR="${CLASH_RESOURCES_DIR}/profiles"
+CLASH_PROFILES_MANAGE="${CLASH_RESOURCES_DIR}/profiles.yaml"
+CLASH_PROFILES_LOG="${CLASH_RESOURCES_DIR}/profiles.log"
+
 _is_port_used() {
     local port=$1
     { ss -tunl 2>/dev/null || netstat -tunl; } | grep -qs ":${port}\b"

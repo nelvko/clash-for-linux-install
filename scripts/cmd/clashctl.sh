@@ -464,7 +464,22 @@ EOF
 
 function clashsub() {
     case "$1" in
-
+    add)
+        shift
+        _sub_add "$@"
+        ;;
+    del)
+        shift
+        _sub_del "$@"
+        ;;
+    list | ls | '')
+        shift
+        _sub_list "$@"
+        ;;
+    use)
+        shift
+        _sub_use "$@"
+        ;;
     update)
         shift
         _sub_update "$@"
@@ -477,20 +492,82 @@ function clashsub() {
     -h | --help | *)
         cat <<EOF
     
-Usage: 
-  clashsub COMMAND [OPTIONS]
+- 新增订阅：
+  clashsub add https://example.com
 
-Commands:
-  update                 # 更新订阅
-  log                    # 查看更新日志
+- 查看订阅：
+  clashsub ls
+
+- 删除订阅：
+  clashsub del 1
+
+- 使用订阅：
+  clashsub use 1
+
+- 更新订阅：
+  clashsub update                      # 更新当前订阅
+  clashsub update https://example.com  # 指定订阅更新
 
 Options:
     --auto               # 设置自动更新
     --convert            # 强制使用订阅转换
+    --merge              # 合并订阅
 
 EOF
         ;;
     esac
+}
+_sub_add() {
+    local url=$1
+    [ -z "$url" ] && {
+        echo -n "$(_okcat '✈️ ' '请输入要添加的订阅：')"
+        read -r url
+        [ -z "$url" ] && _error_quit "订阅链接不能为空"
+    }
+
+    url="$url" \
+        "$BIN_YQ" -e '.profiles[] | select(.url == env(url))' \
+        "$CLASH_PROFILES_MANAGE" 2>/dev/null && _error_quit "该订阅链接已存在"
+
+    url="$url" \
+        "$BIN_YQ" -i '
+         .profiles = (.profiles // []) + 
+         [{
+           "id": ((.profiles // []) | length) + 1,
+           "url": env(url)
+         }]
+       ' "$CLASH_PROFILES_MANAGE"
+    _okcat "订阅已添加"
+}
+_sub_del() {
+    local id=$1
+    [ -z "$id" ] && {
+        echo -n "$(_okcat '请输入要删除的订阅id：')"
+        read -r id
+        [ -z "$id" ] && _error_quit "订阅id不能为空"
+    }
+    grep -qs "id: $id" "$CLASH_PROFILES_MANAGE" || _error_quit "订阅id无效，请检查"
+
+    id="$id" \
+        "$BIN_YQ" -i '
+            del(.profiles[] | select(.id == env(id)))
+       ' "$CLASH_PROFILES_MANAGE"
+    _okcat "订阅id已删除"
+}
+_sub_list() {
+    "$BIN_YQ" "$CLASH_PROFILES_MANAGE"
+}
+_sub_use() {
+    local id=$1
+    [ -z "$id" ] && {
+        echo -n "$(_okcat '请输入要使用的订阅id：')"
+        read -r no
+        [ -z "$no" ] && _error_quit "订阅id不能为空"
+    }
+    local url
+    grep -qs "id: $id" "$CLASH_PROFILES_MANAGE" || _error_quit "订阅id无效，请检查"
+    "$BIN_YQ" ".profiles[] | select(.id == $id) | .url" "$CLASH_PROFILES_MANAGE"
+    _sub_update "$no"
 }
 _sub_update() {
     local url is_convert is_merge
