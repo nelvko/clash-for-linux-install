@@ -32,7 +32,8 @@ _set_envs
 _install_service
 _apply_rc
 
-clashsecret "$(_get_random_val)" >/dev/null
+"$BIN_YQ" -i ".secret = \"$(_get_random_val)\"" "$CLASH_CONFIG_MIXIN" && _merge_config
+_detect_proxy_port
 clashui
 clashsecret
 

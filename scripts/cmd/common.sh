@@ -57,7 +57,7 @@ function _detect_ext_addr() {
     EXT_IP=$ext_ip
     EXT_PORT=${ext_addr##*:}
     [ "$ext_ip" = '0.0.0.0' ] && EXT_IP=$(_get_local_ip)
-    clashoff >&/dev/null
+    _is_port_used "$EXT_PORT" && clashstatus >&/dev/null && clashoff >&/dev/null
     _is_port_used "$EXT_PORT" && {
         local newPort=$(_get_random_port)
         _failcat '🎯' "端口冲突：[external-controller] ${EXT_PORT} 🎲 随机分配 $newPort"
@@ -65,7 +65,6 @@ function _detect_ext_addr() {
         "$BIN_YQ" -i ".external-controller = \"$ext_ip:$newPort\"" "$CLASH_CONFIG_MIXIN"
         _merge_config
     }
-    clashon >&/dev/null
 }
 
 _color_log() {

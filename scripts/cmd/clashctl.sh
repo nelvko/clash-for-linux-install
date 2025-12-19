@@ -42,26 +42,29 @@ _detect_proxy_port() {
     local mixed_port=$("$BIN_YQ" '.mixed-port // ""' "$CLASH_CONFIG_RUNTIME")
     local http_port=$("$BIN_YQ" '.port // ""' "$CLASH_CONFIG_RUNTIME")
     local socks_port=$("$BIN_YQ" '.socks-port // ""' "$CLASH_CONFIG_RUNTIME")
-    local newPort
+    local newPort count=0
     _is_port_used "$mixed_port" && {
+        ((count += 1))
         newPort=$(_get_random_port)
         _failcat '🎯' "端口冲突：[mixed-port] ${mixed_port} 🎲 随机分配 $newPort"
         mixed_port=$newPort
         "$BIN_YQ" -i ".mixed-port = $newPort" "$CLASH_CONFIG_MIXIN"
     }
     [ -n "$http_port" ] && _is_port_used "$http_port" && {
+        ((count += 1))
         newPort=$(_get_random_port)
         _failcat '🎯' "端口冲突：[port] ${http_port} 🎲 随机分配 $newPort"
         http_port=$newPort
         "$BIN_YQ" -i ".port = $newPort" "$CLASH_CONFIG_MIXIN"
     }
     [ -n "$socks_port" ] && _is_port_used "$socks_port" && {
+        ((count += 1))
         newPort=$(_get_random_port)
         _failcat '🎯' "端口冲突：[port] ${socks_port} 🎲 随机分配 $newPort [socks-port]"
         socks_port=$newPort
         "$BIN_YQ" -i ".socks-port = $newPort" "$CLASH_CONFIG_MIXIN"
     }
-    _merge_config
+    ((count)) && _merge_config
 }
 
 function clashon() {
@@ -159,6 +162,7 @@ function clashlog() {
 
 function clashui() {
     _detect_ext_addr
+    clashstatus >&/dev/null || clashon >/dev/null
     local query_url='api64.ipify.org' # ifconfig.me
     local public_ip=$(curl -s --noproxy "*" --location --max-time 2 $query_url)
     local public_address="http://${public_ip:-公网}:${EXT_PORT}/ui"
@@ -250,7 +254,10 @@ _merge_config() {
 
 _merge_config_restart() {
     _merge_config
-    clashrestart >/dev/null
+    placeholder_stop >/dev/null
+    sleep 0.1
+    placeholder_start >/dev/null
+    sleep 0.1
 }
 
 function clashsecret() {
@@ -426,6 +433,7 @@ EOF
     done
 
     _detect_ext_addr
+    clashstatus >&/dev/null || clashon >/dev/null
     local secret=$("$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME")
     _okcat '⏳' "请求内核升级..."
     [ "$log_flag" = true ] && {
