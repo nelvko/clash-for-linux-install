@@ -14,7 +14,7 @@ jobs:
       - uses: actions/stale@v9
         with:
           exempt-issue-labels: "bug,documentation,enhancement"
-          days-before-issue-stale: 14
+          days-before-issue-stale: 7
           days-before-issue-close: 7
           stale-issue-label: "stale"
           stale-issue-message: "长时间未活跃，将在 7 天后自动关闭。若仍需讨论，请回复以保持活跃。"
