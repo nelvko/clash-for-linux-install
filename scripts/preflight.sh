@@ -88,31 +88,37 @@ _load_zip() {
 }
 _download_zip() {
     (($#)) || return 0
-    local arch=$(uname -m)
     local url_clash url_mihomo url_yq url_subconverter
 
+    local flags=$(grep -m1 '^flags' /proc/cpuinfo)
+    local level=v1
+    grep -qw sse4_2 <<<"$flags" && grep -qw popcnt <<<"$flags" && level=v2
+    grep -qw avx2 <<<"$flags" && grep -qw fma <<<"$flags" && level=v3
+    VERSION_MIHOMO=${level}-$VERSION_MIHOMO
+
+    local arch=$(uname -m)
     case "$arch" in
     x86_64)
         url_clash=https://downloads.clash.wiki/ClashPremium/clash-linux-amd64-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO}/mihomo-linux-amd64-${VERSION_MIHOMO}.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO#*-}/mihomo-linux-amd64-${VERSION_MIHOMO}.gz
         url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_amd64.tar.gz
         url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_linux64.tar.gz
         ;;
     *86*)
         url_clash=https://downloads.clash.wiki/ClashPremium/clash-linux-386-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO}/mihomo-linux-386-${VERSION_MIHOMO}.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO#*-}/mihomo-linux-386-${VERSION_MIHOMO}.gz
         url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_386.tar.gz
         url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_linux32.tar.gz
         ;;
     armv*)
         url_clash=https://downloads.clash.wiki/ClashPremium/clash-linux-armv5-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO}/mihomo-linux-armv7-${VERSION_MIHOMO}.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO#*-}/mihomo-linux-armv7-${VERSION_MIHOMO}.gz
         url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_arm.tar.gz
         url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_armv7.tar.gz
         ;;
     aarch64)
         url_clash=https://downloads.clash.wiki/ClashPremium/clash-linux-arm64-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO}/mihomo-linux-arm64-${VERSION_MIHOMO}.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO#*-}/mihomo-linux-arm64-${VERSION_MIHOMO}.gz
         url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_arm64.tar.gz
         url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_aarch64.tar.gz
         ;;
@@ -129,7 +135,7 @@ _download_zip() {
     )
 
     local item target_zips=()
-    _okcat '🖥️ ' "系统架构：$arch"
+    _okcat '🖥️ ' "系统架构：$arch ($level)"
     for item in "$@"; do
         local url="${urls[$item]}"
         local proxy_url="${URL_GH_PROXY:+${URL_GH_PROXY%/}/}${url}"
@@ -371,7 +377,7 @@ _set_envs() {
     _set_env INIT_TYPE "$INIT_TYPE"
     _set_env KERNEL_NAME "$KERNEL_NAME"
     _set_env CLASH_BASE_DIR "$CLASH_BASE_DIR"
-
+    _set_env VERSION_MIHOMO "$VERSION_MIHOMO"
 }
 
 _get_random_val() {
