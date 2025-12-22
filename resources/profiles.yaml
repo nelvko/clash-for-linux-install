@@ -1,5 +1,5 @@
-use:
-profiles: 
-  - id: 1
-    url: baidu.com
+# 当前使用的订阅
+use: 
 
+# 订阅列表
+profiles: 

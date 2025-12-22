@@ -6,7 +6,7 @@ CLASH_RESOURCES_DIR="${CLASH_BASE_DIR}/resources"
 CLASH_CONFIG_BASE="${CLASH_RESOURCES_DIR}/config.yaml"
 CLASH_CONFIG_MIXIN="${CLASH_RESOURCES_DIR}/mixin.yaml"
 CLASH_CONFIG_RUNTIME="${CLASH_RESOURCES_DIR}/runtime.yaml"
-CLASH_SUB_LOG="${CLASH_RESOURCES_DIR}/profiles.log"
+CLASH_CONFIG_TEMP="${CLASH_RESOURCES_DIR}/temp.yaml"
 
 BIN_BASE_DIR="${CLASH_BASE_DIR}/bin"
 BIN_KERNEL="${BIN_BASE_DIR}/$KERNEL_NAME"
@@ -135,6 +135,7 @@ function _download_config() {
     local dest=$1
     local url=$2
     [ "${url:0:4}" = 'file' ] && return 0
+    _okcat '⏳' '正在下载...'
     _download_raw_config "$dest" "$url" || return 1
     _okcat '🍃' '下载成功：内核验证配置...'
     _valid_config "$dest" || {
@@ -146,7 +147,7 @@ function _download_config() {
 _download_raw_config() {
     local dest=$1
     local url=$2
-    local agent='clash-verge/v2.0.4'
+    local agent='clash'
 
     curl \
         --silent \

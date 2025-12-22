@@ -17,7 +17,6 @@ _valid_config "$RESOURCES_CONFIG_BASE" || {
         echo -n "$(_okcat '✈️ ' '输入订阅：')"
         read -r CLASH_CONFIG_URL
     }
-    _okcat '⏳' '正在下载...'
     _download_config "$RESOURCES_CONFIG_BASE" "$CLASH_CONFIG_URL" || _error_quit "下载失败: 请将配置内容写入 $RESOURCES_CONFIG_BASE 后重新安装"
     _valid_config "$RESOURCES_CONFIG_BASE" || _error_quit "订阅无效，请检查：
     原始订阅：${RESOURCES_CONFIG_BASE}.raw
