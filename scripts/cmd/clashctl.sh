@@ -305,25 +305,32 @@ _tunstatus() {
         ;;
     esac
 }
-
 _tunoff() {
     _tunstatus >/dev/null || return 0
     "$BIN_YQ" -i '.tun.enable = false' "$CLASH_CONFIG_MIXIN"
-    _merge_config_restart && _okcat "Tun 模式已关闭"
+    _merge_config
+    sudo placeholder_stop
+    clashon >/dev/null
+    _okcat "Tun 模式已关闭"
 }
-
+_sudo_restart() {
+    sudo placeholder_stop
+    sleep 0.3
+    placeholder_sudo_start
+    sleep 0.3
+}
 _tunon() {
     _tunstatus 2>/dev/null && return 0
     "$BIN_YQ" -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
-    _merge_config_restart
-    sleep 0.3s
+    _merge_config
+    _sudo_restart
     local fail_msg="Start TUN listening error|unsupported kernel version"
     local ok_msg="Tun adapter listening at|TUN listening iface"
     clashlog | grep -E -m1 -qs "$fail_msg" && {
         [ "$KERNEL_NAME" = 'mihomo' ] && {
             "$BIN_YQ" -i '.tun.auto-redirect = false' "$CLASH_CONFIG_MIXIN"
-            _merge_config_restart
-            sleep 0.3s
+            _merge_config
+            _sudo_restart
         }
         clashlog | grep -E -m1 -qs "$ok_msg" || {
             clashlog | grep -E -m1 "$fail_msg"

@@ -288,6 +288,7 @@ _nohup() {
     service_disable=(false)
 
     service_start=('(' nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>\&' "$FILE_LOG" '\&' ')')
+    service_sudo_start=('(' sudo nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>\&' "$FILE_LOG" '\&' ')')
     service_status=(pgrep -fa "$BIN_KERNEL")
     service_stop=(pkill -9 -f "$BIN_KERNEL")
 }
@@ -315,6 +316,7 @@ _install_service() {
 
     sed -i \
         -e "s#placeholder_start#${service_start[*]}#g" \
+        -e "s#placeholder_sudo_start#${service_sudo_start[*]}#g" \
         -e "s#placeholder_status#${service_status[*]}#g" \
         -e "s#placeholder_is_active#${service_is_active[*]}#g" \
         -e "s#placeholder_stop#${service_stop[*]}#g" \
