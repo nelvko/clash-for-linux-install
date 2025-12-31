@@ -23,7 +23,6 @@ _valid_config "$RESOURCES_CONFIG_BASE" || {
     转换订阅：$RESOURCES_CONFIG_BASE
     转换日志：$BIN_SUBCONVERTER_LOG"
 }
-_okcat '✅' '配置可用'
 
 /bin/cp -rf . "$CLASH_BASE_DIR"
 _set_envs
@@ -38,7 +37,10 @@ clashsecret
 
 _is_regular_sudo && chown -R "$SUDO_USER" "$CLASH_BASE_DIR"
 
-clashctl
+[ -z "$CLASH_CONFIG_URL" ] && CLASH_CONFIG_URL="file://$CLASH_CONFIG_BASE"
+clashsub add "$CLASH_CONFIG_URL" >/dev/null
+clashsub use 1
 clashon
 _okcat '🎉' 'enjoy 🎉'
+clashctl
 _quit

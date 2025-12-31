@@ -134,10 +134,9 @@ function _valid_config() {
 function _download_config() {
     local dest=$1
     local url=$2
-    [ "${url:0:4}" = 'file' ] && return 0
-    _okcat '⏳' '正在下载...'
+    [ "${url:0:4}" = 'file' ] || _okcat '⏳' '正在下载...'
     _download_raw_config "$dest" "$url" || return 1
-    _okcat '🍃' '下载成功：内核验证配置...'
+    _okcat '🍃' '验证订阅配置...'
     _valid_config "$dest" || {
         _failcat '🍂' "验证失败：尝试订阅转换..."
         cat "$dest" >"${dest}.raw"
