@@ -146,7 +146,6 @@ function _download_config() {
 _download_raw_config() {
     local dest=$1
     local url=$2
-    local agent='clash'
 
     curl \
         --silent \
@@ -156,7 +155,7 @@ _download_raw_config() {
         --location \
         --max-time 5 \
         --retry 1 \
-        --user-agent "$agent" \
+        --user-agent "$CLASH_SUB_UA" \
         --output "$dest" \
         "$url" ||
         wget \
@@ -164,7 +163,7 @@ _download_raw_config() {
             --no-check-certificate \
             --timeout 5 \
             --tries 1 \
-            --user-agent "$agent" \
+            --user-agent "$CLASH_SUB_UA" \
             --output-document "$dest" \
             "$url"
 }
@@ -188,7 +187,7 @@ _download_convert_config() {
             --write-out '%{url_effective}' \
             "$base_url"
     )
-    curl --silent --output "$dest" "$convert_url"
+    curl --user-agent "$CLASH_SUB_UA" --silent --output "$dest" "$convert_url"
     flag=$?
     _stop_convert
     return $flag
