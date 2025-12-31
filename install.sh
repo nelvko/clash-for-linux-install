@@ -17,14 +17,12 @@ _valid_config "$RESOURCES_CONFIG_BASE" || {
         echo -n "$(_okcat '✈️ ' '输入订阅：')"
         read -r CLASH_CONFIG_URL
     }
-    _okcat '⏳' '正在下载...'
     _download_config "$RESOURCES_CONFIG_BASE" "$CLASH_CONFIG_URL" || _error_quit "下载失败: 请将配置内容写入 $RESOURCES_CONFIG_BASE 后重新安装"
     _valid_config "$RESOURCES_CONFIG_BASE" || _error_quit "订阅无效，请检查：
     原始订阅：${RESOURCES_CONFIG_BASE}.raw
     转换订阅：$RESOURCES_CONFIG_BASE
     转换日志：$BIN_SUBCONVERTER_LOG"
 }
-_okcat '✅' '配置可用'
 
 /bin/cp -rf . "$CLASH_BASE_DIR"
 _set_envs
@@ -39,7 +37,10 @@ clashsecret
 
 _is_regular_sudo && chown -R "$SUDO_USER" "$CLASH_BASE_DIR"
 
-clashctl
+[ -z "$CLASH_CONFIG_URL" ] && CLASH_CONFIG_URL="file://$CLASH_CONFIG_BASE"
+clashsub add "$CLASH_CONFIG_URL" >/dev/null
+clashsub use 1
 clashon
 _okcat '🎉' 'enjoy 🎉'
+clashctl
 _quit

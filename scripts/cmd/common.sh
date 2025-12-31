@@ -6,7 +6,7 @@ CLASH_RESOURCES_DIR="${CLASH_BASE_DIR}/resources"
 CLASH_CONFIG_BASE="${CLASH_RESOURCES_DIR}/config.yaml"
 CLASH_CONFIG_MIXIN="${CLASH_RESOURCES_DIR}/mixin.yaml"
 CLASH_CONFIG_RUNTIME="${CLASH_RESOURCES_DIR}/runtime.yaml"
-CLASH_SUB_LOG="${CLASH_RESOURCES_DIR}/profiles.log"
+CLASH_CONFIG_TEMP="${CLASH_RESOURCES_DIR}/temp.yaml"
 
 BIN_BASE_DIR="${CLASH_BASE_DIR}/bin"
 BIN_KERNEL="${BIN_BASE_DIR}/$KERNEL_NAME"
@@ -17,6 +17,10 @@ BIN_SUBCONVERTER_START="$BIN_SUBCONVERTER"
 BIN_SUBCONVERTER_STOP="pkill -9 -f $BIN_SUBCONVERTER"
 BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
 BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
+
+CLASH_PROFILES_DIR="${CLASH_RESOURCES_DIR}/profiles"
+CLASH_PROFILES_META="${CLASH_RESOURCES_DIR}/profiles.yaml"
+CLASH_PROFILES_LOG="${CLASH_RESOURCES_DIR}/profiles.log"
 
 _is_port_used() {
     local port=$1
@@ -130,9 +134,9 @@ function _valid_config() {
 function _download_config() {
     local dest=$1
     local url=$2
-    [ "${url:0:4}" = 'file' ] && return 0
+    [ "${url:0:4}" = 'file' ] || _okcat '⏳' '正在下载...'
     _download_raw_config "$dest" "$url" || return 1
-    _okcat '🍃' '下载成功：内核验证配置...'
+    _okcat '🍃' '验证订阅配置...'
     _valid_config "$dest" || {
         _failcat '🍂' "验证失败：尝试订阅转换..."
         cat "$dest" >"${dest}.raw"
@@ -142,7 +146,7 @@ function _download_config() {
 _download_raw_config() {
     local dest=$1
     local url=$2
-    local agent='clash-verge/v2.0.4'
+    local agent='clash'
 
     curl \
         --silent \

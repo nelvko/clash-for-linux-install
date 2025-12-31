@@ -43,7 +43,8 @@ _detect_proxy_port() {
     local http_port=$("$BIN_YQ" '.port // ""' "$CLASH_CONFIG_RUNTIME")
     local socks_port=$("$BIN_YQ" '.socks-port // ""' "$CLASH_CONFIG_RUNTIME")
     local newPort count=0
-    _is_port_used "$mixed_port" && {
+    [ -z "$mixed_port" ] && [ -z "$http_port" ] && [ -z "$socks_port" ] && mixed_port=7890
+    [ -n "$mixed_port" ] && _is_port_used "$mixed_port" && {
         ((count += 1))
         newPort=$(_get_random_port)
         _failcat '🎯' "端口冲突：[mixed-port] ${mixed_port} 🎲 随机分配 $newPort"
@@ -184,8 +185,7 @@ function clashui() {
 }
 
 _merge_config() {
-    local bak="${CLASH_CONFIG_RUNTIME}.bak"
-    cat "$CLASH_CONFIG_RUNTIME" >"$bak" 2>/dev/null
+    cat "$CLASH_CONFIG_RUNTIME" >"$CLASH_CONFIG_TEMP" 2>/dev/null
     # shellcheck disable=SC2016
     "$BIN_YQ" eval-all '
       ########################################
@@ -247,7 +247,7 @@ _merge_config() {
       )
     ' "$CLASH_CONFIG_BASE" "$CLASH_CONFIG_MIXIN" >"$CLASH_CONFIG_RUNTIME"
     _valid_config "$CLASH_CONFIG_RUNTIME" || {
-        cat "$bak" >"$CLASH_CONFIG_RUNTIME"
+        cat "$CLASH_CONFIG_TEMP" >"$CLASH_CONFIG_RUNTIME"
         _error_quit "验证失败：请检查 Mixin 配置"
     }
 }
@@ -471,7 +471,22 @@ EOF
 
 function clashsub() {
     case "$1" in
-
+    add)
+        shift
+        _sub_add "$@"
+        ;;
+    del)
+        shift
+        _sub_del "$@"
+        ;;
+    list | ls | '')
+        shift
+        _sub_list "$@"
+        ;;
+    use)
+        shift
+        _sub_use "$@"
+        ;;
     update)
         shift
         _sub_update "$@"
@@ -480,27 +495,106 @@ function clashsub() {
         shift
         _sub_log "$@"
         ;;
-
     -h | --help | *)
         cat <<EOF
-    
+clashsub - Clash 订阅管理工具
+
 Usage: 
   clashsub COMMAND [OPTIONS]
 
 Commands:
-  update                 # 更新订阅
-  log                    # 查看更新日志
+  add <url>       添加订阅
+  ls              查看订阅
+  del <id>        删除订阅
+  use <id>        使用订阅
+  update [id]     更新订阅
+  log             订阅日志
 
 Options:
-    --auto               # 设置自动更新
-    --convert            # 强制使用订阅转换
-
+  update:
+    --auto        配置自动更新
+    --convert     使用订阅转换
 EOF
         ;;
     esac
 }
+_sub_add() {
+    local url=$1
+    [ -z "$url" ] && {
+        echo -n "$(_okcat '✈️ ' '请输入要添加的订阅链接：')"
+        read -r url
+        [ -z "$url" ] && _error_quit "订阅链接不能为空"
+    }
+    _get_url_by_id "$id" >/dev/null && _error_quit "该订阅链接已存在"
+
+    _download_config "$CLASH_CONFIG_TEMP" "$url"
+    _valid_config "$CLASH_CONFIG_TEMP" || _error_quit "订阅无效，请检查：
+    原始订阅：${CLASH_CONFIG_TEMP}.raw
+    转换订阅：$CLASH_CONFIG_TEMP
+    转换日志：$BIN_SUBCONVERTER_LOG"
+
+    local id=$("$BIN_YQ" '.profiles // [] | (map(.id) | max) // 0 | . + 1' "$CLASH_PROFILES_META")
+    local path="${CLASH_PROFILES_DIR}/${id}.yaml"
+    mv "$CLASH_CONFIG_TEMP" "$path"
+
+    "$BIN_YQ" -i "
+         .profiles = (.profiles // []) + 
+         [{
+           \"id\": $id,
+           \"path\": \"$path\",
+           \"url\": \"$url\"
+         }]
+    " "$CLASH_PROFILES_META"
+    _logging_sub "➕ 已添加订阅：[$id] $url"
+    _okcat '🎉' "订阅已添加：[$id] $url"
+}
+_sub_del() {
+    local id=$1
+    [ -z "$id" ] && {
+        echo -n "$(_okcat '✈️ ' '请输入要删除的订阅 id：')"
+        read -r id
+        [ -z "$id" ] && _error_quit "订阅 id 不能为空"
+    }
+    local path url
+    path=$(_get_path_by_id "$id") || _error_quit "订阅 id 不存在，请检查"
+    url=$(_get_url_by_id "$id")
+    use=$("$BIN_YQ" '.use // ""' "$CLASH_PROFILES_META")
+    [ "$use" = "$id" ] && _error_quit "删除失败：订阅 $id 正在使用中，请先切换订阅"
+    /usr/bin/rm -f "$path"
+    "$BIN_YQ" -i "del(.profiles[] | select(.id == \"$id\"))" "$CLASH_PROFILES_META"
+    _logging_sub "➖ 已删除订阅：[$id] $url"
+    _okcat '🎉' "订阅已删除：[$id] $url"
+}
+_sub_list() {
+    "$BIN_YQ" "$CLASH_PROFILES_META"
+}
+_sub_use() {
+    "$BIN_YQ" -e '.profiles // [] | length == 0' "$CLASH_PROFILES_META" >&/dev/null &&
+        _error_quit "当前无可用订阅，请先添加订阅"
+    local id=$1
+    [ -z "$id" ] && {
+        clashsub ls
+        echo -n "$(_okcat '✈️ ' '请输入要使用的订阅 id：')"
+        read -r id
+        [ -z "$id" ] && _error_quit "订阅 id 不能为空"
+    }
+    local path url
+    path=$(_get_path_by_id "$id") || _error_quit "订阅 id 不存在，请检查"
+    url=$(_get_url_by_id "$id")
+    cat "$path" >"$CLASH_CONFIG_BASE"
+    _merge_config_restart
+    "$BIN_YQ" -i ".use = $id" "$CLASH_PROFILES_META"
+    _logging_sub "🔥 订阅已切换为：[$id] $url"
+    _okcat '🔥' '订阅已生效'
+}
+_get_path_by_id() {
+    "$BIN_YQ" -e ".profiles[] | select(.id == \"$1\") | .path" "$CLASH_PROFILES_META" 2>/dev/null
+}
+_get_url_by_id() {
+    "$BIN_YQ" -e ".profiles[] | select(.id == \"$1\") | .url" "$CLASH_PROFILES_META" 2>/dev/null
+}
 _sub_update() {
-    local url is_convert is_merge
+    local arg is_convert
     for arg in "$@"; do
         case $arg in
         --auto)
@@ -518,54 +612,39 @@ _sub_update() {
             is_convert=true
             shift
             ;;
-        --merge)
-            is_merge=true
-            shift
-            ;;
         esac
     done
-    url=$1
-    [ -z "$url" ] && {
-        url=$CLASH_CONFIG_URL
-        [ -z "$url" ] && {
-            _failcat "未提供订阅链接，使用本地配置更新：${CLASH_CONFIG_BASE}"
-            url="file://$CLASH_CONFIG_BASE"
-        }
-    }
-    _okcat '👌' "正在下载：原配置已备份..."
-    local bak="${CLASH_CONFIG_BASE}.bak"
-    local raw="${CLASH_CONFIG_BASE}.raw"
-    local convert="${CLASH_CONFIG_BASE}.convert"
-    : >"$raw"
-    : >"$convert"
-    cat "$CLASH_CONFIG_BASE" >"$bak"
-    _rollback() {
-        _failcat '🍂' "$1"
-        cat "$CLASH_CONFIG_BASE" >"$convert"
-        cat "$bak" >"$CLASH_CONFIG_BASE"
-        _logging_sub "❌ 订阅更新失败：$url"
-        _error_quit
-    }
-    [[ "$is_convert" = true || "$is_merge" = true ]] && {
-        _download_convert_config "$CLASH_CONFIG_BASE" "$url"
-    }
-    [[ "$is_convert" != true && "$is_merge" != true ]] && {
-        _download_config "$CLASH_CONFIG_BASE" "$url"
-    }
-    _valid_config "$CLASH_CONFIG_BASE" || _rollback "订阅无效：已回滚原配置，请检查：
-    原始订阅：$raw
-    转换订阅：$convert
-    转换日志：$BIN_SUBCONVERTER_LOG"
-    _set_env CLASH_CONFIG_URL "$url"
+    local id=$1
+    [ -z "$id" ] && id=$("$BIN_YQ" '.use // 1' "$CLASH_PROFILES_META")
+    local url path
+    url=$(_get_url_by_id "$id") || _error_quit "订阅 id 不存在，请检查"
+    path=$(_get_path_by_id "$id")
+    _okcat "✈️ " "更新订阅：[$id] $url"
 
-    _merge_config_restart && _okcat '🍃' '订阅更新成功，已重启生效'
-    _logging_sub "✅ 订阅更新成功：$url"
+    [ "$is_convert" = true ] && {
+        _download_convert_config "$CLASH_CONFIG_TEMP" "$url"
+    }
+    [ "$is_convert" != true ] && {
+        _download_config "$CLASH_CONFIG_TEMP" "$url"
+    }
+    _valid_config "$CLASH_CONFIG_TEMP" || {
+        _logging_sub "❌ 订阅更新失败：[$id] $url"
+        _error_quit "订阅无效：请检查：
+    原始订阅：${CLASH_CONFIG_TEMP}.raw
+    转换订阅：$CLASH_CONFIG_TEMP
+    转换日志：$BIN_SUBCONVERTER_LOG"
+    }
+    _logging_sub "✅ 订阅更新成功：[$id] $url"
+    cat "$CLASH_CONFIG_TEMP" >"$path"
+    use=$("$BIN_YQ" '.use // ""' "$CLASH_PROFILES_META")
+    [ "$use" = "$id" ] && clashsub use "$use" && return
+    _okcat '订阅已更新'
 }
 _logging_sub() {
-    echo "$(date +"%Y-%m-%d %H:%M:%S") $1" >>"${CLASH_SUB_LOG}"
+    echo "$(date +"%Y-%m-%d %H:%M:%S") $1" >>"${CLASH_PROFILES_LOG}"
 }
 _sub_log() {
-    tail <"${CLASH_SUB_LOG}" "$@"
+    tail <"${CLASH_PROFILES_LOG}" "$@"
 }
 
 function clashctl() {
@@ -633,11 +712,11 @@ Commands:
   proxy                 系统代理
   status                内核状态
   ui                    面板地址
+  sub                   订阅管理
   log                   内核日志
   tun                   Tun 模式
   mixin                 Mixin 配置
   secret                Web 密钥
-  sub                   更新订阅
   upgrade               升级内核
 
 Global Options:

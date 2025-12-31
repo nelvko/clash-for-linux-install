@@ -16,6 +16,7 @@
 - 在需要时调用 [subconverter](https://github.com/tindy2013/subconverter) 进行本地订阅转换。
 
 ## 🚀 一键安装
+
 在终端中执行以下命令即可完成安装：
 
 ```bash
@@ -27,19 +28,6 @@ git clone --branch master --depth 1 https://gh-proxy.org/https://github.com/nelv
 - 上述命令使用了[加速前缀](https://gh-proxy.org/)，如失效可更换其他[可用链接](https://ghproxy.link/)。
 - 可通过 `.env` 文件或脚本参数自定义安装选项。
 - 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
-
-**示例：**
-
-```bash
-# 默认安装 mihomo
-bash install.sh
-
-# 安装 clash
-bash install.sh clash
-
-# 普通用户提权安装
-sudo bash install.sh
-```
 
 ## ⌨️ 命令一览
 
@@ -135,21 +123,28 @@ $ clashupgrade
 ### 管理订阅
 
 ```bash
-$ clashsub update https://example.com
-👌 正在下载：原配置已备份...
-🍃 下载成功：内核验证配置...
-🍃 订阅更新成功
+$ clashsub -h
+Usage: 
+  clashsub COMMAND [OPTIONS]
 
-$ clashsub update --auto
-😼 已设置定时更新订阅
+Commands:
+  add <url>       添加订阅
+  ls              查看订阅
+  del <id>        删除订阅
+  use <id>        使用订阅
+  update [id]     更新订阅
+  log             订阅日志
 
-$ clashsub log
-2025-12-12 18:03:21 ✅ 订阅更新成功：https://example.com
+
+Options:
+  update:
+    --auto        配置自动更新
+    --convert     使用订阅转换
 ```
 
-- 可通过 `.env` 文件配置默认订阅链接。
-- 若不存在可用的订阅链接，则基于当前原始订阅配置（`config.yaml`）进行更新。
-- 可通过 `crontab -e` 修改定时更新配置。
+- 支持添加本地订阅，例如：`file:///root/clashctl/resources/config.yaml`
+- 当订阅链接解析失败或包含特殊字符时，请使用引号包裹以避免被错误解析。
+- 自动更新任务可通过 `crontab -e` 进行修改和管理。
 
 ### `Tun` 模式
 
