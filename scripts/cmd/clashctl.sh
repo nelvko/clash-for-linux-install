@@ -534,14 +534,14 @@ _sub_add() {
     转换日志：$BIN_SUBCONVERTER_LOG"
 
     local id=$("$BIN_YQ" '.profiles // [] | (map(.id) | max) // 0 | . + 1' "$CLASH_PROFILES_META")
-    local path="${CLASH_PROFILES_DIR}/${id}.yaml"
-    mv "$CLASH_CONFIG_TEMP" "$path"
+    local profile_path="${CLASH_PROFILES_DIR}/${id}.yaml"
+    mv "$CLASH_CONFIG_TEMP" "$profile_path"
 
     "$BIN_YQ" -i "
          .profiles = (.profiles // []) + 
          [{
            \"id\": $id,
-           \"path\": \"$path\",
+           \"path\": \"$profile_path\",
            \"url\": \"$url\"
          }]
     " "$CLASH_PROFILES_META"
@@ -555,12 +555,12 @@ _sub_del() {
         read -r id
         [ -z "$id" ] && _error_quit "订阅 id 不能为空"
     }
-    local path url
-    path=$(_get_path_by_id "$id") || _error_quit "订阅 id 不存在，请检查"
+    local profile_path url
+    profile_path=$(_get_path_by_id "$id") || _error_quit "订阅 id 不存在，请检查"
     url=$(_get_url_by_id "$id")
     use=$("$BIN_YQ" '.use // ""' "$CLASH_PROFILES_META")
     [ "$use" = "$id" ] && _error_quit "删除失败：订阅 $id 正在使用中，请先切换订阅"
-    /usr/bin/rm -f "$path"
+    /usr/bin/rm -f "$profile_path"
     "$BIN_YQ" -i "del(.profiles[] | select(.id == \"$id\"))" "$CLASH_PROFILES_META"
     _logging_sub "➖ 已删除订阅：[$id] $url"
     _okcat '🎉' "订阅已删除：[$id] $url"
@@ -578,10 +578,10 @@ _sub_use() {
         read -r id
         [ -z "$id" ] && _error_quit "订阅 id 不能为空"
     }
-    local path url
-    path=$(_get_path_by_id "$id") || _error_quit "订阅 id 不存在，请检查"
+    local profile_path url
+    profile_path=$(_get_path_by_id "$id") || _error_quit "订阅 id 不存在，请检查"
     url=$(_get_url_by_id "$id")
-    cat "$path" >"$CLASH_CONFIG_BASE"
+    cat "$profile_path" >"$CLASH_CONFIG_BASE"
     _merge_config_restart
     "$BIN_YQ" -i ".use = $id" "$CLASH_PROFILES_META"
     _logging_sub "🔥 订阅已切换为：[$id] $url"
@@ -616,9 +616,9 @@ _sub_update() {
     done
     local id=$1
     [ -z "$id" ] && id=$("$BIN_YQ" '.use // 1' "$CLASH_PROFILES_META")
-    local url path
+    local url profile_path
     url=$(_get_url_by_id "$id") || _error_quit "订阅 id 不存在，请检查"
-    path=$(_get_path_by_id "$id")
+    profile_path=$(_get_path_by_id "$id")
     _okcat "✈️ " "更新订阅：[$id] $url"
 
     [ "$is_convert" = true ] && {
@@ -635,7 +635,7 @@ _sub_update() {
     转换日志：$BIN_SUBCONVERTER_LOG"
     }
     _logging_sub "✅ 订阅更新成功：[$id] $url"
-    cat "$CLASH_CONFIG_TEMP" >"$path"
+    cat "$CLASH_CONFIG_TEMP" >"$profile_path"
     use=$("$BIN_YQ" '.use // ""' "$CLASH_PROFILES_META")
     [ "$use" = "$id" ] && clashsub use "$use" && return
     _okcat '订阅已更新'
