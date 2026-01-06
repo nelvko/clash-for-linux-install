@@ -374,7 +374,6 @@ _revoke_rc() {
 }
 
 _set_envs() {
-    _set_env CLASH_CONFIG_URL "$CLASH_CONFIG_URL"
     _set_env INIT_TYPE "$INIT_TYPE"
     _set_env KERNEL_NAME "$KERNEL_NAME"
     _set_env CLASH_BASE_DIR "$CLASH_BASE_DIR"
@@ -394,5 +393,5 @@ _is_root() {
 
 _quit() {
     _is_regular_sudo && exec su "$SUDO_USER"
-    exec "$SHELL" -i
+    exec "$SHELL" -i -c "$*"
 }

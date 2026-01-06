@@ -198,7 +198,7 @@ _merge_config() {
       #              Deep Merge              #
       ########################################
       $mixin |= del(._custom) |
-      ($config * $mixin) as $runtime |
+      (($config // {}) * $mixin) as $runtime |
       $runtime |
       
       ########################################
