@@ -4,7 +4,10 @@ clashstatus \
 clashsecret \
 clashtun \
 clashmixin \
-clashupdate \
+clashsub \
+clashproxy \
+clashlog \
+clashupgrade \
 clashhelp
 
 set -gx fish_version $FISH_VERSION
