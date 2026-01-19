@@ -20,12 +20,15 @@ _is_regular_sudo && chown -R "$SUDO_USER" "$CLASH_BASE_DIR"
 _install_service
 _apply_rc
 
-clashsecret "$(_get_random_val)" >/dev/null
+
+_merge_config
+_detect_proxy_port
 clashui
+clashsecret "$(_get_random_val)" >/dev/null
 clashsecret
 
 _okcat '🎉' 'enjoy 🎉'
 clashctl
 
-_valid_config "$RESOURCES_CONFIG_BASE" && CLASH_CONFIG_URL="file://$CLASH_CONFIG_BASE"
+_valid_config "$CLASH_CONFIG_BASE" && CLASH_CONFIG_URL="file://$CLASH_CONFIG_BASE"
 _quit "clashsub add $CLASH_CONFIG_URL && clashsub use 1"

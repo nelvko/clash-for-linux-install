@@ -42,40 +42,34 @@ _detect_proxy_port() {
     local mixed_port=$("$BIN_YQ" '.mixed-port // ""' "$CLASH_CONFIG_RUNTIME")
     local http_port=$("$BIN_YQ" '.port // ""' "$CLASH_CONFIG_RUNTIME")
     local socks_port=$("$BIN_YQ" '.socks-port // ""' "$CLASH_CONFIG_RUNTIME")
-    local newPort count=0
     [ -z "$mixed_port" ] && [ -z "$http_port" ] && [ -z "$socks_port" ] && mixed_port=7890
-    [ -n "$mixed_port" ] && _is_port_used "$mixed_port" && {
-        ((count += 1))
-        newPort=$(_get_random_port)
-        _failcat '🎯' "端口冲突：[mixed-port] ${mixed_port} 🎲 随机分配 $newPort"
-        mixed_port=$newPort
-        "$BIN_YQ" -i ".mixed-port = $newPort" "$CLASH_CONFIG_MIXIN"
-    }
-    [ -n "$http_port" ] && _is_port_used "$http_port" && {
-        ((count += 1))
-        newPort=$(_get_random_port)
-        _failcat '🎯' "端口冲突：[port] ${http_port} 🎲 随机分配 $newPort"
-        http_port=$newPort
-        "$BIN_YQ" -i ".port = $newPort" "$CLASH_CONFIG_MIXIN"
-    }
-    [ -n "$socks_port" ] && _is_port_used "$socks_port" && {
-        ((count += 1))
-        newPort=$(_get_random_port)
-        _failcat '🎯' "端口冲突：[port] ${socks_port} 🎲 随机分配 $newPort [socks-port]"
-        socks_port=$newPort
-        "$BIN_YQ" -i ".socks-port = $newPort" "$CLASH_CONFIG_MIXIN"
-    }
+
+    local newPort count=0
+    local port_list=(
+        "mixed_port|mixed-port"
+        "http_port|port"
+        "socks_port|socks-port"
+    )
+    clashstatus >&/dev/null && local isActive='true'
+    for entry in "${port_list[@]}"; do
+        local var_name="${entry%|*}"
+        local yaml_key="${entry#*|}"
+        [ -n "${!var_name}" ] && _is_port_used "${!var_name}" && [ "$isActive" != "true" ] && {
+            newPort=$(_get_random_port)
+            ((count++))
+            _failcat '🎯' "端口冲突：[$yaml_key] ${!var_name} 🎲 随机分配 $newPort"
+            "$BIN_YQ" -i ".${yaml_key} = $newPort" "$CLASH_CONFIG_MIXIN"
+        }
+    done
     ((count)) && _merge_config
 }
 
 function clashon() {
+    _detect_proxy_port
+    clashstatus >&/dev/null || placeholder_start
     clashstatus >&/dev/null || {
-        _detect_proxy_port
-        placeholder_start
-        clashstatus >/dev/null || {
-            _failcat '启动失败: 执行 clashlog 查看日志'
-            return 1
-        }
+        _failcat '启动失败: 执行 clashlog 查看日志'
+        return 1
     }
     clashproxy >/dev/null && _set_system_proxy
     _okcat '已开启代理环境'
@@ -91,9 +85,13 @@ watch_proxy() {
 }
 
 function clashoff() {
-    clashstatus >/dev/null && {
-        placeholder_stop >/dev/null || {
-            _failcat '关闭失败: 可执行 clashlog 查看日志'
+    clashstatus >&/dev/null && {
+        placeholder_stop >/dev/null
+        clashstatus >&/dev/null && _tunstatus >&/dev/null && {
+            _tunoff || _error_quit "请先关闭 Tun 模式"
+        }
+        clashstatus >&/dev/null && {
+            _failcat '代理环境关闭失败'
             return 1
         }
     }
@@ -154,7 +152,7 @@ $(env | grep -i 'proxy=')"
 
 function clashstatus() {
     placeholder_status "$@"
-    placeholder_is_active
+    placeholder_is_active >&/dev/null
 }
 
 function clashlog() {
@@ -259,7 +257,9 @@ _merge_config_restart() {
     placeholder_start >/dev/null
     sleep 0.1
 }
-
+_get_secret() {
+    "$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME"
+}
 function clashsecret() {
     case "$1" in
     -h | --help)
@@ -278,7 +278,7 @@ EOF
 
     case $# in
     0)
-        _okcat "当前密钥：$("$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME")"
+        _okcat "当前密钥：$(_get_secret)"
         ;;
     1)
         "$BIN_YQ" -i ".secret = \"$1\"" "$CLASH_CONFIG_MIXIN" || {
@@ -307,23 +307,29 @@ _tunstatus() {
 }
 _tunoff() {
     _tunstatus >/dev/null || return 0
-    "$BIN_YQ" -i '.tun.enable = false' "$CLASH_CONFIG_MIXIN"
-    _merge_config
     sudo placeholder_stop
-    clashon >/dev/null
-    _okcat "Tun 模式已关闭"
+    clashstatus >&/dev/null || {
+        "$BIN_YQ" -i '.tun.enable = false' "$CLASH_CONFIG_MIXIN"
+        _merge_config
+        clashon >/dev/null
+        _okcat "Tun 模式已关闭"
+        return 0
+    }
+    _tunstatus >&/dev/null && _failcat "Tun 模式关闭失败"
 }
 _sudo_restart() {
     sudo placeholder_stop
-    sleep 0.3
     placeholder_sudo_start
-    sleep 0.3
+    sleep 0.5
 }
 _tunon() {
     _tunstatus 2>/dev/null && return 0
+    sudo placeholder_stop
     "$BIN_YQ" -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
     _merge_config
-    _sudo_restart
+    placeholder_sudo_start
+    sleep 0.5
+    clashstatus >&/dev/null || _error_quit "Tun 模式开启失败"
     local fail_msg="Start TUN listening error|unsupported kernel version"
     local ok_msg="Tun adapter listening at|TUN listening iface"
     clashlog | grep -E -m1 -qs "$fail_msg" && {
@@ -441,7 +447,6 @@ EOF
 
     _detect_ext_addr
     clashstatus >&/dev/null || clashon >/dev/null
-    local secret=$("$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME")
     _okcat '⏳' "请求内核升级..."
     [ "$log_flag" = true ] && {
         log_cmd=(placeholder_follow_log)
@@ -453,7 +458,7 @@ EOF
             --silent \
             --noproxy "*" \
             --location \
-            -H "Authorization: Bearer $secret" \
+            -H "Authorization: Bearer $(_get_secret)" \
             "http://${EXT_IP}:${EXT_PORT}/upgrade?channel=$channel"
     )
     [ "$log_flag" = true ] && pkill -9 -f "${log_cmd[*]}"

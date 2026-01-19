@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 
 RESOURCES_BASE_DIR=".${CLASH_RESOURCES_DIR#"$CLASH_BASE_DIR"}"
-RESOURCES_CONFIG_BASE=".${CLASH_CONFIG_BASE#"$CLASH_BASE_DIR"}"
-RESOURCES_CONFIG_MIXIN=".${CLASH_CONFIG_MIXIN#"$CLASH_BASE_DIR"}"
 
 ZIP_BASE_DIR=".${CLASH_RESOURCES_DIR#"$CLASH_BASE_DIR"}/zip"
 
@@ -228,6 +226,7 @@ _openrc() {
     service_stop=(rc-service "$KERNEL_NAME" stop)
     service_restart=(rc-service "$KERNEL_NAME" restart)
     service_status=(rc-service "$KERNEL_NAME" status)
+    service_is_active=(rc-service "$KERNEL_NAME" status)
 }
 _runit() {
     service_src="${SCRIPT_INIT_DIR}/runit.sh"
@@ -267,6 +266,7 @@ _sysvinit() {
     service_stop=(service "$KERNEL_NAME" stop)
     service_restart=(service "$KERNEL_NAME" restart)
     service_status=(service "$KERNEL_NAME" status)
+    service_is_active=(service "$KERNEL_NAME" status)
 }
 # shellcheck disable=SC2206
 _systemd() {
@@ -282,14 +282,16 @@ _systemd() {
     service_stop=($_SUDO systemctl stop "$KERNEL_NAME")
     service_restart=($_SUDO systemctl restart "$KERNEL_NAME")
     service_status=($_SUDO systemctl status "$KERNEL_NAME")
+    service_is_active=($_SUDO systemctl is-active "$KERNEL_NAME")
 }
 _nohup() {
     service_enable=(false)
     service_disable=(false)
 
     service_start=('(' nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>\&' "$FILE_LOG" '\&' ')')
-    service_sudo_start=('(' sudo nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>\&' "$FILE_LOG" '\&' ')')
+    service_sudo_start=(sudo nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>\&' "$FILE_LOG" '\&')
     service_status=(pgrep -fa "$BIN_KERNEL")
+    service_is_active=(pgrep -fa "$BIN_KERNEL")
     service_stop=(pkill -9 -f "$BIN_KERNEL")
 }
 
@@ -313,7 +315,7 @@ _install_service() {
             -e "s#placeholder_kernel_desc#$kernel_desc#g" \
             "$service_target"
     }
-
+    [ "$INIT_TYPE" != "nohup" ] && service_sudo_start=("${service_start[@]}")
     sed -i \
         -e "s#placeholder_start#${service_start[*]}#g" \
         -e "s#placeholder_sudo_start#${service_sudo_start[*]}#g" \

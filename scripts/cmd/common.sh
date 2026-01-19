@@ -61,8 +61,8 @@ function _detect_ext_addr() {
     EXT_IP=$ext_ip
     EXT_PORT=${ext_addr##*:}
     [ "$ext_ip" = '0.0.0.0' ] && EXT_IP=$(_get_local_ip)
-    _is_port_used "$EXT_PORT" && clashstatus >&/dev/null && clashoff >&/dev/null
     _is_port_used "$EXT_PORT" && {
+        curl -s --noproxy "*" -H "Authorization: Bearer $(_get_secret)" "127.0.0.1:${EXT_PORT}" | grep -qs "${KERNEL_NAME}" && return 0
         local newPort=$(_get_random_port)
         _failcat '🎯' "端口冲突：[external-controller] ${EXT_PORT} 🎲 随机分配 $newPort"
         EXT_PORT=$newPort

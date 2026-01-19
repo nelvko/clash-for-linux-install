@@ -3,7 +3,7 @@
 . "$CLASH_BASE_DIR/scripts/cmd/clashctl.sh" 2>/dev/null
 . scripts/preflight.sh
 
-pgrep -f "$BIN_KERNEL" -u 0 >/dev/null && ! _is_root && _error_quit '请使用 sudo 执行卸载'
+pgrep -f "$BIN_KERNEL" -u 0 >/dev/null && ! _is_root && _error_quit "请先关闭 Tun 模式"
 clashoff 2>/dev/null
 _uninstall_service
 _revoke_rc
