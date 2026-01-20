@@ -359,6 +359,7 @@ _apply_rc() {
     local source_clashctl=". $CLASH_CMD_DIR/clashctl.sh"
     # shellcheck disable=SC2086
     tee -a "$SHELL_RC_BASH" $SHELL_RC_ZSH >/dev/null <<EOF
+
 $start_flag
 # 加载 clashctl 命令
 $source_clashctl
