@@ -54,10 +54,13 @@ _detect_proxy_port() {
     for entry in "${port_list[@]}"; do
         local var_name="${entry%|*}"
         local yaml_key="${entry#*|}"
-        [ -n "${!var_name}" ] && _is_port_used "${!var_name}" && [ "$isActive" != "true" ] && {
+
+        eval "local var_val=\${$var_name}"
+
+        [ -n "$var_val" ] && _is_port_used "$var_val" && [ "$isActive" != "true" ] && {
             newPort=$(_get_random_port)
             ((count++))
-            _failcat '🎯' "端口冲突：[$yaml_key] ${!var_name} 🎲 随机分配 $newPort"
+            _failcat '🎯' "端口冲突：[$yaml_key] $var_val 🎲 随机分配 $newPort"
             "$BIN_YQ" -i ".${yaml_key} = $newPort" "$CLASH_CONFIG_MIXIN"
         }
     done
