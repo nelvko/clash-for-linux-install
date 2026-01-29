@@ -93,6 +93,7 @@ function clashoff() {
         clashstatus >&/dev/null && _tunstatus >&/dev/null && {
             _tunoff || _error_quit "请先关闭 Tun 模式"
         }
+        placeholder_stop >/dev/null
         clashstatus >&/dev/null && {
             _failcat '代理环境关闭失败'
             return 1
@@ -255,6 +256,10 @@ _merge_config() {
 
 _merge_config_restart() {
     _merge_config
+    placeholder_stop >/dev/null
+    clashstatus >&/dev/null && _tunstatus >&/dev/null && {
+        _tunoff || _error_quit "请先关闭 Tun 模式"
+    }
     placeholder_stop >/dev/null
     sleep 0.1
     placeholder_start >/dev/null
