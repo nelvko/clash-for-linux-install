@@ -23,13 +23,11 @@ type model struct {
 	controller string
 	mode       string
 
-	focus    focus
+	panel    panel
 	groups   list.Model
 	proxies  list.Model
 	groupNow map[string]string
 	groupAll map[string][]string
-
-	showMode bool
 	modes    list.Model
 
 	proxyDelay map[string]int
@@ -39,11 +37,12 @@ type model struct {
 	statusMsg string
 }
 
-type focus int
+type panel int
 
 const (
-	focusGroups focus = iota
-	focusProxies
+	panelGroups panel = iota
+	panelProxies
+	panelMode
 )
 
 type item struct {
@@ -82,7 +81,7 @@ func New(opts Opts) tea.Model {
 		client:     opts.Client,
 		controller: opts.Controller,
 		mode:       "",
-		focus:      focusGroups,
+		panel:      panelGroups,
 		groups:     g,
 		proxies:    p,
 		groupNow:   map[string]string{},
@@ -231,9 +230,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		w := msg.Width
 		h := msg.Height
 		paneW := (w - 3) / 2
-		m.groups.SetSize(paneW, h-4)
-		m.proxies.SetSize(paneW, h-4)
-		m.modes.SetSize(paneW, h-6)
+		contentH := h - 2 // top bar + bottom bar
+		m.groups.SetSize(paneW, contentH)
+		m.proxies.SetSize(paneW, contentH)
+		m.modes.SetSize(paneW, contentH)
 		return m, nil
 
 	case refreshedMsg:
@@ -288,69 +288,70 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if m.showMode {
-			switch msg.String() {
-			case "esc", "q":
-				m.showMode = false
-				return m, nil
-			case "enter":
-				it, ok := m.modes.SelectedItem().(item)
-				if !ok {
-					m.showMode = false
-					return m, nil
-				}
-				m.showMode = false
-				return m, tea.Batch(m.setModeCmd(it.value), m.fetchModeCmd())
-			}
-			var cmd tea.Cmd
-			m.modes, cmd = m.modes.Update(msg)
-			return m, cmd
-		}
-
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
+		case "1":
+			m.panel = panelGroups
+			return m, nil
+		case "2":
+			m.panel = panelProxies
+			return m, nil
+		case "3":
+			m.panel = panelMode
+			return m, nil
 		case "tab":
-			if m.focus == focusGroups {
-				m.focus = focusProxies
-			} else {
-				m.focus = focusGroups
-			}
+			m.panel = (m.panel + 1) % 3
 			return m, nil
 		case "r":
 			return m, tea.Batch(m.refreshCmd(), m.fetchModeCmd())
-		case "m":
-			m.showMode = true
-			return m, nil
 		case "t":
-			if m.focus == focusProxies && !m.testing {
+			if m.panel == panelProxies && !m.testing {
 				m.testing = true
 				m.statusMsg = "testing selected..."
 				return m, m.testSelectedDelayCmd()
 			}
 			return m, nil
 		case "T":
-			if m.focus == focusProxies && !m.testing {
+			if m.panel == panelProxies && !m.testing {
 				m.testing = true
 				m.statusMsg = "testing all..."
 				return m, m.testAllDelayCmd()
 			}
 			return m, nil
-		case "enter":
-			if m.focus == focusGroups {
-				m.focus = focusProxies
+		case "esc":
+			if m.panel == panelMode {
+				m.panel = panelProxies
 				return m, nil
 			}
-			return m, m.selectCurrentProxyCmd()
+			return m, nil
+		case "enter":
+			switch m.panel {
+			case panelGroups:
+				m.panel = panelProxies
+				return m, nil
+			case panelProxies:
+				return m, m.selectCurrentProxyCmd()
+			case panelMode:
+				it, ok := m.modes.SelectedItem().(item)
+				if !ok {
+					m.panel = panelProxies
+					return m, nil
+				}
+				return m, tea.Batch(m.setModeCmd(it.value), m.fetchModeCmd())
+			}
 		}
 	}
 
 	var cmd tea.Cmd
-	if m.focus == focusGroups {
+	switch m.panel {
+	case panelGroups:
 		m.groups, cmd = m.groups.Update(msg)
 		m.setProxiesForSelectedGroup()
-	} else {
+	case panelProxies:
 		m.proxies, cmd = m.proxies.Update(msg)
+	case panelMode:
+		m.modes, cmd = m.modes.Update(msg)
 	}
 	return m, cmd
 }
@@ -412,43 +413,84 @@ func (m model) selectCurrentProxyCmd() tea.Cmd {
 }
 
 func (m model) View() string {
-	title := lipgloss.NewStyle().Bold(true).Render("clashtui")
 	mode := m.mode
 	if mode == "" {
 		mode = "?"
 	}
-	hint := "tab: pane  enter: select  r: refresh  m: mode  t: test  T: test all  q: quit"
 	controllerHost := m.controller
 	if u, err := url.Parse(m.controller); err == nil {
 		controllerHost = u.Host
 	}
-	header := fmt.Sprintf("%s  controller: %s  mode: %s\n%s\n", title, controllerHost, mode, hint)
 
-	if m.errMsg != "" {
-		errBox := lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("error: " + m.errMsg)
-		return header + "\n" + errBox + "\n"
+	activeTab := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("6")).Padding(0, 1)
+	inactiveTab := lipgloss.NewStyle().Foreground(lipgloss.Color("7")).Padding(0, 1)
+	leftInfo := lipgloss.NewStyle().Bold(true).Render("clashtui")
+	rightInfo := lipgloss.NewStyle().Foreground(lipgloss.Color("7")).Render(fmt.Sprintf("controller: %s  mode: %s", controllerHost, mode))
+
+	tabs := []struct {
+		p    panel
+		text string
+	}{
+		{panelGroups, "1 Groups"},
+		{panelProxies, "2 Proxies"},
+		{panelMode, "3 Mode"},
 	}
-	if m.statusMsg != "" {
-		header += m.statusMsg + "\n"
+	var tabParts []string
+	for _, t := range tabs {
+		if m.panel == t.p {
+			tabParts = append(tabParts, activeTab.Render(t.text))
+		} else {
+			tabParts = append(tabParts, inactiveTab.Render(t.text))
+		}
+	}
+	tabBar := lipgloss.JoinHorizontal(lipgloss.Top, tabParts...)
+	// Top bar: title + tabs + right info.
+	top := lipgloss.NewStyle().Padding(0, 1).Render(lipgloss.JoinHorizontal(lipgloss.Top, leftInfo, "  ", tabBar, "  ", rightInfo))
+
+	status := m.statusMsg
+	if m.testing {
+		status = "testing..."
+	}
+	if m.errMsg != "" {
+		status = "error: " + m.errMsg
 	}
 
 	paneStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
-	activeStyle := paneStyle.Copy().BorderForeground(lipgloss.Color("6"))
+	activePaneStyle := paneStyle.Copy().BorderForeground(lipgloss.Color("6"))
 
-	left := m.groups.View()
-	right := m.proxies.View()
-	if m.focus == focusGroups {
-		left = activeStyle.Render(left)
-		right = paneStyle.Render(right)
-	} else {
-		left = paneStyle.Render(left)
-		right = activeStyle.Render(right)
+	leftStyle := paneStyle
+	rightStyle := paneStyle
+	if m.panel == panelGroups {
+		leftStyle = activePaneStyle
+	}
+	if m.panel == panelProxies {
+		rightStyle = activePaneStyle
 	}
 
-	view := header + lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
-	if m.showMode {
-		overlay := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1).Render(m.modes.View())
-		return view + "\n\n" + overlay
+	left := leftStyle.Render(m.groups.View())
+	right := rightStyle.Render(m.proxies.View())
+
+	content := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
+	if m.panel == panelMode {
+		// Mode behaves like a panel but is rendered as a centered overlay.
+		overlay := activePaneStyle.Render(m.modes.View())
+		content = content + "\n\n" + overlay
 	}
-	return view
+
+	helpCommon := "1/2/3: panel  tab: next  r: refresh  q: quit"
+	help := helpCommon
+	switch m.panel {
+	case panelGroups:
+		help = helpCommon + "  enter: focus proxies"
+	case panelProxies:
+		help = helpCommon + "  enter: select  t: test  T: test all"
+	case panelMode:
+		help = helpCommon + "  up/down: choose  enter: apply  esc: close"
+	}
+	bottom := lipgloss.NewStyle().Foreground(lipgloss.Color("7")).Padding(0, 1).Render(help)
+	if status != "" {
+		bottom = lipgloss.NewStyle().Foreground(lipgloss.Color("7")).Padding(0, 1).Render(help + "  |  " + status)
+	}
+
+	return top + "\n" + content + "\n" + bottom
 }
