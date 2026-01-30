@@ -6,6 +6,10 @@ resources/zip/*
 resources/dist/
 test.sh
 
+# Go build artifacts (clashtui)
+/clashtui/clashtui
+/clashtui/clashtui.exe
+
 
 
 !.gitkeep
