@@ -41,6 +41,7 @@ Commands:
     status                内核状况
     proxy                 系统代理
     ui                    Web 面板
+    tui                   TUI 面板
     secret                Web 密钥
     sub                   订阅管理
     upgrade               升级内核
@@ -90,6 +91,26 @@ $ clashsecret
 - 可通过浏览器打开 `Web` 控制台进行可视化操作，例如切换节点、查看日志等。
 - 默认使用 [zashboard](https://github.com/Zephyruso/zashboard) 作为控制台前端，如需更换可自行配置。
 - 若需将控制台暴露到公网，建议定期更换访问密钥，或通过 `SSH` 端口转发方式进行安全访问。
+
+### TUI 控制台
+
+```bash
+# 先启动内核
+$ clashon
+
+# 运行 TUI
+$ clashtui
+
+# 或使用 clashctl 子命令
+$ clashctl tui
+```
+
+- 如提示未找到 `~/clashctl/bin/clashtui`，可从源码构建：
+
+```bash
+cd ~/clashctl/clashtui
+GOPROXY="https://goproxy.cn,direct" go build -o ~/clashctl/bin/clashtui ./cmd/clashtui
+```
 
 ### `Mixin` 配置
 

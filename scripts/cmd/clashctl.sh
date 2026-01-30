@@ -186,6 +186,22 @@ function clashui() {
     printf "\n"
 }
 
+function clashtui() {
+    clashstatus >&/dev/null || {
+        _failcat "未检测到内核运行，请先执行 clashon"
+        return 1
+    }
+
+    local bin="${BIN_BASE_DIR}/clashtui"
+    [ -x "$bin" ] || {
+        _failcat "未找到可执行文件：$bin"
+        _failcat "如需从源码构建：cd \"$CLASH_BASE_DIR/clashtui\" && GOPROXY=\"https://goproxy.cn,direct\" go build -o \"$bin\" ./cmd/clashtui"
+        return 1
+    }
+
+    "$bin" "$@"
+}
+
 _merge_config() {
     cat "$CLASH_CONFIG_RUNTIME" >"$CLASH_CONFIG_TEMP" 2>/dev/null
     # shellcheck disable=SC2016
@@ -674,6 +690,10 @@ function clashctl() {
         shift
         clashui
         ;;
+    tui)
+        shift
+        clashtui "$@"
+        ;;
     status)
         shift
         clashstatus "$@"
@@ -725,6 +745,7 @@ Commands:
   proxy                 系统代理
   status                内核状态
   ui                    面板地址
+  tui                   TUI 面板
   sub                   订阅管理
   log                   内核日志
   tun                   Tun 模式
