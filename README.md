@@ -14,6 +14,7 @@
 - 自动检测端口占用情况，在冲突时随机分配可用端口。
 - 自动识别系统架构与初始化系统，下载匹配的内核与依赖，并生成对应的服务管理配置。
 - 在需要时调用 [subconverter](https://github.com/tindy2013/subconverter) 进行本地订阅转换。
+- 使用 `mihomo` 时自动补齐所需 GeoData（如 `geoip.metadb`、`ASN.mmdb`），避免订阅包含 `GEOIP`/`IP-ASN` 规则时因数据缺失导致校验/启动失败。
 
 ## 🚀 一键安装
 

@@ -115,19 +115,125 @@ function _error_quit() {
     exec $SHELL -i
 }
 
+_download_file() {
+    local dest=$1
+    local url=$2
+    local tmp="${dest}.tmp"
+
+    rm -f "$tmp"
+    curl \
+        --silent \
+        --show-error \
+        --fail \
+        --insecure \
+        --location \
+        --connect-timeout 5 \
+        --max-time 180 \
+        --retry 1 \
+        --output "$tmp" \
+        "$url" ||
+        wget \
+            --no-verbose \
+            --no-check-certificate \
+            --timeout 180 \
+            --tries 1 \
+            --output-document "$tmp" \
+            "$url" ||
+        return 1
+
+    [ -s "$tmp" ] || return 1
+    /bin/mv -f "$tmp" "$dest"
+}
+
+_download_file_any() {
+    local dest=$1
+    shift
+
+    local url
+    for url in "$@"; do
+        [ -n "$url" ] || continue
+        _download_file "$dest" "$url" && return 0
+    done
+    return 1
+}
+
+_gh_proxy_url() {
+    local url=$1
+    [ -n "$URL_GH_PROXY" ] || return 1
+    [[ "$url" == https://github.com/* || "$url" == http://github.com/* ]] || return 1
+    echo "${URL_GH_PROXY%/}/$url"
+}
+
+_ensure_mihomo_geodata() {
+    local config=$1
+    local data_dir
+    data_dir=$(dirname "$config")
+
+    local url_geoip_metadb="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb"
+    local url_geosite_dat="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat"
+    local url_geolite2_asn_mmdb="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb"
+
+    local mirror_geoip_metadb="https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb"
+    local mirror_geosite_dat="https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
+    local mirror_geolite2_asn_mmdb="https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb"
+
+    local file_geoip_metadb="${data_dir}/geoip.metadb"
+    local file_geosite_dat="${data_dir}/geosite.dat"
+    local file_asn_mmdb="${data_dir}/ASN.mmdb"
+
+    grep -qs 'GEOIP' "$config" && [ ! -f "$file_geoip_metadb" ] && {
+        local url1 url2
+        url1=$(_gh_proxy_url "$url_geoip_metadb")
+        url2="$url_geoip_metadb"
+        _okcat '⏳' "下载 GeoData：geoip.metadb"
+        _download_file_any "$file_geoip_metadb" "$url1" "$url2" "$mirror_geoip_metadb" ||
+            _failcat "GeoData 下载失败：geoip.metadb（请检查网络或 URL_GH_PROXY）"
+    }
+
+    grep -qs 'GEOSITE' "$config" && [ ! -f "$file_geosite_dat" ] && {
+        local url1 url2
+        url1=$(_gh_proxy_url "$url_geosite_dat")
+        url2="$url_geosite_dat"
+        _okcat '⏳' "下载 GeoData：geosite.dat"
+        _download_file_any "$file_geosite_dat" "$url1" "$url2" "$mirror_geosite_dat" ||
+            _failcat "GeoData 下载失败：geosite.dat（请检查网络或 URL_GH_PROXY）"
+    }
+
+    grep -qs 'IP-ASN' "$config" && [ ! -f "$file_asn_mmdb" ] && {
+        local url1 url2
+        url1=$(_gh_proxy_url "$url_geolite2_asn_mmdb")
+        url2="$url_geolite2_asn_mmdb"
+        _okcat '⏳' "下载 GeoData：ASN.mmdb"
+        _download_file_any "$file_asn_mmdb" "$url1" "$url2" "$mirror_geolite2_asn_mmdb" ||
+            _failcat "GeoData 下载失败：ASN.mmdb（请检查网络或 URL_GH_PROXY）"
+    }
+}
+
 function _valid_config() {
     local config="$1"
     [[ ! -e "$config" || "$(wc -l <"$config")" -lt 1 ]] && return 1
 
     local test_cmd test_log
     test_cmd=("$BIN_KERNEL" -d "$(dirname "$config")" -f "$config" -t)
-    test_log=$("${test_cmd[@]}") || {
-        "${test_cmd[@]}"
+
+    [ "$KERNEL_NAME" = "mihomo" ] && _ensure_mihomo_geodata "$config"
+
+    test_log=$("${test_cmd[@]}" 2>&1) || {
+        # 兜底：处理残缺/旧版 GeoData
+        [ "$KERNEL_NAME" = "mihomo" ] && {
+            grep -qs "MMDB invalid" <<<"$test_log" && rm -f "$(dirname "$config")/geoip.metadb"
+            grep -qs "ASN invalid" <<<"$test_log" && rm -f "$(dirname "$config")/ASN.mmdb"
+            _ensure_mihomo_geodata "$config"
+            test_log=$("${test_cmd[@]}" 2>&1) && return 0
+        }
+
+        printf '%s\n' "$test_log" >&2
         grep -qs "unsupport proxy type" <<<"$test_log" && {
             local prefix="检测到订阅中包含不受支持的代理协议"
             [ "$KERNEL_NAME" = "clash" ] && _error_quit "${prefix}, 推荐安装使用 mihomo 内核"
             _error_quit "${prefix}, 请检查并升级内核版本"
         }
+        return 1
     }
 }
 

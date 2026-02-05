@@ -1,6 +1,8 @@
 .idea
 .vscode
 config.yaml*
+resources/geoip.metadb
+resources/ASN.mmdb
 resources/zip/*
 !resources/zip/dist.zip
 resources/dist/
