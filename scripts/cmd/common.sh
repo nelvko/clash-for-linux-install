@@ -164,49 +164,26 @@ _gh_proxy_url() {
     echo "${URL_GH_PROXY%/}/$url"
 }
 
-_ensure_mihomo_geodata() {
+_ensure_mihomo_asn_mmdb() {
     local config=$1
     local data_dir
     data_dir=$(dirname "$config")
 
-    local url_geoip_metadb="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb"
-    local url_geosite_dat="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat"
-    local url_geolite2_asn_mmdb="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb"
+    grep -qs 'IP-ASN' "$config" || return 0
 
-    local mirror_geoip_metadb="https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb"
-    local mirror_geosite_dat="https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
-    local mirror_geolite2_asn_mmdb="https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb"
-
-    local file_geoip_metadb="${data_dir}/geoip.metadb"
-    local file_geosite_dat="${data_dir}/geosite.dat"
     local file_asn_mmdb="${data_dir}/ASN.mmdb"
+    [ -s "$file_asn_mmdb" ] && return 0
 
-    grep -qs 'GEOIP' "$config" && [ ! -f "$file_geoip_metadb" ] && {
-        local url1 url2
-        url1=$(_gh_proxy_url "$url_geoip_metadb")
-        url2="$url_geoip_metadb"
-        _okcat '⏳' "下载 GeoData：geoip.metadb"
-        _download_file_any "$file_geoip_metadb" "$url1" "$url2" "$mirror_geoip_metadb" ||
-            _failcat "GeoData 下载失败：geoip.metadb（请检查网络或 URL_GH_PROXY）"
-    }
+    local url_asn_mmdb="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb"
+    local mirror_asn_mmdb="https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb"
 
-    grep -qs 'GEOSITE' "$config" && [ ! -f "$file_geosite_dat" ] && {
-        local url1 url2
-        url1=$(_gh_proxy_url "$url_geosite_dat")
-        url2="$url_geosite_dat"
-        _okcat '⏳' "下载 GeoData：geosite.dat"
-        _download_file_any "$file_geosite_dat" "$url1" "$url2" "$mirror_geosite_dat" ||
-            _failcat "GeoData 下载失败：geosite.dat（请检查网络或 URL_GH_PROXY）"
-    }
+    local url1 url2
+    url1=$(_gh_proxy_url "$url_asn_mmdb")
+    url2="$url_asn_mmdb"
 
-    grep -qs 'IP-ASN' "$config" && [ ! -f "$file_asn_mmdb" ] && {
-        local url1 url2
-        url1=$(_gh_proxy_url "$url_geolite2_asn_mmdb")
-        url2="$url_geolite2_asn_mmdb"
-        _okcat '⏳' "下载 GeoData：ASN.mmdb"
-        _download_file_any "$file_asn_mmdb" "$url1" "$url2" "$mirror_geolite2_asn_mmdb" ||
-            _failcat "GeoData 下载失败：ASN.mmdb（请检查网络或 URL_GH_PROXY）"
-    }
+    _okcat '⏳' '下载 GeoData：ASN.mmdb'
+    _download_file_any "$file_asn_mmdb" "$url1" "$url2" "$mirror_asn_mmdb" ||
+        _failcat 'GeoData 下载失败：ASN.mmdb（请检查网络或 URL_GH_PROXY）'
 }
 
 function _valid_config() {
@@ -216,14 +193,12 @@ function _valid_config() {
     local test_cmd test_log
     test_cmd=("$BIN_KERNEL" -d "$(dirname "$config")" -f "$config" -t)
 
-    [ "$KERNEL_NAME" = "mihomo" ] && _ensure_mihomo_geodata "$config"
+    [ "$KERNEL_NAME" = "mihomo" ] && _ensure_mihomo_asn_mmdb "$config"
 
     test_log=$("${test_cmd[@]}" 2>&1) || {
-        # 兜底：处理残缺/旧版 GeoData
-        [ "$KERNEL_NAME" = "mihomo" ] && {
-            grep -qs "MMDB invalid" <<<"$test_log" && rm -f "$(dirname "$config")/geoip.metadb"
-            grep -qs "ASN invalid" <<<"$test_log" && rm -f "$(dirname "$config")/ASN.mmdb"
-            _ensure_mihomo_geodata "$config"
+        [ "$KERNEL_NAME" = "mihomo" ] && grep -qsi 'ASN invalid' <<<"$test_log" && {
+            rm -f "$(dirname "$config")/ASN.mmdb"
+            _ensure_mihomo_asn_mmdb "$config"
             test_log=$("${test_cmd[@]}" 2>&1) && return 0
         }
 
