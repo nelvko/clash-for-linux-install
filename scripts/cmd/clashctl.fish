@@ -5,7 +5,6 @@ clashsecret \
 clashtun \
 clashmixin \
 clashsub \
-clashproxy \
 clashlog \
 clashupgrade \
 clashhelp
@@ -36,6 +35,8 @@ function clashctl
             clashon $argv
         case off
             clashoff $argv
+        case proxy
+            clashproxy $argv
         case '*'
             clash"$suffix" $argv
     end
@@ -55,19 +56,33 @@ export no_proxy=$no_proxy
 export NO_PROXY=$no_proxy
 EOF'
 
-    source /var/proxy
+    clashproxy on
 end
 
 function clashoff
     bash -i -c 'clashoff'
+    clashproxy off
+end
 
-    set -e \
-    http_proxy \
-    https_proxy \
-    HTTP_PROXY \
-    HTTPS_PROXY \
-    all_proxy \
-    ALL_PROXY \
-    no_proxy \
-    NO_PROXY
+function clashproxy
+    if test (count $argv) -eq 0
+        echo "Usage: clashproxy [on|off]"
+        return 1
+    end
+    switch $argv[1]
+        case on
+            source /var/proxy
+            echo '已开启系统代理'
+        case off
+            set -e \
+            http_proxy \
+            https_proxy \
+            HTTP_PROXY \
+            HTTPS_PROXY \
+            all_proxy \
+            ALL_PROXY \
+            no_proxy \
+            NO_PROXY
+            echo '已关闭系统代理'
+    end
 end
