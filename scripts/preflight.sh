@@ -288,8 +288,10 @@ _nohup() {
     service_enable=(false)
     service_disable=(false)
 
-    service_start=('(' nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>\&' "$FILE_LOG" '\&' ')')
-    service_sudo_start=(sudo nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>\&' "$FILE_LOG" '\&')
+    # 使用子 shell 启动，确保进程脱离终端
+    service_start=('(' nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>' "$FILE_LOG" '2>\&1' '\&' ')')
+    # sudo 启动：nohup 完全脱离终端，关闭所有标准流
+    service_sudo_start=(sudo sh -c '"nohup' "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '<' '/dev/null' '>' "$FILE_LOG" '2>\&1' '\&"')
     service_status=(pgrep -fa "$BIN_KERNEL")
     service_is_active=(pgrep -fa "$BIN_KERNEL")
     service_stop=(pkill -9 -f "$BIN_KERNEL")

@@ -316,6 +316,8 @@ _tunstatus() {
 _tunoff() {
     _tunstatus >/dev/null || return 0
     sudo placeholder_stop
+    # 强制恢复终端输出处理
+    stty opost 2>/dev/null
     clashstatus >&/dev/null || {
         "$BIN_YQ" -i '.tun.enable = false' "$CLASH_CONFIG_MIXIN"
         _merge_config
@@ -329,6 +331,8 @@ _sudo_restart() {
     sudo placeholder_stop
     placeholder_sudo_start
     sleep 0.5
+    # 强制恢复终端输出处理
+    stty opost 2>/dev/null
 }
 _tunon() {
     _tunstatus 2>/dev/null && return 0
@@ -337,6 +341,9 @@ _tunon() {
     _merge_config
     placeholder_sudo_start
     sleep 0.5
+    # 强制恢复终端输出处理
+    stty opost 2>/dev/null
+
     clashstatus >&/dev/null || _error_quit "Tun 模式开启失败"
     local fail_msg="Start TUN listening error|unsupported kernel version"
     local ok_msg="Tun adapter listening at|TUN listening iface"
