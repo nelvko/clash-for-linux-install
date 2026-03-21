@@ -861,6 +861,11 @@ _failover_start() {
         return 1
     }
 
+    # 保存启动参数，供 update.sh 重启时恢复
+    local _args="--threshold $threshold --window $window --timeout $timeout --cooldown $cooldown --recovery $recovery"
+    for _u in "${test_urls[@]}"; do _args+=" --test-url $_u"; done
+    echo "$_args" >"$CLASH_FAILOVER_ARGS"
+
     _failover_loop "$threshold" "$window" "$timeout" "$cooldown" "$recovery" "${test_urls[@]}" \
         >>"$CLASH_FAILOVER_LOG" 2>&1 &
     echo $! >"$CLASH_FAILOVER_PID"

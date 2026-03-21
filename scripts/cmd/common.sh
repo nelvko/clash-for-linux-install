@@ -23,6 +23,7 @@ CLASH_PROFILES_META="${CLASH_RESOURCES_DIR}/profiles.yaml"
 CLASH_PROFILES_LOG="${CLASH_RESOURCES_DIR}/profiles.log"
 CLASH_FAILOVER_PID="${CLASH_RESOURCES_DIR}/failover.pid"
 CLASH_FAILOVER_LOG="${CLASH_RESOURCES_DIR}/failover.log"
+CLASH_FAILOVER_ARGS="${CLASH_RESOURCES_DIR}/failover.args"
 
 _is_port_used() {
     local port=$1

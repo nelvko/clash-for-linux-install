@@ -14,10 +14,12 @@ _okcat '🔄' '正在检查更新...'
     exit 1
 }
 
-# 停止 failover（如果在运行）
+# 停止 failover（如果在运行），记录状态以便更新后恢复
+FAILOVER_WAS_RUNNING=false
 if [ -f "$CLASH_FAILOVER_PID" ]; then
     pid=$(cat "$CLASH_FAILOVER_PID" 2>/dev/null)
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        FAILOVER_WAS_RUNNING=true
         _okcat '🛑' '停止故障转移...'
         kill "$pid" 2>/dev/null
         sleep 1
@@ -63,6 +65,18 @@ if "${service_is_active[@]}" >&/dev/null; then
     _okcat '🔄' '重启内核以应用更新...'
     "${service_restart[@]}"
     _okcat '✅' '内核已重启'
+fi
+
+# 恢复 failover（如果更新前在运行）
+if [ "$FAILOVER_WAS_RUNNING" = true ]; then
+    . "$CLASH_BASE_DIR/scripts/cmd/clashctl.sh"
+    if [ -f "$CLASH_FAILOVER_ARGS" ]; then
+        _okcat '🔄' '恢复故障转移...'
+        eval "clashsub failover on $(cat "$CLASH_FAILOVER_ARGS")"
+    else
+        _okcat '🔄' '恢复故障转移（默认参数）...'
+        clashsub failover on
+    fi
 fi
 
 _okcat '🎉' '更新完成！'
