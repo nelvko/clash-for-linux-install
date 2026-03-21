@@ -897,6 +897,8 @@ _failover_loop() {
     local error_pattern='i/o timeout|connection refused|dial .* error|context deadline exceeded|all proxies.*dead|no available proxy'
     local error_times=()
     local last_switch_time=0
+    local last_test_pass_time=0
+    local test_pass_cooldown=180
 
     while IFS= read -r line; do
         echo "$line" | grep -iqE "$error_pattern" || continue
@@ -918,11 +920,18 @@ _failover_loop() {
         local error_count=${#error_times[@]}
         [ "$error_count" -lt "$threshold" ] && continue
 
+        # 测试通过冷却期内忽略
+        if [ $((now - last_test_pass_time)) -lt "$test_pass_cooldown" ]; then
+            error_times=()
+            continue
+        fi
+
         # 达到阈值，用多个测试地址调用 API 确认所有代理都超时
         _failcat '⚠️' "检测到 ${error_count} 次错误 (${window}s 内)，验证代理状态..."
         if _test_all_proxies "$timeout" "${test_urls[@]}"; then
-            _okcat '✅' "代理延迟测试通过，忽略错误（可能是目标站点本身故障）"
+            _okcat '✅' "代理延迟测试通过，忽略错误（可能是目标站点本身故障，${test_pass_cooldown}s 内不再检测）"
             error_times=()
+            last_test_pass_time=$(date +%s)
             continue
         fi
 
