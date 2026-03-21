@@ -542,6 +542,7 @@ Options:
     --window <s>      错误计数的时间窗口秒数（默认 30）
     --timeout <ms>    代理超时毫秒数（默认 3000）
     --cooldown <s>    切换后的冷却秒数（默认 60）
+    --recovery <s>    高优先级订阅回切检测间隔秒数（默认 300）
     --test-url <url>  测试地址，可多次指定（默认 gstatic + cloudflare + huawei）
 EOF
         ;;
@@ -803,6 +804,7 @@ Options (on):
   --window <s>      错误计数的时间窗口秒数（默认 30）
   --timeout <ms>    代理超时毫秒数（默认 3000）
   --cooldown <s>    切换后的冷却秒数（默认 60）
+  --recovery <s>    高优先级订阅回切检测间隔秒数（默认 300）
   --test-url <url>  测试地址，可多次指定（默认 gstatic + cloudflare + huawei）
 EOF
         ;;
@@ -813,6 +815,7 @@ _failover_start() {
     local window=30
     local timeout=3000
     local cooldown=60
+    local recovery=300
     local test_urls=(
         "https://www.gstatic.com/generate_204"
         "https://cp.cloudflare.com/generate_204"
@@ -838,6 +841,10 @@ _failover_start() {
             cooldown=$2
             shift 2
             ;;
+        --recovery)
+            recovery=$2
+            shift 2
+            ;;
         --test-url)
             custom_urls+=("$2")
             shift 2
@@ -861,23 +868,28 @@ _failover_start() {
         return 1
     }
 
-    _failover_loop "$threshold" "$window" "$timeout" "$cooldown" "${test_urls[@]}" \
+    _failover_loop "$threshold" "$window" "$timeout" "$cooldown" "$recovery" "${test_urls[@]}" \
         >>"$CLASH_FAILOVER_LOG" 2>&1 &
     echo $! >"$CLASH_FAILOVER_PID"
 
     _okcat '🔄' "故障转移已启动（后台运行 pid=$!）"
-    _okcat '🔄' "错误阈值: ${threshold} 次/${window}s  超时: ${timeout}ms  冷却: ${cooldown}s"
+    _okcat '🔄' "错误阈值: ${threshold} 次/${window}s  超时: ${timeout}ms  冷却: ${cooldown}s  回切: ${recovery}s"
     _okcat '🔄' "测试地址: ${test_urls[*]}"
     _okcat '📄' "日志：$CLASH_FAILOVER_LOG"
-    _logging_sub "🔄 故障转移已启动 (pid=$!, threshold=${threshold}, window=${window}s, timeout=${timeout}ms, cooldown=${cooldown}s)"
+    _logging_sub "🔄 故障转移已启动 (pid=$!, threshold=${threshold}, window=${window}s, timeout=${timeout}ms, cooldown=${cooldown}s, recovery=${recovery}s)"
 }
 _failover_loop() {
     local threshold=$1
     local window=$2
     local timeout=$3
     local cooldown=$4
-    shift 4
+    local recovery=$5
+    shift 5
     local test_urls=("$@")
+
+    _failover_recovery_check "$recovery" "$timeout" "${test_urls[@]}" &
+    local recovery_pid=$!
+    trap "kill $recovery_pid 2>/dev/null; wait $recovery_pid 2>/dev/null" EXIT
 
     local error_pattern='i/o timeout|connection refused|dial .* error|context deadline exceeded|all proxies.*dead|no available proxy'
     local error_times=()
@@ -921,6 +933,136 @@ _failover_loop() {
         error_times=()
         last_switch_time=$(date +%s)
     done < <(placeholder_follow_log)
+}
+_tcp_latency() {
+    local host=$1 port=$2 timeout_s=$3
+    local start end ms
+    start=$(date +%s%N 2>/dev/null) || start=$(date +%s)000000000
+    if timeout "$timeout_s" bash -c "echo >/dev/tcp/$host/$port" 2>/dev/null ||
+        nc -z -w "$timeout_s" "$host" "$port" 2>/dev/null; then
+        end=$(date +%s%N 2>/dev/null) || end=$(date +%s)000000000
+        ms=$(( (end - start) / 1000000 ))
+        [ "$ms" -le 0 ] && ms=1
+        echo "$ms"
+        return 0
+    fi
+    return 1
+}
+_probe_config_best_latency() {
+    local config=$1
+    local timeout_ms=$2
+    local timeout_s=$(( (timeout_ms / 1000) + 1 ))
+
+    local endpoints
+    endpoints=$("$BIN_YQ" '.proxies[] | .server + ":" + (.port | tostring)' "$config" 2>/dev/null | head -n 5)
+    [ -z "$endpoints" ] && return 1
+
+    local best_ms=999999 ep host port ms
+    while IFS= read -r ep; do
+        host="${ep%%:*}"
+        port="${ep##*:}"
+        [ -z "$host" ] || [ -z "$port" ] && continue
+        ms=$(_tcp_latency "$host" "$port" "$timeout_s") || continue
+        [ "$ms" -lt "$best_ms" ] && best_ms=$ms
+    done <<<"$endpoints"
+    [ "$best_ms" -eq 999999 ] && return 1
+    echo "$best_ms"
+    return 0
+}
+_get_current_best_delay() {
+    local timeout=$1
+    shift
+    local test_urls=("$@")
+    _detect_ext_addr
+    local secret=$(_get_secret)
+    local auth_header=""
+    [ -n "$secret" ] && auth_header="Authorization: Bearer $secret"
+
+    local proxies_json
+    proxies_json=$(curl -s --noproxy "*" --max-time 5 \
+        ${auth_header:+-H "$auth_header"} \
+        "http://${EXT_IP}:${EXT_PORT}/proxies")
+    [ -z "$proxies_json" ] && return 1
+
+    local proxy_names
+    proxy_names=$(echo "$proxies_json" | "$BIN_YQ" -p json '
+        .proxies | to_entries | .[] |
+        select(.value.type == "Shadowsocks" or .value.type == "VMess" or .value.type == "Trojan" or
+               .value.type == "ShadowsocksR" or .value.type == "Hysteria" or .value.type == "Hysteria2" or
+               .value.type == "VLESS" or .value.type == "WireGuard" or .value.type == "TUIC" or
+               .value.type == "Snell" or .value.type == "Http" or .value.type == "Socks5") |
+        .key
+    ' 2>/dev/null)
+    [ -z "$proxy_names" ] && return 1
+
+    local best_delay=999999 name encoded_name delay_result delay url
+    while IFS= read -r name; do
+        encoded_name=$(printf '%s' "$name" | sed 's/ /%20/g; s/\[/%5B/g; s/\]/%5D/g')
+        for url in "${test_urls[@]}"; do
+            delay_result=$(curl -s --noproxy "*" --max-time $(( (timeout / 1000) + 2 )) \
+                ${auth_header:+-H "$auth_header"} \
+                "http://${EXT_IP}:${EXT_PORT}/proxies/${encoded_name}/delay?timeout=${timeout}&url=${url}")
+            delay=$(echo "$delay_result" | "$BIN_YQ" -p json '.delay // 0' 2>/dev/null)
+            [ -n "$delay" ] && [ "$delay" -gt 0 ] 2>/dev/null && [ "$delay" -lt "$best_delay" ] && best_delay=$delay
+        done
+    done <<<"$proxy_names"
+    [ "$best_delay" -eq 999999 ] && return 1
+    echo "$best_delay"
+    return 0
+}
+_failover_recovery_check() {
+    local interval=$1
+    local timeout=$2
+    shift 2
+    local test_urls=("$@")
+
+    while true; do
+        sleep "$interval"
+
+        local current_use best_id
+        current_use=$("$BIN_YQ" '.use // ""' "$CLASH_PROFILES_META")
+        best_id=$(_get_sorted_profile_ids | head -n1)
+
+        [ -z "$best_id" ] && continue
+        [ "$current_use" = "$best_id" ] && continue
+
+        # 第一关：重新下载高优先级订阅配置，验证订阅源是否可达
+        local best_url
+        best_url=$(_get_url_by_id "$best_id")
+        _download_config "$CLASH_CONFIG_TEMP" "$best_url"
+        if ! _valid_config "$CLASH_CONFIG_TEMP"; then
+            /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
+            _failcat '🔙' "高优先级订阅 [$best_id] 仍无法下载，保持 [$current_use]"
+            continue
+        fi
+
+        # 第二关：TCP 探活并测延迟
+        local candidate_ms
+        candidate_ms=$(_probe_config_best_latency "$CLASH_CONFIG_TEMP" "$timeout")
+        if [ -z "$candidate_ms" ]; then
+            /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
+            _failcat '🔙' "高优先级订阅 [$best_id] 代理节点不可达，保持 [$current_use]"
+            continue
+        fi
+
+        # 第三关：与当前代理延迟对比，候选更低才切换
+        local current_ms
+        current_ms=$(_get_current_best_delay "$timeout" "${test_urls[@]}") || current_ms=999999
+        if [ "$candidate_ms" -ge "$current_ms" ]; then
+            /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
+            _failcat '🔙' "高优先级订阅 [$best_id] 延迟 ${candidate_ms}ms >= 当前 ${current_ms}ms，保持 [$current_use]"
+            continue
+        fi
+
+        local _fp
+        _fp=$(_get_path_by_id "$best_id")
+        mv "$CLASH_CONFIG_TEMP" "$_fp"
+
+        # 全部通过，执行切换
+        clashsub use "$best_id" >/dev/null 2>&1
+        _okcat '🔙' "高优先级订阅 [$best_id] 已恢复 (${candidate_ms}ms < ${current_ms}ms)，切换回"
+        _logging_sub "🔙 回切：高优先级订阅 [$best_id] 已恢复 (${candidate_ms}ms < ${current_ms}ms)，从 [$current_use] 切换回"
+    done
 }
 _do_failover_switch() {
     local current_use=$1
