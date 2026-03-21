@@ -1013,6 +1013,13 @@ _get_current_best_delay() {
     echo "$best_delay"
     return 0
 }
+# 后台安全下载验证：不调用 _download_config/_valid_config，避免 _error_quit 杀死后台进程
+_safe_download_and_validate() {
+    local dest=$1 url=$2
+    _download_raw_config "$dest" "$url" >/dev/null 2>&1 || return 1
+    [ -f "$dest" ] && [ "$(wc -l < "$dest" 2>/dev/null)" -gt 1 ] \
+        && "$BIN_KERNEL" -d "$(dirname "$dest")" -f "$dest" -t >/dev/null 2>&1
+}
 _failover_recovery_check() {
     local interval=$1
     local timeout=$2
@@ -1034,8 +1041,7 @@ _failover_recovery_check() {
         local _fp
         _fp=$(_get_path_by_id "$best_id")
         best_url=$(_get_url_by_id "$best_id")
-        _download_config "$CLASH_CONFIG_TEMP" "$best_url"
-        if _valid_config "$CLASH_CONFIG_TEMP"; then
+        if _safe_download_and_validate "$CLASH_CONFIG_TEMP" "$best_url"; then
             config_file="$CLASH_CONFIG_TEMP"
             downloaded=true
         else
@@ -1091,8 +1097,8 @@ _do_failover_switch() {
             if [ ! -f "$_fp" ]; then
                 _failcat '⚠️' "订阅 [$next_id] 无配置文件，尝试下载..."
                 _url=$(_get_url_by_id "$next_id")
-                _download_config "$CLASH_CONFIG_TEMP" "$_url"
-                if _valid_config "$CLASH_CONFIG_TEMP"; then
+                _safe_download_and_validate "$CLASH_CONFIG_TEMP" "$_url"
+                if [ $? -eq 0 ]; then
                     mv "$CLASH_CONFIG_TEMP" "$_fp"
                 else
                     /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
@@ -1124,8 +1130,8 @@ _do_failover_switch() {
             if [ ! -f "$_fp" ]; then
                 _failcat '⚠️' "订阅 [$next_id] 无配置文件，尝试下载..."
                 _url=$(_get_url_by_id "$next_id")
-                _download_config "$CLASH_CONFIG_TEMP" "$_url"
-                if _valid_config "$CLASH_CONFIG_TEMP"; then
+                _safe_download_and_validate "$CLASH_CONFIG_TEMP" "$_url"
+                if [ $? -eq 0 ]; then
                     mv "$CLASH_CONFIG_TEMP" "$_fp"
                 else
                     /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
