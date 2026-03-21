@@ -1019,21 +1019,30 @@ _failover_recovery_check() {
         [ -z "$best_id" ] && continue
         [ "$current_use" = "$best_id" ] && continue
 
-        # 第一关：重新下载高优先级订阅配置，验证订阅源是否可达
-        local best_url
+        # 第一关：尝试下载最新配置，失败则回退到本地文件
+        local best_url config_file downloaded=false
+        local _fp
+        _fp=$(_get_path_by_id "$best_id")
         best_url=$(_get_url_by_id "$best_id")
         _download_config "$CLASH_CONFIG_TEMP" "$best_url"
-        if ! _valid_config "$CLASH_CONFIG_TEMP"; then
+        if _valid_config "$CLASH_CONFIG_TEMP"; then
+            config_file="$CLASH_CONFIG_TEMP"
+            downloaded=true
+        else
             /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
-            _failcat '🔙' "高优先级订阅 [$best_id] 仍无法下载，保持 [$current_use]"
-            continue
+            if [ -f "$_fp" ]; then
+                config_file="$_fp"
+            else
+                _failcat '🔙' "高优先级订阅 [$best_id] 无法下载且无本地配置，保持 [$current_use]"
+                continue
+            fi
         fi
 
         # 第二关：TCP 探活并测延迟
         local candidate_ms
-        candidate_ms=$(_probe_config_best_latency "$CLASH_CONFIG_TEMP" "$timeout")
+        candidate_ms=$(_probe_config_best_latency "$config_file" "$timeout")
         if [ -z "$candidate_ms" ]; then
-            /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
+            [ "$downloaded" = true ] && /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
             _failcat '🔙' "高优先级订阅 [$best_id] 代理节点不可达，保持 [$current_use]"
             continue
         fi
@@ -1042,16 +1051,13 @@ _failover_recovery_check() {
         local current_ms
         current_ms=$(_get_current_best_delay "$timeout" "${test_urls[@]}") || current_ms=999999
         if [ "$candidate_ms" -ge "$current_ms" ]; then
-            /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
+            [ "$downloaded" = true ] && /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
             _failcat '🔙' "高优先级订阅 [$best_id] 延迟 ${candidate_ms}ms >= 当前 ${current_ms}ms，保持 [$current_use]"
             continue
         fi
 
-        local _fp
-        _fp=$(_get_path_by_id "$best_id")
-        mv "$CLASH_CONFIG_TEMP" "$_fp"
-
-        # 全部通过，执行切换
+        # 全部通过，更新配置并切换
+        [ "$downloaded" = true ] && mv "$CLASH_CONFIG_TEMP" "$_fp"
         clashsub use "$best_id" >/dev/null 2>&1
         _okcat '🔙' "高优先级订阅 [$best_id] 已恢复 (${candidate_ms}ms < ${current_ms}ms)，切换回"
         _logging_sub "🔙 回切：高优先级订阅 [$best_id] 已恢复 (${candidate_ms}ms < ${current_ms}ms)，从 [$current_use] 切换回"
