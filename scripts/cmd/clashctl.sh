@@ -861,13 +861,6 @@ _failover_start() {
         return 1
     }
 
-    local profile_count
-    profile_count=$("$BIN_YQ" '.profiles // [] | length' "$CLASH_PROFILES_META")
-    [ "$profile_count" -lt 2 ] && {
-        _failcat "至少需要 2 个订阅才能启用故障转移"
-        return 1
-    }
-
     _failover_loop "$threshold" "$window" "$timeout" "$cooldown" "$recovery" "${test_urls[@]}" \
         >>"$CLASH_FAILOVER_LOG" 2>&1 &
     echo $! >"$CLASH_FAILOVER_PID"
