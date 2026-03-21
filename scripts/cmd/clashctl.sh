@@ -764,7 +764,12 @@ _failover_stop() {
     }
     local pid
     pid=$(cat "$CLASH_FAILOVER_PID")
+    # 先杀子进程树，再杀主进程
+    pkill -TERM -P "$pid" 2>/dev/null
     kill "$pid" 2>/dev/null
+    sleep 1
+    pkill -KILL -P "$pid" 2>/dev/null
+    kill -KILL "$pid" 2>/dev/null
     /usr/bin/rm -f "$CLASH_FAILOVER_PID"
     _logging_sub "🛑 故障转移已停止 (pid=$pid)"
     _okcat '🛑' "故障转移已停止"

@@ -21,8 +21,12 @@ if [ -f "$CLASH_FAILOVER_PID" ]; then
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
         FAILOVER_WAS_RUNNING=true
         _okcat '🛑' '停止故障转移...'
+        # 先杀子进程树，再杀主进程
+        pkill -TERM -P "$pid" 2>/dev/null
         kill "$pid" 2>/dev/null
         sleep 1
+        pkill -KILL -P "$pid" 2>/dev/null
+        kill -KILL "$pid" 2>/dev/null
     fi
     rm -f "$CLASH_FAILOVER_PID"
 fi
@@ -67,9 +71,11 @@ if "${service_is_active[@]}" >&/dev/null; then
     _okcat '✅' '内核已重启'
 fi
 
+# 重新加载更新后的脚本（placeholder 已替换）
+. "$CLASH_BASE_DIR/scripts/cmd/clashctl.sh"
+
 # 恢复 failover（如果更新前在运行）
 if [ "$FAILOVER_WAS_RUNNING" = true ]; then
-    . "$CLASH_BASE_DIR/scripts/cmd/clashctl.sh"
     if [ -f "$CLASH_FAILOVER_ARGS" ]; then
         _okcat '🔄' '恢复故障转移...'
         eval "clashsub failover on $(cat "$CLASH_FAILOVER_ARGS")"
