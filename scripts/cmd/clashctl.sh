@@ -556,16 +556,21 @@ _sub_add() {
     }
     _get_url_by_id "$id" >/dev/null && _error_quit "该订阅链接已存在"
 
+    local download_ok=true
     _download_config "$CLASH_CONFIG_TEMP" "$url"
-    _valid_config "$CLASH_CONFIG_TEMP" || _error_quit "订阅无效，请检查：
-    原始订阅：${CLASH_CONFIG_TEMP}.raw
-    转换订阅：$CLASH_CONFIG_TEMP
-    转换日志：$BIN_SUBCONVERTER_LOG"
+    _valid_config "$CLASH_CONFIG_TEMP" || {
+        download_ok=false
+        _failcat '⚠️' "订阅暂时无法使用，但仍会添加记录，稍后可通过 update 更新"
+    }
 
     local id=$("$BIN_YQ" '.profiles // [] | (map(.id) | max) // 0 | . + 1' "$CLASH_PROFILES_META")
     local max_priority=$("$BIN_YQ" '.profiles // [] | (map(.priority) | max) // 0 | . + 1' "$CLASH_PROFILES_META")
     local profile_path="${CLASH_PROFILES_DIR}/${id}.yaml"
-    mv "$CLASH_CONFIG_TEMP" "$profile_path"
+    if [ "$download_ok" = true ]; then
+        mv "$CLASH_CONFIG_TEMP" "$profile_path"
+    else
+        /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
+    fi
 
     "$BIN_YQ" -i "
          .profiles = (.profiles // []) + 
@@ -612,6 +617,12 @@ _sub_use() {
     local profile_path url
     profile_path=$(_get_path_by_id "$id") || _error_quit "订阅 id 不存在，请检查"
     url=$(_get_url_by_id "$id")
+    [ ! -f "$profile_path" ] && {
+        _failcat '⚠️' "配置文件不存在，尝试下载..."
+        _download_config "$CLASH_CONFIG_TEMP" "$url"
+        _valid_config "$CLASH_CONFIG_TEMP" || _error_quit "订阅下载失败，无法使用"
+        mv "$CLASH_CONFIG_TEMP" "$profile_path"
+    }
     cat "$profile_path" >"$CLASH_CONFIG_BASE"
     _merge_config_restart
     "$BIN_YQ" -i ".use = $id" "$CLASH_PROFILES_META"
@@ -852,6 +863,20 @@ _do_failover_switch() {
     while IFS= read -r next_id; do
         [ "$next_id" = "$current_use" ] && { found_current=true; continue; }
         [ "$found_current" = true ] && {
+            local _fp _url
+            _fp=$(_get_path_by_id "$next_id")
+            if [ ! -f "$_fp" ]; then
+                _failcat '⚠️' "订阅 [$next_id] 无配置文件，尝试下载..."
+                _url=$(_get_url_by_id "$next_id")
+                _download_config "$CLASH_CONFIG_TEMP" "$_url"
+                if _valid_config "$CLASH_CONFIG_TEMP"; then
+                    mv "$CLASH_CONFIG_TEMP" "$_fp"
+                else
+                    /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
+                    _failcat '⏭️' "订阅 [$next_id] 下载失败，跳过"
+                    continue
+                fi
+            fi
             _okcat '🔄' "尝试切换到订阅 [$next_id]..."
             clashsub use "$next_id" >/dev/null 2>&1
             sleep 2
@@ -871,6 +896,20 @@ _do_failover_switch() {
     [ "$switched" = false ] && {
         while IFS= read -r next_id; do
             [ "$next_id" = "$current_use" ] && break
+            local _fp _url
+            _fp=$(_get_path_by_id "$next_id")
+            if [ ! -f "$_fp" ]; then
+                _failcat '⚠️' "订阅 [$next_id] 无配置文件，尝试下载..."
+                _url=$(_get_url_by_id "$next_id")
+                _download_config "$CLASH_CONFIG_TEMP" "$_url"
+                if _valid_config "$CLASH_CONFIG_TEMP"; then
+                    mv "$CLASH_CONFIG_TEMP" "$_fp"
+                else
+                    /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
+                    _failcat '⏭️' "订阅 [$next_id] 下载失败，跳过"
+                    continue
+                fi
+            fi
             _okcat '🔄' "尝试切换到订阅 [$next_id]..."
             clashsub use "$next_id" >/dev/null 2>&1
             sleep 2
