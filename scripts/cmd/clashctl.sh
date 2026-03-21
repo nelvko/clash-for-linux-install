@@ -531,13 +531,13 @@ Commands:
   update [id]     更新订阅
   log             订阅日志
   priority <id> <n>  设置订阅优先级（数字越小优先级越高）
-  failover        自动故障转移（检测代理超时后按优先级切换订阅）
+  failover <on|off|status>  自动故障转移（后台运行，检测代理超时后按优先级切换订阅）
 
 Options:
   update:
     --auto        配置自动更新
     --convert     使用订阅转换
-  failover:
+  failover on:
     --threshold <n>   触发检测的错误次数阈值（默认 10）
     --window <s>      错误计数的时间窗口秒数（默认 30）
     --timeout <ms>    代理超时毫秒数（默认 3000）
@@ -749,7 +749,66 @@ _test_all_proxies() {
 
     return 1
 }
+_failover_is_running() {
+    [ -f "$CLASH_FAILOVER_PID" ] || return 1
+    local pid
+    pid=$(cat "$CLASH_FAILOVER_PID" 2>/dev/null)
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+_failover_stop() {
+    _failover_is_running || {
+        _failcat '故障转移未运行'
+        /usr/bin/rm -f "$CLASH_FAILOVER_PID"
+        return 1
+    }
+    local pid
+    pid=$(cat "$CLASH_FAILOVER_PID")
+    kill "$pid" 2>/dev/null
+    /usr/bin/rm -f "$CLASH_FAILOVER_PID"
+    _logging_sub "🛑 故障转移已停止 (pid=$pid)"
+    _okcat '🛑' "故障转移已停止"
+}
 _sub_failover() {
+    local action=$1
+    case "$action" in
+    on)
+        shift
+        _failover_is_running && {
+            _failcat '故障转移已在运行中 (pid='"$(cat "$CLASH_FAILOVER_PID")"')'
+            return 1
+        }
+        _failover_start "$@"
+        ;;
+    off)
+        _failover_stop
+        ;;
+    status)
+        if _failover_is_running; then
+            _okcat '🔄' "故障转移运行中 (pid=$(cat "$CLASH_FAILOVER_PID"))"
+            [ -f "$CLASH_FAILOVER_LOG" ] && _okcat '📄' "日志：$CLASH_FAILOVER_LOG"
+        else
+            _failcat '故障转移未运行'
+        fi
+        ;;
+    *)
+        cat <<EOF
+用法: clashsub failover <on|off|status> [OPTIONS]
+
+  on      启动故障转移（后台运行）
+  off     停止故障转移
+  status  查看故障转移状态
+
+Options (on):
+  --threshold <n>   触发检测的错误次数阈值（默认 10）
+  --window <s>      错误计数的时间窗口秒数（默认 30）
+  --timeout <ms>    代理超时毫秒数（默认 3000）
+  --cooldown <s>    切换后的冷却秒数（默认 60）
+  --test-url <url>  测试地址，可多次指定（默认 gstatic + cloudflare + huawei）
+EOF
+        ;;
+    esac
+}
+_failover_start() {
     local threshold=10
     local window=30
     local timeout=3000
@@ -802,10 +861,23 @@ _sub_failover() {
         return 1
     }
 
-    _okcat '🔄' "故障转移已启动（被动监听模式）"
+    _failover_loop "$threshold" "$window" "$timeout" "$cooldown" "${test_urls[@]}" \
+        >>"$CLASH_FAILOVER_LOG" 2>&1 &
+    echo $! >"$CLASH_FAILOVER_PID"
+
+    _okcat '🔄' "故障转移已启动（后台运行 pid=$!）"
     _okcat '🔄' "错误阈值: ${threshold} 次/${window}s  超时: ${timeout}ms  冷却: ${cooldown}s"
     _okcat '🔄' "测试地址: ${test_urls[*]}"
-    _logging_sub "🔄 故障转移已启动 (threshold=${threshold}, window=${window}s, timeout=${timeout}ms, cooldown=${cooldown}s)"
+    _okcat '📄' "日志：$CLASH_FAILOVER_LOG"
+    _logging_sub "🔄 故障转移已启动 (pid=$!, threshold=${threshold}, window=${window}s, timeout=${timeout}ms, cooldown=${cooldown}s)"
+}
+_failover_loop() {
+    local threshold=$1
+    local window=$2
+    local timeout=$3
+    local cooldown=$4
+    shift 4
+    local test_urls=("$@")
 
     local error_pattern='i/o timeout|connection refused|dial .* error|context deadline exceeded|all proxies.*dead|no available proxy'
     local error_times=()
