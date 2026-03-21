@@ -1,6 +1,21 @@
 _custom:
   system-proxy:
     enable: true
+  # 固定出口 + 自动包装当前订阅中的入口节点，生成端到端测速分组（仅支持 mihomo）
+  chain-proxy:
+    enable: false
+    exit-proxy: "VPS-SS"
+    auto-group: "链式自动"
+    manual-group: "链式手选" # 留空可关闭手选分组
+    name-template: "{source} -> {exit}"
+    source-filter: "" # 正则筛选入口节点
+    source-exclude-filter: "" # 正则排除入口节点
+    max-nodes: 50 # 0 表示不限制
+    test-url: "https://www.gstatic.com/generate_204"
+    interval: 300
+    tolerance: 50
+    timeout: 5000
+    lazy: false
 
 mixed-port: 7890
 
