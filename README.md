@@ -128,23 +128,53 @@ Usage:
   clashsub COMMAND [OPTIONS]
 
 Commands:
-  add <url>       添加订阅
-  ls              查看订阅
-  del <id>        删除订阅
-  use <id>        使用订阅
-  update [id]     更新订阅
-  log             订阅日志
-
+  add <url>                 添加订阅
+  ls                        查看订阅
+  del <id>                  删除订阅
+  use <id>                  使用订阅
+  update [id]               更新订阅
+  log                       订阅日志
+  priority <id> <n>         设置订阅优先级（数字越小优先级越高）
+  failover <on|off|status>  自动故障转移（后台运行，检测代理超时后按优先级切换订阅）
 
 Options:
   update:
     --auto        配置自动更新
     --convert     使用订阅转换
+  failover on:
+    --threshold <n>   触发检测的错误次数阈值（默认 10）
+    --window <s>      错误计数的时间窗口秒数（默认 30）
+    --timeout <ms>    代理超时毫秒数（默认 3000）
+    --cooldown <s>    切换后的冷却秒数（默认 60）
+    --recovery <s>    高优先级订阅回切检测间隔秒数（默认 300）
+    --test-url <url>  测试地址，可多次指定（默认 gstatic + cloudflare + huawei）
 ```
 
 - 支持添加本地订阅，例如：`file:///root/clashctl/resources/config.yaml`
+- 添加订阅时即使暂时无法连接，也会先保存记录，稍后可通过 `update` 更新。
 - 当订阅链接解析失败或包含特殊字符时，请使用引号包裹以避免被错误解析。
 - 自动更新任务可通过 `crontab -e` 进行修改和管理。
+
+### 故障转移
+
+```bash
+# 启动故障转移（后台运行）
+$ clashsub failover on
+🔄 故障转移已启动（后台运行 pid=12345）
+🔄 错误阈值: 10 次/30s  超时: 3000ms  冷却: 60s  回切: 300s
+
+# 查看状态
+$ clashsub failover status
+🔄 故障转移运行中 (pid=12345)
+
+# 停止故障转移
+$ clashsub failover off
+🛑 故障转移已停止
+```
+
+- 通过监听内核日志检测代理超时，达到阈值后自动按优先级切换订阅。
+- 切换前会通过 `clash API` 对所有代理做延迟测试，排除目标站点本身故障的误判。
+- 切换到低优先级订阅后，会定期检测高优先级订阅是否恢复（通过下载配置 + `TCP` 探活 + 延迟对比），确认更优后自动切回，且检测过程不影响当前访问。
 
 ### `Tun` 模式
 
