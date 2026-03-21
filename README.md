@@ -142,8 +142,8 @@ Options:
     --auto        配置自动更新
     --convert     使用订阅转换
   failover on:
-    --threshold <n>   触发检测的错误次数阈值（默认 10）
-    --window <s>      错误计数的时间窗口秒数（默认 30）
+    --threshold <n>   触发检测的错误次数阈值（默认 3）
+    --window <s>      错误计数的时间窗口秒数（默认 60）
     --timeout <ms>    代理超时毫秒数（默认 3000）
     --cooldown <s>    切换后的冷却秒数（默认 60）
     --recovery <s>    高优先级订阅回切检测间隔秒数（默认 300）
