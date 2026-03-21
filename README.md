@@ -190,7 +190,16 @@ $ clashtun on
 - 原理：[clash-verge-rev](https://www.clashverge.dev/guide/term.html#tun)、 [clash.wiki](https://clash.wiki/premium/tun-device.html)。
 - 注意事项：[#100](https://github.com/nelvko/clash-for-linux-install/issues/100#issuecomment-2782680205)
 
-## 🗑️ 卸载
+## � 更新
+
+```bash
+cd clash-for-linux-install && bash update.sh
+```
+
+- 自动拉取最新代码，更新脚本和服务配置，保留订阅、配置等用户数据。
+- 如果内核正在运行，更新后会自动重启。
+
+## �🗑️ 卸载
 
 ```bash
 bash uninstall.sh
