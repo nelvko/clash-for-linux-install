@@ -364,11 +364,11 @@ _apply_chain_proxy() {
         local proxy_name_count group_name_count
         proxy_name_count=$(NAME="$group_name" "$BIN_YQ" -r '[.proxies[]? | select(.name == strenv(NAME))] | length' "$chain_runtime")
         group_name_count=$(NAME="$group_name" "$BIN_YQ" -r '[."proxy-groups"[]? | select(.name == strenv(NAME))] | length' "$chain_runtime")
-        [ "$proxy_name_count" -eq 0 ] && [ "$group_name_count" -eq 0 ] || {
+        if [ "$proxy_name_count" -ne 0 ] || [ "$group_name_count" -ne 0 ]; then
             rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
             _failcat "chain-proxy 分组名称已存在：$group_name"
             return 1
-        }
+        fi
     done
 
     local source_name chain_name generated_count=0
@@ -394,11 +394,11 @@ _apply_chain_proxy() {
         local chain_proxy_count chain_group_count
         chain_proxy_count=$(NAME="$chain_name" "$BIN_YQ" -r '[.proxies[]? | select(.name == strenv(NAME))] | length' "$chain_runtime")
         chain_group_count=$(NAME="$chain_name" "$BIN_YQ" -r '[."proxy-groups"[]? | select(.name == strenv(NAME))] | length' "$chain_runtime")
-        [ "$chain_proxy_count" -eq 0 ] && [ "$chain_group_count" -eq 0 ] && [ "$chain_name" != "$auto_group" ] && [ "$chain_name" != "$manual_group" ] || {
+        if [ "$chain_proxy_count" -ne 0 ] || [ "$chain_group_count" -ne 0 ] || [ "$chain_name" = "$auto_group" ] || [ "$chain_name" = "$manual_group" ]; then
             rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
             _failcat "chain-proxy 生成的名称与现有节点或分组冲突：$chain_name"
             return 1
-        }
+        fi
 
         cat "$exit_temp" >"$proxy_temp"
         CHAIN_NAME="$chain_name" SOURCE_NAME="$source_name" "$BIN_YQ" -i '
