@@ -363,8 +363,8 @@ _apply_rc() {
 $start_flag
 # 加载 clashctl 命令
 $source_clashctl
-# 自动开启代理环境
-watch_proxy
+# 新开 shell 时自动开启代理环境
+# watch_proxy
 $end_flag
 EOF
     [ -n "$SHELL_RC_FISH" ] && /usr/bin/install "$SCRIPT_CMD_FISH" "$SHELL_RC_FISH"
