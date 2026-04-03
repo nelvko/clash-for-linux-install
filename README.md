@@ -43,6 +43,7 @@ Commands:
     ui                    Web 面板
     secret                Web 密钥
     sub                   订阅管理
+    node                  节点切换
     upgrade               升级内核
     tun                   Tun 模式
     mixin                 Mixin 配置
@@ -145,6 +146,25 @@ Options:
 - 支持添加本地订阅，例如：`file:///root/clashctl/resources/config.yaml`
 - 当订阅链接解析失败或包含特殊字符时，请使用引号包裹以避免被错误解析。
 - 自动更新任务可通过 `crontab -e` 进行修改和管理。
+
+### 命令行切换节点
+
+```bash
+$ clashnode groups
+😼 列出可选策略组
+
+$ clashnode nodes "🚀 节点选择"
+😼 列出该策略组可选节点
+
+$ clashnode current "🚀 节点选择"
+😼 查看当前节点
+
+$ clashnode use "🚀 节点选择" "🇭🇰 香港 优质 256 20260403"
+😼 切换成功
+```
+
+- `clashnode` 通过命令行读取订阅中的策略组与节点，并调用内核外部控制 API 完成切换。
+- `groups/nodes` 支持传入订阅 id 或配置文件路径，例如：`clashnode groups 1`。
 
 ### `Tun` 模式
 

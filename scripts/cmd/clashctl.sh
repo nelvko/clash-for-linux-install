@@ -660,6 +660,171 @@ _sub_log() {
     tail <"${CLASH_PROFILES_LOG}" "$@"
 }
 
+_urlencode() {
+    local raw="$1"
+    local out=""
+    local i ch hex
+    LC_ALL=C
+    for ((i = 0; i < ${#raw}; i++)); do
+        ch="${raw:i:1}"
+        case "$ch" in
+        [a-zA-Z0-9.~_-])
+            out+="$ch"
+            ;;
+        *)
+            printf -v hex '%%%02X' "'$ch"
+            out+="$hex"
+            ;;
+        esac
+    done
+    echo "$out"
+}
+
+_node_profile_path() {
+    local profile_arg="$1"
+    local profile_path
+
+    if [ -z "$profile_arg" ]; then
+        local use_id
+        use_id=$("$BIN_YQ" '.use // 1' "$CLASH_PROFILES_META")
+        profile_path=$("$BIN_YQ" -r ".profiles[] | select((.id|tostring) == \"${use_id}\") | .path" "$CLASH_PROFILES_META" 2>/dev/null)
+    elif [[ "$profile_arg" =~ ^[0-9]+$ ]]; then
+        profile_path=$("$BIN_YQ" -r ".profiles[] | select((.id|tostring) == \"${profile_arg}\") | .path" "$CLASH_PROFILES_META" 2>/dev/null)
+    else
+        profile_path="$profile_arg"
+    fi
+
+    [ -n "$profile_path" ] && [ "$profile_path" != "null" ] && [ -f "$profile_path" ] || return 1
+    echo "$profile_path"
+}
+
+_node_api_args() {
+    local ext_addr ext_ip ext_port secret
+    ext_addr=$("$BIN_YQ" '.external-controller // "127.0.0.1:9090"' "$CLASH_CONFIG_RUNTIME")
+    ext_ip=${ext_addr%%:*}
+    ext_port=${ext_addr##*:}
+    [ "$ext_ip" = '0.0.0.0' ] && ext_ip=127.0.0.1
+    secret=$(_get_secret)
+
+    NODE_CTRL_ADDR="http://${ext_ip}:${ext_port}"
+    if [ -n "$secret" ]; then
+        NODE_AUTH_HEADER=("-H" "Authorization: Bearer ${secret}")
+    else
+        NODE_AUTH_HEADER=()
+    fi
+}
+
+_node_check_api() {
+    _node_api_args
+    curl -s --max-time 2 "${NODE_CTRL_ADDR}/version" "${NODE_AUTH_HEADER[@]}" | grep -q '"version"' || {
+        _failcat "无法连接到 Clash API：${NODE_CTRL_ADDR}，请先执行 clashon"
+        return 1
+    }
+}
+
+_node_list_groups() {
+    local profile_path
+    profile_path=$(_node_profile_path "$1") || {
+        _failcat '未找到可用订阅配置，请先 clashsub add 并 clashsub use'
+        return 1
+    }
+    "$BIN_YQ" '."proxy-groups"[] | select(.type == "select") | .name' "$profile_path"
+}
+
+_node_list_nodes() {
+    local group_name="$1"
+    local profile_arg="$2"
+    [ -z "$group_name" ] && {
+        _failcat '用法：clashnode nodes <策略组名> [订阅id|配置文件路径]'
+        return 1
+    }
+    local profile_path
+    profile_path=$(_node_profile_path "$profile_arg") || {
+        _failcat '未找到可用订阅配置'
+        return 1
+    }
+    group="$group_name" "$BIN_YQ" '."proxy-groups"[] | select(.name == env(group)) | .proxies[]' "$profile_path"
+}
+
+_node_current() {
+    local group_name="$1"
+    [ -z "$group_name" ] && {
+        _failcat '用法：clashnode current <策略组名>'
+        return 1
+    }
+    _node_check_api || return 1
+    curl -s --max-time 3 "${NODE_CTRL_ADDR}/proxies" "${NODE_AUTH_HEADER[@]}" |
+        group="$group_name" "$BIN_YQ" '.proxies[env(group)].now // ""'
+}
+
+_node_use() {
+    local group_name="$1"
+    local node_name="$2"
+    [ -z "$group_name" ] || [ -z "$node_name" ] && {
+        _failcat '用法：clashnode use <策略组名> <节点名>'
+        return 1
+    }
+    _node_check_api || return 1
+
+    local group_encoded
+    group_encoded=$(_urlencode "$group_name")
+
+    local res
+    res=$(curl -s --max-time 5 -X PUT \
+        "${NODE_CTRL_ADDR}/proxies/${group_encoded}" \
+        -H 'Content-Type: application/json' \
+        "${NODE_AUTH_HEADER[@]}" \
+        --data "{\"name\":\"${node_name}\"}")
+
+    grep -q '"error"' <<<"$res" && {
+        _failcat "切换失败：${res}"
+        return 1
+    }
+    _okcat "节点已切换：${group_name} -> ${node_name}"
+}
+
+function clashnode() {
+    case "$1" in
+    -h | --help | '')
+        cat <<EOF
+clashnode - 节点查看与切换
+
+Usage:
+  clashnode groups [订阅id|配置文件路径]
+  clashnode nodes <策略组名> [订阅id|配置文件路径]
+  clashnode current <策略组名>
+  clashnode use <策略组名> <节点名>
+
+Examples:
+  clashnode groups
+  clashnode nodes "🚀 节点选择"
+  clashnode current "🚀 节点选择"
+  clashnode use "🚀 节点选择" "🇭🇰 香港 优质 256 20260403"
+EOF
+        ;;
+    groups | ls)
+        shift
+        _node_list_groups "$@"
+        ;;
+    nodes)
+        shift
+        _node_list_nodes "$@"
+        ;;
+    current)
+        shift
+        _node_current "$@"
+        ;;
+    use)
+        shift
+        _node_use "$@"
+        ;;
+    *)
+        _failcat '未知子命令，执行 clashnode -h 查看帮助'
+        return 1
+        ;;
+    esac
+}
+
 function clashctl() {
     case "$1" in
     on)
@@ -702,6 +867,10 @@ function clashctl() {
         shift
         clashsub "$@"
         ;;
+    node)
+        shift
+        clashnode "$@"
+        ;;
     upgrade)
         shift
         clashupgrade "$@"
@@ -726,6 +895,7 @@ Commands:
   status                内核状态
   ui                    面板地址
   sub                   订阅管理
+  node                  节点查看与切换
   log                   内核日志
   tun                   Tun 模式
   mixin                 Mixin 配置
