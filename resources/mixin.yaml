@@ -56,6 +56,15 @@ dns:
   enable: true
   listen: 0.0.0.0:1053
   enhanced-mode: fake-ip
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  # Avoid resolving proxy server domains to fake-ip when Tun + dns-hijack is enabled.
+  proxy-server-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+    - 1.1.1.1
+    - 8.8.8.8
   nameserver:
     - 114.114.114.114
     - 8.8.8.8
