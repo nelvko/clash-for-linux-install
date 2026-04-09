@@ -158,7 +158,7 @@ $ clashtun on
 
 - 作用：实现本机及 `Docker` 等容器的所有流量路由到 `clash` 代理、DNS 劫持等。
 - 原理：[clash-verge-rev](https://www.clashverge.dev/guide/term.html#tun)、 [clash.wiki](https://clash.wiki/premium/tun-device.html)。
-- 若订阅中的节点 `server` 使用域名，开启 `Tun` + `fake-ip` 后建议为代理节点单独配置 `proxy-server-nameserver`，必要时再配合 `fake-ip-filter`，以避免节点域名被解析为 fake-ip 后导致代理握手失败。
+- 若订阅中的节点 `server` 使用域名，默认 `mixin.yaml` 已预置 `proxy-server-nameserver`，可避免开启 `Tun` + `fake-ip` 后节点域名被解析为 fake-ip 而导致代理握手失败；如使用自定义 DNS 配置，建议保留该项，并在必要时再配合 `fake-ip-filter`。
 - 注意事项：[#100](https://github.com/nelvko/clash-for-linux-install/issues/100#issuecomment-2782680205)
 
 ## 🗑️ 卸载

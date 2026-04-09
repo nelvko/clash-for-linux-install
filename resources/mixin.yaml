@@ -59,7 +59,7 @@ dns:
   default-nameserver:
     - 223.5.5.5
     - 119.29.29.29
-  # Avoid resolving proxy server domains to fake-ip when Tun + dns-hijack is enabled.
+  # 避免在启用 Tun + dns-hijack 时将代理节点域名解析为 fake-ip。
   proxy-server-nameserver:
     - 223.5.5.5
     - 119.29.29.29
