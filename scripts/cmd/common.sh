@@ -115,19 +115,100 @@ function _error_quit() {
     exec $SHELL -i
 }
 
+_download_file() {
+    local dest=$1
+    local url=$2
+    local tmp="${dest}.tmp"
+
+    rm -f "$tmp"
+    curl \
+        --silent \
+        --show-error \
+        --fail \
+        --insecure \
+        --location \
+        --connect-timeout 5 \
+        --max-time 180 \
+        --retry 1 \
+        --output "$tmp" \
+        "$url" ||
+        wget \
+            --no-verbose \
+            --no-check-certificate \
+            --timeout 180 \
+            --tries 1 \
+            --output-document "$tmp" \
+            "$url" ||
+        return 1
+
+    [ -s "$tmp" ] || return 1
+    /bin/mv -f "$tmp" "$dest"
+}
+
+_download_file_any() {
+    local dest=$1
+    shift
+
+    local url
+    for url in "$@"; do
+        [ -n "$url" ] || continue
+        _download_file "$dest" "$url" && return 0
+    done
+    return 1
+}
+
+_gh_proxy_url() {
+    local url=$1
+    [ -n "$URL_GH_PROXY" ] || return 1
+    [[ "$url" == https://github.com/* || "$url" == http://github.com/* ]] || return 1
+    echo "${URL_GH_PROXY%/}/$url"
+}
+
+_ensure_mihomo_asn_mmdb() {
+    local config=$1
+    local data_dir
+    data_dir=$(dirname "$config")
+
+    grep -qs 'IP-ASN' "$config" || return 0
+
+    local file_asn_mmdb="${data_dir}/ASN.mmdb"
+    [ -s "$file_asn_mmdb" ] && return 0
+
+    local url_asn_mmdb="https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb"
+    local mirror_asn_mmdb="https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb"
+
+    local url1 url2
+    url1=$(_gh_proxy_url "$url_asn_mmdb")
+    url2="$url_asn_mmdb"
+
+    _okcat '⏳' '下载 GeoData：ASN.mmdb'
+    _download_file_any "$file_asn_mmdb" "$url1" "$url2" "$mirror_asn_mmdb" ||
+        _failcat 'GeoData 下载失败：ASN.mmdb（请检查网络或 URL_GH_PROXY）'
+}
+
 function _valid_config() {
     local config="$1"
     [[ ! -e "$config" || "$(wc -l <"$config")" -lt 1 ]] && return 1
 
     local test_cmd test_log
     test_cmd=("$BIN_KERNEL" -d "$(dirname "$config")" -f "$config" -t)
-    test_log=$("${test_cmd[@]}") || {
-        "${test_cmd[@]}"
+
+    [ "$KERNEL_NAME" = "mihomo" ] && _ensure_mihomo_asn_mmdb "$config"
+
+    test_log=$("${test_cmd[@]}" 2>&1) || {
+        [ "$KERNEL_NAME" = "mihomo" ] && grep -qsi 'ASN invalid' <<<"$test_log" && {
+            rm -f "$(dirname "$config")/ASN.mmdb"
+            _ensure_mihomo_asn_mmdb "$config"
+            test_log=$("${test_cmd[@]}" 2>&1) && return 0
+        }
+
+        printf '%s\n' "$test_log" >&2
         grep -qs "unsupport proxy type" <<<"$test_log" && {
             local prefix="检测到订阅中包含不受支持的代理协议"
             [ "$KERNEL_NAME" = "clash" ] && _error_quit "${prefix}, 推荐安装使用 mihomo 内核"
             _error_quit "${prefix}, 请检查并升级内核版本"
         }
+        return 1
     }
 }
 

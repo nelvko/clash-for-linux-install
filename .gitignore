@@ -1,6 +1,7 @@
 .idea
 .vscode
 config.yaml*
+resources/ASN.mmdb
 resources/zip/*
 !resources/zip/dist.zip
 resources/dist/
