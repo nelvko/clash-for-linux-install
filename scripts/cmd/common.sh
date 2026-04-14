@@ -22,6 +22,10 @@ CLASH_PROFILES_DIR="${CLASH_RESOURCES_DIR}/profiles"
 CLASH_PROFILES_META="${CLASH_RESOURCES_DIR}/profiles.yaml"
 CLASH_PROFILES_LOG="${CLASH_RESOURCES_DIR}/profiles.log"
 
+_get_random_val() {
+    cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 6
+}
+
 _is_port_used() {
     local port=$1
     { ss -tunl 2>/dev/null || netstat -tunl; } | grep -qs ":${port}\b"

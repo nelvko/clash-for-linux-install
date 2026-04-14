@@ -69,6 +69,14 @@ _detect_proxy_port() {
 
 function clashon() {
     _detect_proxy_port
+    
+    # 动态生成随机用户名和密码
+    local auth_user="user_$(_get_random_val)"
+    local auth_pass="$(_get_random_val)$(_get_random_val)"
+    "$BIN_YQ" -i "._custom.proxy-auth.user = \"$auth_user\"" "$CLASH_CONFIG_MIXIN"
+    "$BIN_YQ" -i "._custom.proxy-auth.pass = \"$auth_pass\"" "$CLASH_CONFIG_MIXIN"
+    _merge_config
+
     clashstatus >&/dev/null || placeholder_start
     clashstatus >&/dev/null || {
         _failcat '启动失败: 执行 clashlog 查看日志'
@@ -99,6 +107,9 @@ function clashoff() {
             return 1
         }
     }
+    # 关闭时清除鉴权信息
+    "$BIN_YQ" -i 'del(._custom.proxy-auth)' "$CLASH_CONFIG_MIXIN"
+    _merge_config
     _unset_system_proxy
     _okcat '已关闭代理环境'
 }
@@ -188,6 +199,14 @@ function clashui() {
 
 _merge_config() {
     cat "$CLASH_CONFIG_RUNTIME" >"$CLASH_CONFIG_TEMP" 2>/dev/null
+
+    # 动态注入鉴权信息
+    local auth_user auth_pass
+    auth_user=$("$BIN_YQ" '._custom.proxy-auth.user // ""' "$CLASH_CONFIG_MIXIN")
+    auth_pass=$("$BIN_YQ" '._custom.proxy-auth.pass // ""' "$CLASH_CONFIG_MIXIN")
+    local auth_str=""
+    [ -n "$auth_user" ] && [ -n "$auth_pass" ] && auth_str="\"$auth_user:$auth_pass\""
+    export AUTH_STR_ENV="$auth_str"
     # shellcheck disable=SC2016
     "$BIN_YQ" eval-all '
       ########################################
@@ -202,7 +221,12 @@ _merge_config() {
       $mixin |= del(._custom) |
       (($config // {}) * $mixin) as $runtime |
       $runtime |
-      
+
+      ########################################
+      #              Inject Auth             #
+      ########################################
+      .authentication = [ strenv(AUTH_STR_ENV) ] |
+
       ########################################
       #               Rules                  #
       ########################################
@@ -602,6 +626,15 @@ _sub_use() {
     profile_path=$(_get_path_by_id "$id") || _error_quit "订阅 id 不存在，请检查"
     url=$(_get_url_by_id "$id")
     cat "$profile_path" >"$CLASH_CONFIG_BASE"
+
+    # 切换订阅时，如果当前正在运行，则重新生成鉴权信息
+    clashstatus >&/dev/null && {
+        local auth_user="user_$(_get_random_val)"
+        local auth_pass="$(_get_random_val)$(_get_random_val)"
+        "$BIN_YQ" -i "._custom.proxy-auth.user = \"$auth_user\"" "$CLASH_CONFIG_MIXIN"
+        "$BIN_YQ" -i "._custom.proxy-auth.pass = \"$auth_pass\"" "$CLASH_CONFIG_MIXIN"
+    }
+
     _merge_config_restart
     "$BIN_YQ" -i ".use = $id" "$CLASH_PROFILES_META"
     _logging_sub "🔥 订阅已切换为：[$id] $url"
