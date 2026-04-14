@@ -515,6 +515,14 @@ function clashsub() {
         shift
         _sub_log "$@"
         ;;
+    priority)
+        shift
+        _sub_priority "$@"
+        ;;
+    failover)
+        shift
+        _sub_failover "$@"
+        ;;
     -h | --help | *)
         cat <<EOF
 clashsub - Clash 订阅管理工具
@@ -529,11 +537,20 @@ Commands:
   use <id>        使用订阅
   update [id]     更新订阅
   log             订阅日志
+  priority <id> <n>  设置订阅优先级（数字越小优先级越高）
+  failover <on|off|status>  自动故障转移（后台运行，检测代理超时后按优先级切换订阅）
 
 Options:
   update:
     --auto        配置自动更新
     --convert     使用订阅转换
+  failover on:
+    --threshold <n>   触发检测的错误次数阈值（默认 3）
+    --window <s>      错误计数的时间窗口秒数（默认 60）
+    --timeout <ms>    代理超时毫秒数（默认 3000）
+    --cooldown <s>    切换后的冷却秒数（默认 60）
+    --recovery <s>    高优先级订阅回切检测间隔秒数（默认 300）
+    --test-url <url>  测试地址，可多次指定（默认 gstatic + cloudflare + huawei）
 EOF
         ;;
     esac
@@ -547,26 +564,33 @@ _sub_add() {
     }
     _get_url_by_id "$id" >/dev/null && _error_quit "该订阅链接已存在"
 
+    local download_ok=true
     _download_config "$CLASH_CONFIG_TEMP" "$url"
-    _valid_config "$CLASH_CONFIG_TEMP" || _error_quit "订阅无效，请检查：
-    原始订阅：${CLASH_CONFIG_TEMP}.raw
-    转换订阅：$CLASH_CONFIG_TEMP
-    转换日志：$BIN_SUBCONVERTER_LOG"
+    _valid_config "$CLASH_CONFIG_TEMP" || {
+        download_ok=false
+        _failcat '⚠️' "订阅暂时无法使用，但仍会添加记录，稍后可通过 update 更新"
+    }
 
     local id=$("$BIN_YQ" '.profiles // [] | (map(.id) | max) // 0 | . + 1' "$CLASH_PROFILES_META")
+    local max_priority=$("$BIN_YQ" '.profiles // [] | (map(.priority) | max) // 0 | . + 1' "$CLASH_PROFILES_META")
     local profile_path="${CLASH_PROFILES_DIR}/${id}.yaml"
-    mv "$CLASH_CONFIG_TEMP" "$profile_path"
+    if [ "$download_ok" = true ]; then
+        mv "$CLASH_CONFIG_TEMP" "$profile_path"
+    else
+        /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
+    fi
 
     "$BIN_YQ" -i "
          .profiles = (.profiles // []) + 
          [{
            \"id\": $id,
            \"path\": \"$profile_path\",
-           \"url\": \"$url\"
+           \"url\": \"$url\",
+           \"priority\": $max_priority
          }]
     " "$CLASH_PROFILES_META"
-    _logging_sub "➕ 已添加订阅：[$id] $url"
-    _okcat '🎉' "订阅已添加：[$id] $url"
+    _logging_sub "➕ 已添加订阅：[$id] $url (priority: $max_priority)"
+    _okcat '🎉' "订阅已添加：[$id] $url (优先级: $max_priority)"
 }
 _sub_del() {
     local id=$1
@@ -601,6 +625,12 @@ _sub_use() {
     local profile_path url
     profile_path=$(_get_path_by_id "$id") || _error_quit "订阅 id 不存在，请检查"
     url=$(_get_url_by_id "$id")
+    [ ! -f "$profile_path" ] && {
+        _failcat '⚠️' "配置文件不存在，尝试下载..."
+        _download_config "$CLASH_CONFIG_TEMP" "$url"
+        _valid_config "$CLASH_CONFIG_TEMP" || _error_quit "订阅下载失败，无法使用"
+        mv "$CLASH_CONFIG_TEMP" "$profile_path"
+    }
     cat "$profile_path" >"$CLASH_CONFIG_BASE"
     _merge_config_restart
     "$BIN_YQ" -i ".use = $id" "$CLASH_PROFILES_META"
@@ -659,6 +689,491 @@ _sub_update() {
     use=$("$BIN_YQ" '.use // ""' "$CLASH_PROFILES_META")
     [ "$use" = "$id" ] && clashsub use "$use" && return
     _okcat '订阅已更新'
+}
+_sub_priority() {
+    local id=$1
+    local priority=$2
+    [ -z "$id" ] && {
+        clashsub ls
+        echo -n "$(_okcat '✈️ ' '请输入订阅 id：')"
+        read -r id
+        [ -z "$id" ] && _error_quit "订阅 id 不能为空"
+    }
+    _get_path_by_id "$id" >/dev/null || _error_quit "订阅 id 不存在，请检查"
+    [ -z "$priority" ] && {
+        echo -n "$(_okcat '✈️ ' '请输入优先级（数字越小优先级越高）：')"
+        read -r priority
+        [ -z "$priority" ] && _error_quit "优先级不能为空"
+    }
+    [[ "$priority" =~ ^[0-9]+$ ]] || _error_quit "优先级必须为非负整数"
+    "$BIN_YQ" -i "(.profiles[] | select(.id == \"$id\")).priority = $priority" "$CLASH_PROFILES_META"
+    _logging_sub "🔢 订阅优先级已更新：[$id] priority=$priority"
+    _okcat '🔢' "订阅 [$id] 优先级已设置为 $priority"
+}
+_get_priority_by_id() {
+    "$BIN_YQ" -e ".profiles[] | select(.id == \"$1\") | .priority // 999" "$CLASH_PROFILES_META" 2>/dev/null
+}
+_get_sorted_profile_ids() {
+    "$BIN_YQ" '.profiles // [] | sort_by(.priority // 999) | .[].id' "$CLASH_PROFILES_META"
+}
+_test_all_proxies() {
+    local timeout=$1
+    shift
+    local test_urls=("$@")
+    _detect_ext_addr
+    local secret=$(_get_secret)
+    local auth_header=""
+    [ -n "$secret" ] && auth_header="Authorization: Bearer $secret"
+
+    local proxies_json
+    proxies_json=$(curl -s --noproxy "*" --max-time 5 \
+        ${auth_header:+-H "$auth_header"} \
+        "http://${EXT_IP}:${EXT_PORT}/proxies")
+    [ -z "$proxies_json" ] && return 1
+
+    local proxy_names
+    proxy_names=$(echo "$proxies_json" | "$BIN_YQ" -p json '
+        .proxies | to_entries | .[] |
+        select(.value.type == "Shadowsocks" or .value.type == "VMess" or .value.type == "Trojan" or
+               .value.type == "ShadowsocksR" or .value.type == "Hysteria" or .value.type == "Hysteria2" or
+               .value.type == "VLESS" or .value.type == "WireGuard" or .value.type == "TUIC" or
+               .value.type == "Snell" or .value.type == "Http" or .value.type == "Socks5") |
+        .key
+    ' 2>/dev/null)
+    [ -z "$proxy_names" ] && return 1
+
+    # 任意一个代理对任意一个测试地址有延迟响应即认为代理可用
+    local name encoded_name delay_result delay url
+    while IFS= read -r name; do
+        encoded_name=$(printf '%s' "$name" | sed 's/ /%20/g; s/\[/%5B/g; s/\]/%5D/g')
+        for url in "${test_urls[@]}"; do
+            delay_result=$(curl -s --noproxy "*" --max-time $(( (timeout / 1000) + 2 )) \
+                ${auth_header:+-H "$auth_header"} \
+                "http://${EXT_IP}:${EXT_PORT}/proxies/${encoded_name}/delay?timeout=${timeout}&url=${url}")
+            delay=$(echo "$delay_result" | "$BIN_YQ" -p json '.delay // 0' 2>/dev/null)
+            [ -n "$delay" ] && [ "$delay" -gt 0 ] 2>/dev/null && return 0
+        done
+    done <<<"$proxy_names"
+
+    return 1
+}
+_failover_is_running() {
+    [ -f "$CLASH_FAILOVER_PID" ] || return 1
+    local pid
+    pid=$(cat "$CLASH_FAILOVER_PID" 2>/dev/null)
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+_failover_stop() {
+    _failover_is_running || {
+        _failcat '故障转移未运行'
+        /usr/bin/rm -f "$CLASH_FAILOVER_PID"
+        return 1
+    }
+    local pid
+    pid=$(cat "$CLASH_FAILOVER_PID")
+    # 先杀子进程树，再杀主进程
+    pkill -TERM -P "$pid" 2>/dev/null
+    kill "$pid" 2>/dev/null
+    sleep 1
+    pkill -KILL -P "$pid" 2>/dev/null
+    kill -KILL "$pid" 2>/dev/null
+    /usr/bin/rm -f "$CLASH_FAILOVER_PID"
+    _logging_sub "🛑 故障转移已停止 (pid=$pid)"
+    _okcat '🛑' "故障转移已停止"
+}
+_sub_failover() {
+    local action=$1
+    case "$action" in
+    on)
+        shift
+        _failover_is_running && {
+            _failcat '故障转移已在运行中 (pid='"$(cat "$CLASH_FAILOVER_PID")"')'
+            return 1
+        }
+        _failover_start "$@"
+        ;;
+    off)
+        _failover_stop
+        ;;
+    status)
+        if _failover_is_running; then
+            _okcat '🔄' "故障转移运行中 (pid=$(cat "$CLASH_FAILOVER_PID"))"
+            [ -f "$CLASH_FAILOVER_LOG" ] && _okcat '📄' "日志：$CLASH_FAILOVER_LOG"
+        else
+            _failcat '故障转移未运行'
+        fi
+        ;;
+    *)
+        cat <<EOF
+用法: clashsub failover <on|off|status> [OPTIONS]
+
+  on      启动故障转移（后台运行）
+  off     停止故障转移
+  status  查看故障转移状态
+
+Options (on):
+  --threshold <n>   触发检测的错误次数阈值（默认 3）
+  --window <s>      错误计数的时间窗口秒数（默认 60）
+  --timeout <ms>    代理超时毫秒数（默认 3000）
+  --cooldown <s>    切换后的冷却秒数（默认 60）
+  --recovery <s>    高优先级订阅回切检测间隔秒数（默认 300）
+  --test-url <url>  测试地址，可多次指定（默认 gstatic + cloudflare + huawei）
+EOF
+        ;;
+    esac
+}
+_failover_start() {
+    local threshold=3
+    local window=60
+    local timeout=3000
+    local cooldown=60
+    local recovery=300
+    local test_urls=(
+        "https://www.gstatic.com/generate_204"
+        "https://cp.cloudflare.com/generate_204"
+        "https://connectivitycheck.platform.hicloud.com/generate_204"
+    )
+    local custom_urls=()
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+        --threshold)
+            threshold=$2
+            shift 2
+            ;;
+        --window)
+            window=$2
+            shift 2
+            ;;
+        --timeout)
+            timeout=$2
+            shift 2
+            ;;
+        --cooldown)
+            cooldown=$2
+            shift 2
+            ;;
+        --recovery)
+            recovery=$2
+            shift 2
+            ;;
+        --test-url)
+            custom_urls+=("$2")
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+        esac
+    done
+    [ ${#custom_urls[@]} -gt 0 ] && test_urls=("${custom_urls[@]}")
+
+    clashstatus >&/dev/null || {
+        _failcat "$KERNEL_NAME 未运行，请先执行 clashon"
+        return 1
+    }
+
+    # 保存启动参数，供 update.sh 重启时恢复
+    local _args="--threshold $threshold --window $window --timeout $timeout --cooldown $cooldown --recovery $recovery"
+    for _u in "${test_urls[@]}"; do _args+=" --test-url $_u"; done
+    echo "$_args" >"$CLASH_FAILOVER_ARGS"
+
+    _failover_loop "$threshold" "$window" "$timeout" "$cooldown" "$recovery" "${test_urls[@]}" \
+        >>"$CLASH_FAILOVER_LOG" 2>&1 &
+    echo $! >"$CLASH_FAILOVER_PID"
+
+    _okcat '🔄' "故障转移已启动（后台运行 pid=$!）"
+    _okcat '🔄' "错误阈值: ${threshold} 次/${window}s  超时: ${timeout}ms  冷却: ${cooldown}s  回切: ${recovery}s"
+    _okcat '🔄' "测试地址: ${test_urls[*]}"
+    _okcat '📄' "日志：$CLASH_FAILOVER_LOG"
+    _logging_sub "🔄 故障转移已启动 (pid=$!, threshold=${threshold}, window=${window}s, timeout=${timeout}ms, cooldown=${cooldown}s, recovery=${recovery}s)"
+}
+_failover_loop() {
+    local threshold=$1
+    local window=$2
+    local timeout=$3
+    local cooldown=$4
+    local recovery=$5
+    shift 5
+    local test_urls=("$@")
+
+    _failover_recovery_check "$recovery" "$timeout" "${test_urls[@]}" &
+    local recovery_pid=$!
+    trap "kill $recovery_pid 2>/dev/null; wait $recovery_pid 2>/dev/null" EXIT
+
+    local error_pattern='i/o timeout|connection refused|dial .* error|context deadline exceeded|all proxies.*dead|no available proxy'
+    local error_times=()
+    local last_switch_time=0
+    local last_test_pass_time=0
+    local test_pass_cooldown=180
+
+    while IFS= read -r line; do
+        echo "$line" | grep -iqE "$error_pattern" || continue
+
+        local now
+        now=$(date +%s)
+
+        # 冷却期内忽略
+        [ $((now - last_switch_time)) -lt "$cooldown" ] && continue
+
+        # 记录错误时间，清理窗口外的旧记录
+        error_times+=("$now")
+        local new_times=()
+        for t in "${error_times[@]}"; do
+            [ $((now - t)) -le "$window" ] && new_times+=("$t")
+        done
+        error_times=("${new_times[@]}")
+
+        local error_count=${#error_times[@]}
+        [ "$error_count" -lt "$threshold" ] && continue
+
+        # 测试通过冷却期内忽略
+        if [ $((now - last_test_pass_time)) -lt "$test_pass_cooldown" ]; then
+            error_times=()
+            continue
+        fi
+
+        # 达到阈值，用多个测试地址调用 API 确认所有代理都超时
+        _failcat '⚠️' "检测到 ${error_count} 次错误 (${window}s 内)，验证代理状态..."
+        if _test_all_proxies "$timeout" "${test_urls[@]}"; then
+            _okcat '✅' "代理延迟测试通过，忽略错误（可能是目标站点本身故障，${test_pass_cooldown}s 内不再检测）"
+            error_times=()
+            last_test_pass_time=$(date +%s)
+            continue
+        fi
+
+        # 确认所有代理对所有测试地址都超时，执行切换
+        local current_use
+        current_use=$("$BIN_YQ" '.use // ""' "$CLASH_PROFILES_META")
+        _failcat '⚠️' "订阅 [$current_use] 所有代理超时，开始切换..."
+        _logging_sub "⚠️ 订阅 [$current_use] 所有代理超时"
+
+        _do_failover_switch "$current_use" "$timeout" "${test_urls[@]}"
+        error_times=()
+        last_switch_time=$(date +%s)
+    done < <(placeholder_follow_log)
+}
+_tcp_latency() {
+    local host=$1 port=$2 timeout_s=$3
+    local start end ms
+    start=$(date +%s%N 2>/dev/null) || start=$(date +%s)000000000
+    if timeout "$timeout_s" bash -c "echo >/dev/tcp/$host/$port" 2>/dev/null ||
+        nc -z -w "$timeout_s" "$host" "$port" 2>/dev/null; then
+        end=$(date +%s%N 2>/dev/null) || end=$(date +%s)000000000
+        ms=$(( (end - start) / 1000000 ))
+        [ "$ms" -le 0 ] && ms=1
+        echo "$ms"
+        return 0
+    fi
+    return 1
+}
+_probe_config_best_latency() {
+    local config=$1
+    local timeout_ms=$2
+    local timeout_s=$(( (timeout_ms / 1000) + 1 ))
+
+    local endpoints
+    endpoints=$("$BIN_YQ" '.proxies[] | .server + ":" + (.port | tostring)' "$config" 2>/dev/null | head -n 5)
+    [ -z "$endpoints" ] && return 1
+
+    local best_ms=999999 ep host port ms
+    while IFS= read -r ep; do
+        host="${ep%%:*}"
+        port="${ep##*:}"
+        [ -z "$host" ] || [ -z "$port" ] && continue
+        ms=$(_tcp_latency "$host" "$port" "$timeout_s") || continue
+        [ "$ms" -lt "$best_ms" ] && best_ms=$ms
+    done <<<"$endpoints"
+    [ "$best_ms" -eq 999999 ] && return 1
+    echo "$best_ms"
+    return 0
+}
+_get_current_best_delay() {
+    local timeout=$1
+    shift
+    local test_urls=("$@")
+    _detect_ext_addr
+    local secret=$(_get_secret)
+    local auth_header=""
+    [ -n "$secret" ] && auth_header="Authorization: Bearer $secret"
+
+    local proxies_json
+    proxies_json=$(curl -s --noproxy "*" --max-time 5 \
+        ${auth_header:+-H "$auth_header"} \
+        "http://${EXT_IP}:${EXT_PORT}/proxies")
+    [ -z "$proxies_json" ] && return 1
+
+    local proxy_names
+    proxy_names=$(echo "$proxies_json" | "$BIN_YQ" -p json '
+        .proxies | to_entries | .[] |
+        select(.value.type == "Shadowsocks" or .value.type == "VMess" or .value.type == "Trojan" or
+               .value.type == "ShadowsocksR" or .value.type == "Hysteria" or .value.type == "Hysteria2" or
+               .value.type == "VLESS" or .value.type == "WireGuard" or .value.type == "TUIC" or
+               .value.type == "Snell" or .value.type == "Http" or .value.type == "Socks5") |
+        .key
+    ' 2>/dev/null)
+    [ -z "$proxy_names" ] && return 1
+
+    local best_delay=999999 name encoded_name delay_result delay url
+    while IFS= read -r name; do
+        encoded_name=$(printf '%s' "$name" | sed 's/ /%20/g; s/\[/%5B/g; s/\]/%5D/g')
+        for url in "${test_urls[@]}"; do
+            delay_result=$(curl -s --noproxy "*" --max-time $(( (timeout / 1000) + 2 )) \
+                ${auth_header:+-H "$auth_header"} \
+                "http://${EXT_IP}:${EXT_PORT}/proxies/${encoded_name}/delay?timeout=${timeout}&url=${url}")
+            delay=$(echo "$delay_result" | "$BIN_YQ" -p json '.delay // 0' 2>/dev/null)
+            [ -n "$delay" ] && [ "$delay" -gt 0 ] 2>/dev/null && [ "$delay" -lt "$best_delay" ] && best_delay=$delay
+        done
+    done <<<"$proxy_names"
+    [ "$best_delay" -eq 999999 ] && return 1
+    echo "$best_delay"
+    return 0
+}
+# 后台安全下载验证：不调用 _download_config/_valid_config，避免 _error_quit 杀死后台进程
+_safe_download_and_validate() {
+    local dest=$1 url=$2
+    _download_raw_config "$dest" "$url" >/dev/null 2>&1 || return 1
+    [ -f "$dest" ] && [ "$(wc -l < "$dest" 2>/dev/null)" -gt 1 ] \
+        && "$BIN_KERNEL" -d "$(dirname "$dest")" -f "$dest" -t >/dev/null 2>&1
+}
+_failover_recovery_check() {
+    local interval=$1
+    local timeout=$2
+    shift 2
+    local test_urls=("$@")
+
+    while true; do
+        sleep "$interval"
+
+        local current_use best_id
+        current_use=$("$BIN_YQ" '.use // ""' "$CLASH_PROFILES_META")
+        best_id=$(_get_sorted_profile_ids | head -n1)
+
+        [ -z "$best_id" ] && continue
+        [ "$current_use" = "$best_id" ] && continue
+
+        # 第一关：尝试下载最新配置，失败则回退到本地文件
+        local best_url config_file downloaded=false
+        local _fp
+        _fp=$(_get_path_by_id "$best_id")
+        best_url=$(_get_url_by_id "$best_id")
+        if _safe_download_and_validate "$CLASH_CONFIG_TEMP" "$best_url"; then
+            config_file="$CLASH_CONFIG_TEMP"
+            downloaded=true
+        else
+            /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
+            if [ -f "$_fp" ]; then
+                config_file="$_fp"
+            else
+                _failcat '🔙' "高优先级订阅 [$best_id] 无法下载且无本地配置，保持 [$current_use]"
+                continue
+            fi
+        fi
+
+        # 第二关：TCP 探活并测延迟
+        local candidate_ms
+        candidate_ms=$(_probe_config_best_latency "$config_file" "$timeout")
+        if [ -z "$candidate_ms" ]; then
+            [ "$downloaded" = true ] && /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
+            _failcat '🔙' "高优先级订阅 [$best_id] 代理节点不可达，保持 [$current_use]"
+            continue
+        fi
+
+        # 第三关：与当前代理延迟对比，候选更低才切换
+        local current_ms
+        current_ms=$(_get_current_best_delay "$timeout" "${test_urls[@]}") || current_ms=999999
+        if [ "$candidate_ms" -ge "$current_ms" ]; then
+            [ "$downloaded" = true ] && /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
+            _failcat '🔙' "高优先级订阅 [$best_id] 延迟 ${candidate_ms}ms >= 当前 ${current_ms}ms，保持 [$current_use]"
+            continue
+        fi
+
+        # 全部通过，更新配置并切换
+        [ "$downloaded" = true ] && mv "$CLASH_CONFIG_TEMP" "$_fp"
+        clashsub use "$best_id" >/dev/null 2>&1
+        _okcat '🔙' "高优先级订阅 [$best_id] 已恢复 (${candidate_ms}ms < ${current_ms}ms)，切换回"
+        _logging_sub "🔙 回切：高优先级订阅 [$best_id] 已恢复 (${candidate_ms}ms < ${current_ms}ms)，从 [$current_use] 切换回"
+    done
+}
+_do_failover_switch() {
+    local current_use=$1
+    local timeout=$2
+    shift 2
+    local test_urls=("$@")
+
+    local sorted_ids next_id found_current=false switched=false
+    sorted_ids=$(_get_sorted_profile_ids)
+
+    # 从当前订阅之后按优先级查找下一个可用订阅
+    while IFS= read -r next_id; do
+        [ "$next_id" = "$current_use" ] && { found_current=true; continue; }
+        [ "$found_current" = true ] && {
+            local _fp _url
+            _fp=$(_get_path_by_id "$next_id")
+            if [ ! -f "$_fp" ]; then
+                _failcat '⚠️' "订阅 [$next_id] 无配置文件，尝试下载..."
+                _url=$(_get_url_by_id "$next_id")
+                _safe_download_and_validate "$CLASH_CONFIG_TEMP" "$_url"
+                if [ $? -eq 0 ]; then
+                    mv "$CLASH_CONFIG_TEMP" "$_fp"
+                else
+                    /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
+                    _failcat '⏭️' "订阅 [$next_id] 下载失败，跳过"
+                    continue
+                fi
+            fi
+            _okcat '🔄' "尝试切换到订阅 [$next_id]..."
+            clashsub use "$next_id" >/dev/null 2>&1
+            sleep 2
+            if _test_all_proxies "$timeout" "${test_urls[@]}"; then
+                _okcat '✅' "订阅 [$next_id] 代理可用，切换成功"
+                _logging_sub "✅ 故障转移：切换到订阅 [$next_id] 成功"
+                switched=true
+                break
+            else
+                _failcat '❌' "订阅 [$next_id] 代理也超时，继续尝试..."
+                _logging_sub "❌ 订阅 [$next_id] 代理超时"
+            fi
+        }
+    done <<<"$sorted_ids"
+
+    # 如果后面的都不行，从头开始尝试（循环）
+    [ "$switched" = false ] && {
+        while IFS= read -r next_id; do
+            [ "$next_id" = "$current_use" ] && break
+            local _fp _url
+            _fp=$(_get_path_by_id "$next_id")
+            if [ ! -f "$_fp" ]; then
+                _failcat '⚠️' "订阅 [$next_id] 无配置文件，尝试下载..."
+                _url=$(_get_url_by_id "$next_id")
+                _safe_download_and_validate "$CLASH_CONFIG_TEMP" "$_url"
+                if [ $? -eq 0 ]; then
+                    mv "$CLASH_CONFIG_TEMP" "$_fp"
+                else
+                    /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
+                    _failcat '⏭️' "订阅 [$next_id] 下载失败，跳过"
+                    continue
+                fi
+            fi
+            _okcat '🔄' "尝试切换到订阅 [$next_id]..."
+            clashsub use "$next_id" >/dev/null 2>&1
+            sleep 2
+            if _test_all_proxies "$timeout" "${test_urls[@]}"; then
+                _okcat '✅' "订阅 [$next_id] 代理可用，切换成功"
+                _logging_sub "✅ 故障转移：切换到订阅 [$next_id] 成功"
+                switched=true
+                break
+            else
+                _failcat '❌' "订阅 [$next_id] 代理也超时，继续尝试..."
+                _logging_sub "❌ 订阅 [$next_id] 代理超时"
+            fi
+        done <<<"$sorted_ids"
+    }
+
+    [ "$switched" = false ] && {
+        _failcat '🚨' "所有订阅代理均超时，等待下次错误触发重试..."
+        _logging_sub "🚨 所有订阅代理均超时"
+    }
 }
 _logging_sub() {
     echo "$(date +"%Y-%m-%d %H:%M:%S") $1" >>"${CLASH_PROFILES_LOG}"
