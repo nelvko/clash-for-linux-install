@@ -188,6 +188,21 @@ function clashui() {
 
 _merge_config() {
     cat "$CLASH_CONFIG_RUNTIME" >"$CLASH_CONFIG_TEMP" 2>/dev/null
+    _merge_base_config || {
+        cat "$CLASH_CONFIG_TEMP" >"$CLASH_CONFIG_RUNTIME"
+        _error_quit "验证失败：请检查 Mixin 配置"
+    }
+    _apply_chain_proxy || {
+        cat "$CLASH_CONFIG_TEMP" >"$CLASH_CONFIG_RUNTIME"
+        _error_quit "验证失败：请检查 Mixin 配置"
+    }
+    _valid_config "$CLASH_CONFIG_RUNTIME" || {
+        cat "$CLASH_CONFIG_TEMP" >"$CLASH_CONFIG_RUNTIME"
+        _error_quit "验证失败：请检查 Mixin 配置"
+    }
+}
+
+_merge_base_config() {
     # shellcheck disable=SC2016
     "$BIN_YQ" eval-all '
       ########################################
@@ -263,10 +278,207 @@ _merge_config() {
         .proxies = (.proxies + $extra | unique)
       )
     ' "$CLASH_CONFIG_BASE" "$CLASH_CONFIG_MIXIN" >"$CLASH_CONFIG_RUNTIME"
-    _valid_config "$CLASH_CONFIG_RUNTIME" || {
-        cat "$CLASH_CONFIG_TEMP" >"$CLASH_CONFIG_RUNTIME"
-        _error_quit "验证失败：请检查 Mixin 配置"
+}
+
+_apply_chain_proxy() {
+    "$BIN_YQ" -e '._custom."chain-proxy".enable == true' "$CLASH_CONFIG_MIXIN" >/dev/null 2>&1 || return 0
+
+    [ "$KERNEL_NAME" = "mihomo" ] || {
+        _failcat "chain-proxy 仅支持 mihomo 内核"
+        return 1
     }
+
+    local exit_name auto_group manual_group name_template source_filter source_exclude_filter
+    local max_nodes test_url interval tolerance timeout lazy
+    exit_name=$("$BIN_YQ" -r '._custom."chain-proxy"."exit-proxy" // ""' "$CLASH_CONFIG_MIXIN")
+    auto_group=$("$BIN_YQ" -r '._custom."chain-proxy"."auto-group" // "链式自动"' "$CLASH_CONFIG_MIXIN")
+    manual_group=$("$BIN_YQ" -r '._custom."chain-proxy"."manual-group" // ""' "$CLASH_CONFIG_MIXIN")
+    name_template=$("$BIN_YQ" -r '._custom."chain-proxy"."name-template" // "{source} -> {exit}"' "$CLASH_CONFIG_MIXIN")
+    source_filter=$("$BIN_YQ" -r '._custom."chain-proxy"."source-filter" // ""' "$CLASH_CONFIG_MIXIN")
+    source_exclude_filter=$("$BIN_YQ" -r '._custom."chain-proxy"."source-exclude-filter" // ""' "$CLASH_CONFIG_MIXIN")
+    max_nodes=$("$BIN_YQ" -r '._custom."chain-proxy"."max-nodes" // 0' "$CLASH_CONFIG_MIXIN")
+    test_url=$("$BIN_YQ" -r '._custom."chain-proxy"."test-url" // "https://www.gstatic.com/generate_204"' "$CLASH_CONFIG_MIXIN")
+    interval=$("$BIN_YQ" -r '._custom."chain-proxy".interval // 300' "$CLASH_CONFIG_MIXIN")
+    tolerance=$("$BIN_YQ" -r '._custom."chain-proxy".tolerance // 50' "$CLASH_CONFIG_MIXIN")
+    timeout=$("$BIN_YQ" -r '._custom."chain-proxy".timeout // 5000' "$CLASH_CONFIG_MIXIN")
+    lazy=$("$BIN_YQ" -r '._custom."chain-proxy".lazy // false' "$CLASH_CONFIG_MIXIN")
+
+    local chain_runtime exit_temp chain_names auto_group_temp manual_group_temp proxy_temp
+    chain_runtime=$(mktemp)
+    exit_temp=$(mktemp)
+    chain_names=$(mktemp)
+    auto_group_temp=$(mktemp)
+    manual_group_temp=$(mktemp)
+    proxy_temp=$(mktemp)
+    cat "$CLASH_CONFIG_RUNTIME" >"$chain_runtime"
+
+    [ -n "$exit_name" ] || {
+        rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+        _failcat "chain-proxy 缺少 exit-proxy"
+        return 1
+    }
+    [ -n "$test_url" ] || {
+        rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+        _failcat "chain-proxy 缺少 test-url"
+        return 1
+    }
+    case "$max_nodes:$interval:$tolerance:$timeout" in
+    *[!0-9:]*)
+        rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+        _failcat "chain-proxy 的 max-nodes、interval、tolerance、timeout 必须为数字"
+        return 1
+        ;;
+    esac
+    case $lazy in
+    true | false) ;;
+    *)
+        rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+        _failcat "chain-proxy 的 lazy 仅支持 true 或 false"
+        return 1
+        ;;
+    esac
+    if [ -n "$source_filter" ]; then
+        grep -Eq -- "$source_filter" </dev/null 2>/dev/null
+        [ $? -lt 2 ] || {
+            rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+            _failcat "chain-proxy 的 source-filter 不是合法正则"
+            return 1
+        }
+    fi
+    if [ -n "$source_exclude_filter" ]; then
+        grep -Eq -- "$source_exclude_filter" </dev/null 2>/dev/null
+        [ $? -lt 2 ] || {
+            rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+            _failcat "chain-proxy 的 source-exclude-filter 不是合法正则"
+            return 1
+        }
+    fi
+    [ -z "$manual_group" ] || [ "$manual_group" != "$auto_group" ] || {
+        rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+        _failcat "chain-proxy 的 auto-group 和 manual-group 不能同名"
+        return 1
+    }
+
+    local exit_count
+    exit_count=$(EXIT_NAME="$exit_name" "$BIN_YQ" -r '[.proxies[]? | select(.name == strenv(EXIT_NAME))] | length' "$chain_runtime")
+    [ "$exit_count" -eq 1 ] || {
+        rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+        [ "$exit_count" -eq 0 ] && _failcat "chain-proxy 未找到出口节点：$exit_name"
+        [ "$exit_count" -gt 1 ] && _failcat "chain-proxy 出口节点名称重复：$exit_name"
+        return 1
+    }
+
+    EXIT_NAME="$exit_name" "$BIN_YQ" '.proxies[] | select(.name == strenv(EXIT_NAME))' "$chain_runtime" >"$exit_temp"
+    [ -z "$("$BIN_YQ" -r '."dialer-proxy" // ""' "$exit_temp")" ] || {
+        rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+        _failcat "chain-proxy 出口节点不能预先设置 dialer-proxy：$exit_name"
+        return 1
+    }
+    for group_name in "$auto_group" "$manual_group"; do
+        [ -z "$group_name" ] && continue
+        local proxy_name_count group_name_count
+        proxy_name_count=$(NAME="$group_name" "$BIN_YQ" -r '[.proxies[]? | select(.name == strenv(NAME))] | length' "$chain_runtime")
+        group_name_count=$(NAME="$group_name" "$BIN_YQ" -r '[."proxy-groups"[]? | select(.name == strenv(NAME))] | length' "$chain_runtime")
+        if [ "$proxy_name_count" -ne 0 ] || [ "$group_name_count" -ne 0 ]; then
+            rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+            _failcat "chain-proxy 分组名称已存在：$group_name"
+            return 1
+        fi
+    done
+
+    local source_name chain_name generated_count=0
+    while IFS= read -r source_name; do
+        [ -n "$source_name" ] || continue
+        [ "$source_name" = "$exit_name" ] && continue
+        [ -n "$source_filter" ] && ! grep -Eq -- "$source_filter" <<<"$source_name" && continue
+        [ -n "$source_exclude_filter" ] && grep -Eq -- "$source_exclude_filter" <<<"$source_name" && continue
+
+        chain_name=$name_template
+        chain_name=${chain_name//\{source\}/$source_name}
+        chain_name=${chain_name//\{exit\}/$exit_name}
+        [ -n "$chain_name" ] || {
+            rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+            _failcat "chain-proxy 生成的节点名称为空，请检查 name-template"
+            return 1
+        }
+        grep -Fxq "$chain_name" "$chain_names" && {
+            rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+            _failcat "chain-proxy 生成的节点名称冲突：$chain_name"
+            return 1
+        }
+        local chain_proxy_count chain_group_count
+        chain_proxy_count=$(NAME="$chain_name" "$BIN_YQ" -r '[.proxies[]? | select(.name == strenv(NAME))] | length' "$chain_runtime")
+        chain_group_count=$(NAME="$chain_name" "$BIN_YQ" -r '[."proxy-groups"[]? | select(.name == strenv(NAME))] | length' "$chain_runtime")
+        if [ "$chain_proxy_count" -ne 0 ] || [ "$chain_group_count" -ne 0 ] || [ "$chain_name" = "$auto_group" ] || [ "$chain_name" = "$manual_group" ]; then
+            rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+            _failcat "chain-proxy 生成的名称与现有节点或分组冲突：$chain_name"
+            return 1
+        fi
+
+        cat "$exit_temp" >"$proxy_temp"
+        CHAIN_NAME="$chain_name" SOURCE_NAME="$source_name" "$BIN_YQ" -i '
+          .name = strenv(CHAIN_NAME) |
+          .["dialer-proxy"] = strenv(SOURCE_NAME)
+        ' "$proxy_temp" || {
+            rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+            return 1
+        }
+        PROXY_FILE="$proxy_temp" "$BIN_YQ" -i '.proxies += [load(strenv(PROXY_FILE))]' "$chain_runtime" || {
+            rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+            return 1
+        }
+        printf '%s\n' "$chain_name" >>"$chain_names"
+        generated_count=$((generated_count + 1))
+        [ "$max_nodes" -eq 0 ] || [ "$generated_count" -lt "$max_nodes" ] || break
+    done < <("$BIN_YQ" -r '.proxies[]?.name // ""' "$CLASH_CONFIG_RUNTIME")
+
+    [ "$generated_count" -gt 0 ] || {
+        rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+        _failcat "chain-proxy 未匹配到任何入口节点"
+        return 1
+    }
+
+    if [ -n "$manual_group" ]; then
+        MANUAL_GROUP="$manual_group" "$BIN_YQ" -n '
+          .name = strenv(MANUAL_GROUP) |
+          .type = "select" |
+          .proxies = []
+        ' >"$manual_group_temp"
+        while IFS= read -r chain_name; do
+            PROXY_NAME="$chain_name" "$BIN_YQ" -i '.proxies += [strenv(PROXY_NAME)]' "$manual_group_temp" || {
+                rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+                return 1
+            }
+        done <"$chain_names"
+        GROUP_FILE="$manual_group_temp" "$BIN_YQ" -i '."proxy-groups" = (."proxy-groups" // []) + [load(strenv(GROUP_FILE))]' "$chain_runtime" || {
+            rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+            return 1
+        }
+    fi
+
+    AUTO_GROUP="$auto_group" TEST_URL="$test_url" INTERVAL="$interval" TOLERANCE="$tolerance" TIMEOUT="$timeout" LAZY="$lazy" "$BIN_YQ" -n '
+      .name = strenv(AUTO_GROUP) |
+      .type = "url-test" |
+      .proxies = [] |
+      .url = strenv(TEST_URL) |
+      .interval = env(INTERVAL) |
+      .tolerance = env(TOLERANCE) |
+      .timeout = env(TIMEOUT) |
+      .lazy = env(LAZY)
+    ' >"$auto_group_temp"
+    while IFS= read -r chain_name; do
+        PROXY_NAME="$chain_name" "$BIN_YQ" -i '.proxies += [strenv(PROXY_NAME)]' "$auto_group_temp" || {
+            rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+            return 1
+        }
+    done <"$chain_names"
+    GROUP_FILE="$auto_group_temp" "$BIN_YQ" -i '."proxy-groups" = (."proxy-groups" // []) + [load(strenv(GROUP_FILE))]' "$chain_runtime" || {
+        rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
+        return 1
+    }
+
+    cat "$chain_runtime" >"$CLASH_CONFIG_RUNTIME"
+    rm -f "$chain_runtime" "$exit_temp" "$chain_names" "$auto_group_temp" "$manual_group_temp" "$proxy_temp"
 }
 
 _merge_config_restart() {
