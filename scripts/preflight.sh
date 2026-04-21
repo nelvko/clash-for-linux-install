@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 
-RESOURCES_BASE_DIR=".${CLASH_RESOURCES_DIR#"$CLASH_BASE_DIR"}"
+ARCHIVE_BASE_DIR="${CLASHCTL_ROOT}/archives"
+ZIP_BASE_DIR="${ARCHIVE_BASE_DIR}"
 
-ZIP_BASE_DIR=".${CLASH_RESOURCES_DIR#"$CLASH_BASE_DIR"}/zip"
-
-SCRIPT_BASE_DIR='scripts'
-SCRIPT_INIT_DIR="${SCRIPT_BASE_DIR}/init"
-SCRIPT_CMD_DIR="${SCRIPT_BASE_DIR}/cmd"
-SCRIPT_CMD_FISH="${SCRIPT_CMD_DIR}/clashctl.fish"
-
-CLASH_CMD_DIR="${CLASH_BASE_DIR}/$SCRIPT_CMD_DIR"
-
-FILE_LOG="/var/log/${KERNEL_NAME}.log"
-FILE_PID="/run/${KERNEL_NAME}.pid"
+_resolve_repo_path() {
+    case "$1" in
+    /*)
+        printf '%s\n' "$1"
+        ;;
+    *)
+        printf '%s\n' "${CLASHCTL_ROOT}/$1"
+        ;;
+    esac
+}
 
 _valid_required() {
     local required_cmds=("xz" "pgrep" "curl" "tar" 'unzip')
@@ -26,13 +26,20 @@ _valid_required() {
 _valid() {
     _valid_required
 
-    [ -d "$CLASH_BASE_DIR" ] && _error_quit "请先执行卸载脚本,以清除安装路径：$CLASH_BASE_DIR"
+    if [ -d "$CLASHCTL_HOME" ]; then
+        _error_quit "请先执行卸载脚本,以清除安装路径：$CLASHCTL_HOME"
+        return 1
+    fi
 
-    local msg="${CLASH_BASE_DIR}：当前路径不可用，请在 .env 中更换安装路径。"
-    mkdir -p "$CLASH_BASE_DIR" || _error_quit "$msg"
-    _is_regular_sudo && [[ $CLASH_BASE_DIR == /root* ]] && _error_quit "$msg"
+    local msg="${CLASHCTL_HOME}：当前路径不可用，请在 .env 中更换安装路径。"
+    if ! mkdir -p "$CLASHCTL_HOME"; then
+        _error_quit "$msg"
+    fi
 
-    [ -z "$ZSH_VERSION" ] && [ -z "$BASH_VERSION" ] && _error_quit "仅支持：bash、zsh 执行"
+    if [ -z "$ZSH_VERSION" ] && [ -z "$BASH_VERSION" ]; then
+        _error_quit "仅支持：bash、zsh 执行"
+        return 1
+    fi
 }
 
 _parse_args() {
@@ -52,6 +59,7 @@ _parse_args() {
 }
 
 _prepare_zip() {
+    ZIP_UI=$(_resolve_repo_path "$ZIP_UI")
     _load_zip >&/dev/null
     local required_zips=()
     case "${KERNEL_NAME}" in
@@ -79,10 +87,17 @@ _prepare_zip() {
     _unzip_zip
 }
 _load_zip() {
-    ZIP_CLASH=$(echo "${ZIP_BASE_DIR}"/clash*)
-    ZIP_MIHOMO=$(echo "${ZIP_BASE_DIR}"/mihomo*)
-    ZIP_YQ=$(echo "${ZIP_BASE_DIR}"/yq*)
-    ZIP_SUBCONVERTER=$(echo "${ZIP_BASE_DIR}"/subconverter*)
+    local matches=()
+    shopt -s nullglob
+    matches=("${ZIP_BASE_DIR}"/clash*)
+    ZIP_CLASH="${matches[0]:-}"
+    matches=("${ZIP_BASE_DIR}"/mihomo*)
+    ZIP_MIHOMO="${matches[0]:-}"
+    matches=("${ZIP_BASE_DIR}"/yq*)
+    ZIP_YQ="${matches[0]:-}"
+    matches=("${ZIP_BASE_DIR}"/subconverter*)
+    ZIP_SUBCONVERTER="${matches[0]:-}"
+    shopt -u nullglob
 }
 _download_zip() {
     (($#)) || return 0
@@ -131,11 +146,11 @@ _download_zip() {
         [subconverter]="$url_subconverter"
     )
 
-    local item target_zips=()
+    local item target_zips=() level=
     _okcat '🖥️ ' "系统架构：$arch $level"
     for item in "$@"; do
         local url="${urls[$item]}"
-        local proxy_url="${URL_GH_PROXY:+${URL_GH_PROXY%/}/}${url}"
+        local proxy_url="${GH_PROXY:+${GH_PROXY%/}/}${url}"
         url="$proxy_url"
         _okcat '⏳' "正在下载：${item}：$url"
         local target="${ZIP_BASE_DIR}/$(basename "$url")"
@@ -169,234 +184,63 @@ _unzip_zip() {
     /bin/mv -f "${BIN_BASE_DIR}"/yq_* "${BIN_BASE_DIR}/yq"
     tar -xf "$ZIP_SUBCONVERTER" -C "$BIN_BASE_DIR"
     /bin/cp "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
-    unzip -oqq "$ZIP_UI" -d "$RESOURCES_BASE_DIR" 2>/dev/null || tar -xf "$ZIP_UI" -C "$RESOURCES_BASE_DIR"
+    unzip -oqq "$ZIP_UI" -d "$CLASH_RESOURCES_DIR" 2>/dev/null || tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"
 }
 
-# shellcheck disable=SC2206
 _detect_init() {
-    [ -z "$INIT_TYPE" ] && INIT_TYPE=$(readlink /proc/1/exe)
+    [ -z "$INIT_TYPE" ] && INIT_TYPE=$(readlink /proc/1/exe 2>/dev/null || printf '%s\n' "nohup")
     grep -qsE "docker|kubepods|containerd|podman|lxc" /proc/1/cgroup && INIT_TYPE='nohup'
-    _is_root || {
-        INIT_TYPE='nohup'
-        FILE_LOG="${CLASH_RESOURCES_DIR}/${KERNEL_NAME}.log"
-        FILE_PID="${CLASH_RESOURCES_DIR}/${KERNEL_NAME}.pid"
-    }
-
-    service_log=(less '<' $FILE_LOG)
-    service_follow_log=(tail -f -n 0 $FILE_LOG)
-    service_watch_proxy=(clashon)
-    _is_regular_sudo && {
-        service_watch_proxy=(_failcat "'未检测到代理变量，可执行 clashon 开启代理环境'")
-        _SUDO=sudo
-    }
-
-    case "${INIT_TYPE}" in
-    *systemd)
-        service_log=($_SUDO journalctl -u "$KERNEL_NAME")
-        service_follow_log=("${service_log[@]}" -q -f -n 0)
-        _systemd
-        ;;
-    *init)
-        _sysvinit
-        ;;
-    *busybox)
-        command -v openrc-init >&/dev/null && _openrc
-        ;;
-    *openrc*)
-        _openrc
-        ;;
-    *runit)
-        _runit
-        ;;
-    nohup | *)
-        INIT_TYPE='nohup'
-        _nohup
-        ;;
-    esac
+    _is_root || INIT_TYPE='nohup'
     INIT_TYPE=$(basename "$INIT_TYPE")
 }
-_openrc() {
-    service_src="${SCRIPT_INIT_DIR}/OpenRC.sh"
-    service_target="/etc/init.d/$KERNEL_NAME"
-
-    service_enable=(rc-update add "$KERNEL_NAME" default)
-    service_disable=(rc-update del "$KERNEL_NAME" default)
-
-    service_start=(rc-service "$KERNEL_NAME" start)
-    service_stop=(rc-service "$KERNEL_NAME" stop)
-    service_restart=(rc-service "$KERNEL_NAME" restart)
-    service_status=(rc-service "$KERNEL_NAME" status)
-    service_is_active=(rc-service "$KERNEL_NAME" status)
-}
-_runit() {
-    service_src="${SCRIPT_INIT_DIR}/runit.sh"
-    service_target="/etc/sv/${KERNEL_NAME}/run"
-    service_del=(rm -rf "/etc/sv/${KERNEL_NAME:-mihomo}")
-
-    service_reload=(sleep 2)
-    service_enable=(ln -s "$(dirname "$service_target")" "/etc/runit/runsvdir/default/${KERNEL_NAME}")
-    service_disable=(rm -f "/etc/runit/runsvdir/current/${KERNEL_NAME}")
-
-    service_start=(sv up "$KERNEL_NAME")
-    service_stop=(sv down "$KERNEL_NAME")
-    service_restart=(sv restart "$KERNEL_NAME")
-    service_status=(sv status "$KERNEL_NAME")
-    service_is_active=(sv status "$KERNEL_NAME" \| grep -qs '^run')
-}
-_sysvinit() {
-    service_src="${SCRIPT_INIT_DIR}/SysVinit.sh"
-    service_target="/etc/init.d/$KERNEL_NAME"
-
-    command -v chkconfig >&/dev/null && {
-        service_add=(chkconfig --add "$KERNEL_NAME")
-        service_del=(chkconfig --del "$KERNEL_NAME")
-
-        service_enable=(chkconfig "$KERNEL_NAME" on)
-        service_disable=(chkconfig "$KERNEL_NAME" off)
-    }
-    command -v update-rc.d >&/dev/null && {
-        service_add=(update-rc.d "$KERNEL_NAME" defaults)
-        service_del=(update-rc.d "$KERNEL_NAME" remove)
-
-        service_enable=(update-rc.d "$KERNEL_NAME" enable)
-        service_disable=(update-rc.d "$KERNEL_NAME" disable)
-    }
-
-    service_start=(service "$KERNEL_NAME" start)
-    service_stop=(service "$KERNEL_NAME" stop)
-    service_restart=(service "$KERNEL_NAME" restart)
-    service_status=(service "$KERNEL_NAME" status)
-    service_is_active=(service "$KERNEL_NAME" status)
-}
-# shellcheck disable=SC2206
-_systemd() {
-    service_src="${SCRIPT_INIT_DIR}/systemd.sh"
-    service_target="/etc/systemd/system/${KERNEL_NAME}.service"
-
-    service_reload=($_SUDO systemctl daemon-reload)
-
-    service_enable=($_SUDO systemctl enable "$KERNEL_NAME")
-    service_disable=($_SUDO systemctl disable "$KERNEL_NAME")
-
-    service_start=($_SUDO systemctl start "$KERNEL_NAME")
-    service_stop=($_SUDO systemctl stop "$KERNEL_NAME")
-    service_restart=($_SUDO systemctl restart "$KERNEL_NAME")
-    service_status=($_SUDO systemctl status "$KERNEL_NAME")
-    service_is_active=($_SUDO systemctl is-active "$KERNEL_NAME")
-}
-_nohup() {
-    service_enable=(false)
-    service_disable=(false)
-
-    # 使用子 shell 启动，确保进程脱离终端
-    service_start=('(' nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '>' "$FILE_LOG" '2>\&1' '\&' ')')
-    # sudo 启动：nohup 完全脱离终端，关闭所有标准流
-    service_sudo_start=(sudo sh -c '"nohup' "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" '<' '/dev/null' '>' "$FILE_LOG" '2>\&1' '\&"')
-    service_status=(pgrep -fa "$BIN_KERNEL")
-    service_is_active=(pgrep -fa "$BIN_KERNEL")
-    service_stop=(pkill -9 -f "$BIN_KERNEL")
-}
-
-_install_service() {
-    local kernel_desc="$KERNEL_NAME Daemon, A[nother] Clash Kernel."
-
-    local cmd_path="${BIN_KERNEL}"
-    local cmd_arg="-d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME}"
-    local cmd_full="${BIN_KERNEL} -d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME}"
-
-    [ -n "$service_src" ] && {
-        /usr/bin/install -D -m +x "$service_src" "$service_target"
-        ((${#service_add[@]})) && "${service_add[@]}"
-        sed -i \
-            -e "s#placeholder_cmd_path#$cmd_path#g" \
-            -e "s#placeholder_cmd_args#$cmd_arg#g" \
-            -e "s#placeholder_cmd_full#$cmd_full#g" \
-            -e "s#placeholder_log_file#$FILE_LOG#g" \
-            -e "s#placeholder_pid_file#$FILE_PID#g" \
-            -e "s#placeholder_kernel_name#$KERNEL_NAME#g" \
-            -e "s#placeholder_kernel_desc#$kernel_desc#g" \
-            "$service_target"
-    }
-    [ "$INIT_TYPE" != "nohup" ] && service_sudo_start=("${service_start[@]}")
-    sed -i \
-        -e "s#placeholder_start#${service_start[*]}#g" \
-        -e "s#placeholder_sudo_start#${service_sudo_start[*]}#g" \
-        -e "s#placeholder_status#${service_status[*]}#g" \
-        -e "s#placeholder_is_active#${service_is_active[*]}#g" \
-        -e "s#placeholder_stop#${service_stop[*]}#g" \
-        -e "s#placeholder_log#${service_log[*]}#g" \
-        -e "s#placeholder_follow_log#${service_follow_log[*]}#g" \
-        -e "s#placeholder_watch_proxy#${service_watch_proxy[*]}#g" \
-        "$CLASH_CMD_DIR/clashctl.sh" "$CLASH_CMD_DIR/common.sh"
-
-    "${service_enable[@]}" >&/dev/null && _okcat '🚀' '已设置开机自启'
-    ((${#service_reload[@]})) && "${service_reload[@]}"
-}
-_uninstall_service() {
-    _detect_init
-    "${service_disable[@]}" >&/dev/null
-    ((${#service_del[@]})) && "${service_del[@]}"
-    rm -f "$service_target"
-    ((${#service_reload[@]})) && "${service_reload[@]}"
-}
-
-_detect_rc() {
-    local home=$HOME
-    _is_regular_sudo && home=$(awk -F: -v user="$SUDO_USER" '$1==user{print $6}' /etc/passwd)
-
-    command -v bash >&/dev/null && {
-        SHELL_RC_BASH="${home}/.bashrc"
-    }
-    command -v zsh >&/dev/null && {
-        SHELL_RC_ZSH="${home}/.zshrc"
-    }
-    command -v fish >&/dev/null && {
-        SHELL_RC_FISH="${home}/.config/fish/conf.d/clashctl.fish"
-    }
-    start_flag="# clashctl START"
-    end_flag="# clashctl END"
-}
-_apply_rc() {
-    _detect_rc
-    local source_clashctl=". $CLASH_CMD_DIR/clashctl.sh"
-    # shellcheck disable=SC2086
-    tee -a "$SHELL_RC_BASH" $SHELL_RC_ZSH >/dev/null <<EOF
-
-$start_flag
-# 加载 clashctl 命令
-$source_clashctl
-# 新开 shell 时自动开启代理环境
-# watch_proxy
-$end_flag
-EOF
-    [ -n "$SHELL_RC_FISH" ] && /usr/bin/install "$SCRIPT_CMD_FISH" "$SHELL_RC_FISH"
-    $source_clashctl
-}
-_revoke_rc() {
-    _detect_rc
-    sed -i --follow-symlinks "/$start_flag/,/$end_flag/d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
-    [ -n "$SHELL_RC_FISH" ] && rm -f "$SHELL_RC_FISH" 2>/dev/null
-}
-
 _set_envs() {
     _set_env INIT_TYPE "$INIT_TYPE"
     _set_env KERNEL_NAME "$KERNEL_NAME"
-    _set_env CLASH_BASE_DIR "$CLASH_BASE_DIR"
+    _set_env CLASHCTL_HOME "$CLASHCTL_HOME"
     _set_env VERSION_MIHOMO "$VERSION_MIHOMO"
+    _set_env CLASHCTL_BIN "${CLASHCTL_BIN:-}"
 }
 
-_get_random_val() {
-    cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 6
-}
+CLASHCTL_BIN_FALLBACK="${HOME}/.local/bin/clashctl"
 
-_is_regular_sudo() {
-    _is_root && [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != 'root' ]
-}
-_is_root() {
-    [ "$(id -u)" -eq 0 ]
-}
+_install_cli() {
+    local target_dir=$CLASHCTL_HOME
+    local resource
+    touch "$CLASH_CONFIG_BASE"
+    local resources=(
+        "Country.mmdb"
+        "geosite.dat"
+        "config.yaml"
+        "mixin.yaml"
+        "profiles.yaml"
+    )
 
-_quit() {
-    _is_regular_sudo && exec su "$SUDO_USER"
-    exec "$SHELL" -i -c "$*"
+    /usr/bin/install -d \
+        "$target_dir/bin" \
+        "$target_dir/scripts" \
+        "$target_dir/resources/profiles"
+
+    /usr/bin/install -m 644 "$CLASHCTL_ROOT/.env" "$target_dir/.env"
+    /usr/bin/install -m 755 "$CLASHCTL_ROOT/bin/clashctl" "$target_dir/bin/clashctl"
+    /usr/bin/install -m 755 "$CLASHCTL_ROOT/uninstall.sh" "$target_dir/uninstall.sh"
+
+    /bin/cp -a "$CLASHCTL_ROOT/scripts/cmd" "$target_dir/scripts/"
+    /bin/cp -a "$CLASHCTL_ROOT/scripts/runtime" "$target_dir/scripts/"
+    /bin/cp -a "$CLASHCTL_ROOT/scripts/init" "$target_dir/scripts/"
+
+    for resource in "${resources[@]}"; do
+        /usr/bin/install -m 644 "$CLASHCTL_ROOT/resources/$resource" "$target_dir/resources/$resource"
+    done
+
+    local bin_path="$CLASHCTL_BIN"
+    [ ! -w "$(dirname "$bin_path")" ] && {
+        _failcat '📍' "${CLASHCTL_BIN} 不可写，改为安装到 ${CLASHCTL_BIN_FALLBACK}"
+        CLASHCTL_BIN="$CLASHCTL_BIN_FALLBACK"
+    }
+    local dir
+    dir=$(dirname "$CLASHCTL_BIN")
+    echo "$PATH" | grep -qE "$dir" || {
+        PATH=$PATH:$dir
+        echo "PATH=\$PATH:$dir" >>"$HOME/.bashrc"
+    }
 }

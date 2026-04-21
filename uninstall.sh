@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-. .env
-. "$CLASH_BASE_DIR/scripts/cmd/clashctl.sh" 2>/dev/null
-. scripts/preflight.sh
 
-pgrep -f "$BIN_KERNEL" -u 0 >/dev/null && ! _is_root && _error_quit "请先关闭 Tun 模式"
-clashoff 2>/dev/null
+CLASHCTL_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+
+. "$CLASHCTL_ROOT/.env"
+. "$CLASHCTL_ROOT/scripts/runtime/common.sh"
+. "$CLASHCTL_ROOT/scripts/runtime/service.sh"
+
+! _is_root && clashctl tun >&/dev/null && _error_quit "请先关闭 Tun 模式"
 _uninstall_service
-_revoke_rc
 
-command -v crontab >&/dev/null && crontab -l | grep -v "clashsub" | crontab -
+command -v crontab >&/dev/null && {
+    crontab -l 2>/dev/null | grep -Fv "$CLASHCTL_CRON_TAG" | crontab -
+}
 
-/usr/bin/rm -rf "$CLASH_BASE_DIR"
+/usr/bin/rm -rf "$CLASHCTL_HOME"
 
 echo '✨' '已卸载，相关配置已清除'
-_quit

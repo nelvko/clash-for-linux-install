@@ -1,34 +1,35 @@
 #!/usr/bin/env bash
+CLASHCTL_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
-. scripts/cmd/clashctl.sh
-. scripts/preflight.sh
+. "$CLASHCTL_ROOT/.env"
+. "$CLASHCTL_ROOT"/scripts/runtime/common.sh
+. "$CLASHCTL_ROOT/scripts/preflight.sh"
+. "$CLASHCTL_ROOT"/scripts/runtime/convert.sh
+. "$CLASHCTL_ROOT"/scripts/runtime/env.sh
+. "$CLASHCTL_ROOT"/scripts/runtime/kernel.sh
+. "$CLASHCTL_ROOT"/scripts/runtime/service.sh
 
 _valid
 _parse_args "$@"
 
-_prepare_zip
 _detect_init
 
 _okcat "安装内核：$KERNEL_NAME by ${INIT_TYPE}"
-_okcat '📦' "安装路径：$CLASH_BASE_DIR"
+_okcat '📦' "安装路径：$CLASHCTL_HOME"
 
-/bin/cp -rf . "$CLASH_BASE_DIR"
-touch "$CLASH_CONFIG_BASE"
-_set_envs
-_is_regular_sudo && chown -R "$SUDO_USER" "$CLASH_BASE_DIR"
+_prepare_zip
 
 _install_service
-_apply_rc
-
+_install_cli
+_set_envs
 
 _merge_config
 _detect_proxy_port
-clashui
-clashsecret "$(_get_random_val)" >/dev/null
-clashsecret
+clashctl ui
+[ -z "$(_get_secret)" ] && clashctl secret "$(_get_random_val)" >/dev/null
+clashctl secret
 
-_okcat '🎉' 'enjoy 🎉'
-clashctl
-
-_valid_config "$CLASH_CONFIG_BASE" && CLASH_CONFIG_URL="file://$CLASH_CONFIG_BASE"
-_quit "clashsub add $CLASH_CONFIG_URL && clashsub use 1"
+_valid_config "$CLASH_CONFIG_BASE" && {
+    CLASH_CONFIG_URL="file://$CLASH_CONFIG_BASE"
+}
+clashctl sub add -u "$CLASH_CONFIG_URL" && clashctl on
