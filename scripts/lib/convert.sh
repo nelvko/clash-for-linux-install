@@ -23,17 +23,17 @@ _download_raw_config() {
         --fail \
         --insecure \
         --location \
-        --max-time 5 \
+        --max-time "$CLASHCTL_SUB_TIMEOUT" \
         --retry 1 \
-        --user-agent "clash-verge/v2.4.0" \
+        --user-agent "$CLASHCTL_SUB_UA" \
         --output "$dest" \
         "$url" ||
         wget \
             --no-verbose \
             --no-check-certificate \
-            --timeout 5 \
+            --timeout "$CLASHCTL_SUB_TIMEOUT" \
             --tries 1 \
-            --user-agent "clash-verge/v2.4.0" \
+            --user-agent "$CLASHCTL_SUB_UA" \
             --output-document "$dest" \
             "$url"
 }
@@ -61,7 +61,7 @@ _download_convert_config() {
             --write-out '%{url_effective}' \
             "$base_url"
     )
-    curl --user-agent "clash-verge/v2.4.0" --silent --output "$dest" "$convert_url"
+    curl --user-agent "$CLASHCTL_SUB_UA" --silent --output "$dest" "$convert_url"
     flag=$?
     _stop_convert
     return $flag

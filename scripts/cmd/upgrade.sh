@@ -24,7 +24,7 @@ clashupgrade() {
     done
 
     _detect_ext_addr
-    service_is_active >/dev/null 2>&1 || clashon -s >/dev/null
+    service_is_active >&/dev/null || service_start >/dev/null
     _okcat '⏳' "请求内核升级..."
 
     local follow_pid=

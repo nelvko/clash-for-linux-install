@@ -2,3 +2,4 @@ disable=SC1091
 disable=SC2155
 disable=SC2296
 disable=SC2153
+disable=SC1090

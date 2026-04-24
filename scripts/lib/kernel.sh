@@ -55,7 +55,7 @@ _valid_config() {
     "${test_cmd[@]}"
     if grep -qs "unsupport proxy type" <<<"$test_log"; then
       local prefix="检测到订阅中包含不受支持的代理协议"
-      [ "$KERNEL_NAME" = "clash" ] && _error_quit "${prefix}, 推荐安装使用 mihomo 内核"
+      [ "$CLASHCTL_KERNEL" = "clash" ] && _error_quit "${prefix}, 推荐安装使用 mihomo 内核"
       _error_quit "${prefix}, 请检查并升级内核版本"
     fi
     return 1
@@ -139,4 +139,24 @@ _merge_config() {
     cat "$CLASH_CONFIG_TEMP" >"$CLASH_CONFIG_RUNTIME"
     _error_quit "验证失败：请检查 Mixin 配置"
   }
+}
+tunstatus() {
+  local device
+  device=$("$BIN_YQ" '.tun.device // ""' "$CLASH_CONFIG_RUNTIME")
+  [ -z "$device" ] && device="Meta"
+  ip link show | grep -qs "$device" && {
+    _okcat 'Tun 状态：启用'
+    return 0
+  }
+  _failcat 'Tun 状态：关闭'
+  return 1
+}
+_merge_config_restart() {
+  _merge_config
+  service_stop >&/dev/null
+  service_is_active >&/dev/null && tunstatus >&/dev/null && {
+    service_sudo_stop || _error_quit "请先关闭 Tun 模式"
+  }
+  sleep 0.1
+  service_start >/dev/null
 }

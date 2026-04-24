@@ -33,7 +33,7 @@ tunon() {
     service_sudo_start || _error_quit 'Tun 模式开启失败'
     sleep 1
     tunstatus >&/dev/null || {
-        [ "$KERNEL_NAME" = 'mihomo' ] && {
+        [ "$CLASHCTL_KERNEL" = 'mihomo' ] && {
             "$BIN_YQ" -i '.tun.auto-redirect = false' "$CLASH_CONFIG_MIXIN"
             _merge_config
             service_sudo_stop

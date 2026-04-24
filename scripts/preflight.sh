@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 
-ARCHIVE_BASE_DIR="${CLASHCTL_ROOT}/archives"
+. "$CLASHCTL_SRC/.env"
+
+for lib_file in "$CLASHCTL_SRC"/scripts/lib/*.sh; do
+    [ -f "$lib_file" ] || continue
+    . "$lib_file"
+done
+
+ARCHIVE_BASE_DIR="${CLASHCTL_SRC}/archives"
 ZIP_BASE_DIR="${ARCHIVE_BASE_DIR}"
 
 _resolve_repo_path() {
@@ -9,7 +16,7 @@ _resolve_repo_path() {
         printf '%s\n' "$1"
         ;;
     *)
-        printf '%s\n' "${CLASHCTL_ROOT}/$1"
+        printf '%s\n' "${CLASHCTL_SRC}/$1"
         ;;
     esac
 }
@@ -46,13 +53,13 @@ _parse_args() {
     for arg in "$@"; do
         case $arg in
         mihomo)
-            KERNEL_NAME=mihomo
+            CLASHCTL_KERNEL=mihomo
             ;;
         clash)
-            KERNEL_NAME=clash
+            CLASHCTL_KERNEL=clash
             ;;
         http*)
-            CLASH_CONFIG_URL=$arg
+            CLASHCTL_SUB_URL=$arg
             ;;
         esac
     done
@@ -62,7 +69,7 @@ _prepare_zip() {
     ZIP_UI=$(_resolve_repo_path "$ZIP_UI")
     _load_zip >&/dev/null
     local required_zips=()
-    case "${KERNEL_NAME}" in
+    case "${CLASHCTL_KERNEL}" in
     clash)
         [ ! -f "$ZIP_CLASH" ] && required_zips+=("clash")
         ;;
@@ -75,7 +82,7 @@ _prepare_zip() {
 
     _download_zip "${required_zips[@]}"
 
-    case "${KERNEL_NAME}" in
+    case "${CLASHCTL_KERNEL}" in
     clash)
         ZIP_KERNEL="$ZIP_CLASH"
         ;;
@@ -83,7 +90,7 @@ _prepare_zip() {
         ZIP_KERNEL="$ZIP_MIHOMO"
         ;;
     esac
-    BIN_KERNEL="${BIN_BASE_DIR}/$KERNEL_NAME"
+    BIN_KERNEL="${BIN_BASE_DIR}/$CLASHCTL_KERNEL"
     _unzip_zip
 }
 _load_zip() {
@@ -187,18 +194,9 @@ _unzip_zip() {
     unzip -oqq "$ZIP_UI" -d "$CLASH_RESOURCES_DIR" 2>/dev/null || tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"
 }
 
-_detect_init() {
-    [ -z "$INIT_TYPE" ] && INIT_TYPE=$(readlink /proc/1/exe 2>/dev/null || printf '%s\n' "nohup")
-    grep -qsE "docker|kubepods|containerd|podman|lxc" /proc/1/cgroup && INIT_TYPE='nohup'
-    _is_root || INIT_TYPE='nohup'
-    INIT_TYPE=$(basename "$INIT_TYPE")
-}
 _set_envs() {
     _set_env INIT_TYPE "$INIT_TYPE"
-    _set_env KERNEL_NAME "$KERNEL_NAME"
-    _set_env CLASHCTL_HOME "$CLASHCTL_HOME"
-    _set_env VERSION_MIHOMO "$VERSION_MIHOMO"
-    _set_env CLASHCTL_BIN "${CLASHCTL_BIN:-}"
+    _set_env CLASHCTL_KERNEL "$CLASHCTL_KERNEL"
 }
 
 CLASHCTL_BIN_FALLBACK="${HOME}/.local/bin/clashctl"
@@ -206,30 +204,24 @@ CLASHCTL_BIN_FALLBACK="${HOME}/.local/bin/clashctl"
 _install_cli() {
     local target_dir=$CLASHCTL_HOME
     local resource
-    touch "$CLASH_CONFIG_BASE"
-    local resources=(
-        "Country.mmdb"
-        "geosite.dat"
-        "config.yaml"
-        "mixin.yaml"
-        "profiles.yaml"
-    )
 
     /usr/bin/install -d \
         "$target_dir/bin" \
         "$target_dir/scripts" \
-        "$target_dir/resources/profiles"
+        "$target_dir/resources"
 
-    /usr/bin/install -m 644 "$CLASHCTL_ROOT/.env" "$target_dir/.env"
-    /usr/bin/install -m 755 "$CLASHCTL_ROOT/bin/clashctl" "$target_dir/bin/clashctl"
-    /usr/bin/install -m 755 "$CLASHCTL_ROOT/uninstall.sh" "$target_dir/uninstall.sh"
+    touch "$CLASH_CONFIG_BASE"
 
-    /bin/cp -a "$CLASHCTL_ROOT/scripts/cmd" "$target_dir/scripts/"
-    /bin/cp -a "$CLASHCTL_ROOT/scripts/runtime" "$target_dir/scripts/"
-    /bin/cp -a "$CLASHCTL_ROOT/scripts/init" "$target_dir/scripts/"
+    /usr/bin/install -m 644 "$CLASHCTL_SRC/.env" "$target_dir/.env" && _set_envs
+    /usr/bin/install -m 755 "$CLASHCTL_SRC/bin/clashctl" "$target_dir/bin/clashctl"
+    /usr/bin/install -m 755 "$CLASHCTL_SRC/uninstall.sh" "$target_dir/uninstall.sh"
 
-    for resource in "${resources[@]}"; do
-        /usr/bin/install -m 644 "$CLASHCTL_ROOT/resources/$resource" "$target_dir/resources/$resource"
+    /bin/cp -a "$CLASHCTL_SRC/scripts/cmd" "$target_dir/scripts/"
+    /bin/cp -a "$CLASHCTL_SRC/scripts/lib" "$target_dir/scripts/"
+    /bin/cp -a "$CLASHCTL_SRC/scripts/init" "$target_dir/scripts/"
+
+    for resource in "$CLASHCTL_SRC"/resources/*; do
+        /bin/cp -r "$resource" "$target_dir/resources/"
     done
 
     local bin_path="$CLASHCTL_BIN"

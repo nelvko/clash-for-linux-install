@@ -1,8 +1,21 @@
 #!/usr/bin/env bash
 
-script_home=$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd -P)
-export CLASHCTL_HOME="$script_home"
+CLASHCTL_HOME=$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd -P)
+export CLASHCTL_HOME
 
-. "$CLASHCTL_HOME/scripts/runtime/command.sh"
+. "$CLASHCTL_HOME/.env"
+
+for lib_file in "$CLASHCTL_HOME"/scripts/lib/*.sh; do
+    [ -f "$lib_file" ] || continue
+    . "$lib_file"
+done
+
+clashctl() {
+    local subcommand=${1:-help}
+    shift
+    . "$CLASHCTL_HOME/scripts/cmd/$subcommand.sh"
+    clash$subcommand "$@"
+
+}
 
 clashctl "$@"

@@ -2,44 +2,54 @@
 
 clashoff() {
     case "$1" in
-    -e | --env)
-        _proxy_exec_shell off
+    -e | --env-only)
+        off_env_only
+        ;;
+    -s | --service-only)
+        off_service_only || return
+        [ -n "$http_proxy" ] && _failcat "警告: 当前终端系统代理尚未关闭"
         ;;
     -h | --help)
-        _help
-        return 0
+        help
+        ;;
+    *)
+        off_service_only || return
+        _okcat "终端代理已关闭"
+        _proxy_exec_shell off
         ;;
     esac
+}
 
+off_env_only() {
+    _okcat "终端代理已关闭"
+    _proxy_exec_shell off
+}
+off_service_only() {
     service_is_active >&/dev/null && {
-        service_stop >&/dev/null
-        service_is_active >&/dev/null && _tunstatus >&/dev/null && {
-            _tunoff || _error_quit "请先关闭 Tun 模式"
+        service_stop >/dev/null
+        service_is_active >&/dev/null && tunstatus >&/dev/null && {
+            service_sudo_stop || _error_quit "请先关闭 Tun 模式"
         }
-        service_stop >&/dev/null
-        service_is_active >&/dev/null && {
-            _failcat '代理服务关闭失败'
+        service_is_active >/dev/null && {
+            _failcat "$CLASHCTL_KERNEL 服务关闭失败"
             return 1
         }
     }
-
-    _okcat '已关闭代理环境'
-    _proxy_exec_shell off
+    _okcat "$CLASHCTL_KERNEL 服务已关闭"
 }
 
-_help() {
+help() {
     cat <<EOF
 
-- 关闭代理服务，并进入清理代理环境的新 Bash
-  clashctl off
+clashctl off - 关闭代理环境
 
-- 仅关闭代理服务
-  clashctl off -s
-  clashctl off --service-only
+Usage:
+  clashctl off [OPTIONS]
 
-- 仅清理当前终端代理环境
-  clashctl off -e
-  clashctl off --env-only
+Options:
+  -s, --service-only 仅关闭 $CLASHCTL_KERNEL 服务
+  -e, --env-only     仅关闭终端代理
+  -h, --help         显示帮助信息
 
 EOF
 }

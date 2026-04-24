@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 clashhelp() {
-    cat <<EOF
+  cat <<EOF
 
 Usage:
   clashctl COMMAND [OPTIONS]
@@ -16,6 +16,7 @@ Commands:
   tun                   Tun 模式
   mixin                 Mixin 配置
   secret                Web 密钥
+  log                   查看日志
   upgrade               升级内核
 
 Global Options:
