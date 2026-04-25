@@ -21,24 +21,41 @@ end
 
 
 function clashctl
-    if test -z "$argv"
+    if test (count $argv) -eq 0
         clashhelp
         return
     end
 
-
     set suffix $argv[1]
-    set argv $argv[2..-1]
+    set rest $argv[2..-1]
 
     switch $suffix
         case on
-            clashon $argv
+            clashon $rest
         case off
-            clashoff $argv
+            clashoff $rest
+        case ui
+            clashui $rest
+        case status
+            clashstatus $rest
+        case log
+            clashlog $rest
         case proxy
-            clashproxy $argv
+            clashproxy $rest
+        case tun
+            clashtun $rest
+        case mixin
+            clashmixin $rest
+        case secret
+            clashsecret $rest
+        case sub
+            clashsub $rest
+        case upgrade
+            clashupgrade $rest
+        case -h --help
+            clashhelp
         case '*'
-            clash"$suffix" $argv
+            clashhelp
     end
 end
 
