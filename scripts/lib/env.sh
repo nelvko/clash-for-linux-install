@@ -80,5 +80,5 @@ _proxy_exec_shell() {
         ;;
     esac
 
-    exec bash -i
+    exec $SHELL
 }
