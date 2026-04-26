@@ -27,7 +27,7 @@ git clone --branch master --depth 1 https://gh-proxy.org/https://github.com/nelv
 
 - 上述命令使用了[加速前缀](https://gh-proxy.org/)，如失效可更换其他[可用链接](https://ghproxy.link/)。
 - 可通过 `.env` 文件或脚本参数自定义安装选项。
-- 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
+- 没有订阅？[click me](https://user.freegecko.com)
 
 ## ⌨️ 命令一览
 
