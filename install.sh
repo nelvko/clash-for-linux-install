@@ -28,7 +28,6 @@ clashsecret "$(_get_random_val)" >/dev/null
 clashsecret
 
 _okcat '🎉' 'enjoy 🎉'
-clashctl
-
-_valid_config "$CLASH_CONFIG_BASE" && CLASH_CONFIG_URL="file://$CLASH_CONFIG_BASE"
-_quit "clashsub add $CLASH_CONFIG_URL && clashsub use 1"
+echo
+_okcat '📌' '立即生效：请执行: source ~/.bashrc'
+clashctl -h
