@@ -11,11 +11,24 @@ for lib_file in "$CLASHCTL_HOME"/scripts/lib/*.sh; do
 done
 
 clashctl() {
-    local subcommand=${1:-help}
-    shift
-    . "$CLASHCTL_HOME/scripts/cmd/$subcommand.sh"
-    clash$subcommand "$@"
+    local subcommand=${1}
+    [ $# -gt 0 ] && shift
 
+    case "$subcommand" in
+    '' | -h | --help)
+        subcommand=help
+        ;;
+    -* | *[!a-z0-9_-]*)
+        _error_quit "Unknown subcommand '$subcommand'"
+        ;;
+    esac
+
+    local cmd_file="$CLASHCTL_HOME/scripts/cmd/$subcommand.sh"
+    [ -f "$cmd_file" ] || {
+        _error_quit "Unknown subcommand '$subcommand'" >&2
+    }
+    . "$cmd_file"
+    "clash$subcommand" "$@"
 }
 
 clashctl "$@"
