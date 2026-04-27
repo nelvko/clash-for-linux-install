@@ -2,6 +2,8 @@
 
 . "$CLASHCTL_SRC/.env"
 
+CLASHCTL_BIN=${CLASHCTL_HOME}/bin/clashctl
+
 for lib_file in "$CLASHCTL_SRC"/scripts/lib/*.sh; do
     [ -f "$lib_file" ] || continue
     . "$lib_file"
@@ -199,8 +201,6 @@ _set_envs() {
     _set_env CLASHCTL_KERNEL "$CLASHCTL_KERNEL"
 }
 
-CLASHCTL_BIN_FALLBACK="${HOME}/.local/bin/clashctl"
-
 _install_cli() {
     local target_dir=$CLASHCTL_HOME
     local resource
@@ -224,6 +224,7 @@ _install_cli() {
         /bin/cp -r "$resource" "$target_dir/resources/"
     done
 
+    CLASHCTL_BIN=${CLASHCTL_HOME}/bin/clashctl
     local bin_path="$CLASHCTL_BIN"
     [ ! -w "$(dirname "$bin_path")" ] && {
         _failcat '📍' "${CLASHCTL_BIN} 不可写，改为安装到 ${CLASHCTL_BIN_FALLBACK}"
