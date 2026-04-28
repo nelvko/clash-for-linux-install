@@ -5,7 +5,7 @@ clashupgrade() {
     for arg in "$@"; do
         case $arg in
         -h | --help)
-            help
+            upgrade_help
             return 0
             ;;
         -v | --verbose)
@@ -56,7 +56,7 @@ clashupgrade() {
     _failcat "内核升级失败，请检查网络或稍后重试"
 }
 
-help() {
+upgrade_help() {
     cat <<EOF
 Usage:
   clashctl upgrade [OPTIONS]

@@ -3,7 +3,7 @@
 clashtun() {
     case "$1" in
     -h | --help)
-        help
+        tun_help
         return 0
         ;;
     on)
@@ -52,7 +52,7 @@ tunon() {
     _okcat "Tun 模式已开启"
 }
 
-help() {
+tun_help() {
     cat <<EOF
 
 - 查看 Tun 状态

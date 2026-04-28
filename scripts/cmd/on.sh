@@ -9,7 +9,7 @@ clashon() {
         on_service_only
         ;;
     -h | --help)
-        help
+        on_help
         ;;
     *)
         on_service_only || return
@@ -41,7 +41,7 @@ on_service_only() {
     _okcat "$CLASHCTL_KERNEL 已启动"
 }
 
-help() {
+on_help() {
     cat <<EOF
 
 clashctl on - 开启代理环境

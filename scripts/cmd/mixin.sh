@@ -3,7 +3,7 @@
 clashmixin() {
     case "$1" in
     -h | --help)
-        help
+        mixin_help
         return 0
         ;;
     -e)
@@ -23,7 +23,7 @@ clashmixin() {
     esac
 }
 
-help() {
+mixin_help() {
     cat <<EOF
 
 - 查看 Mixin 配置：$CLASH_CONFIG_MIXIN

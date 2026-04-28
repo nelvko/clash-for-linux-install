@@ -10,7 +10,7 @@ clashoff() {
         [ -n "$http_proxy" ] && _failcat "警告：当前终端代理未关闭"
         ;;
     -h | --help)
-        help
+        off_help
         ;;
     *)
         off_service_only || return
@@ -37,7 +37,7 @@ off_service_only() {
     _okcat "$CLASHCTL_KERNEL 已停止"
 }
 
-help() {
+off_help() {
     cat <<EOF
 
 clashctl off - 关闭代理环境

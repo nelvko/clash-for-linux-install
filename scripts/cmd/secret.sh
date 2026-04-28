@@ -3,7 +3,7 @@
 clashsecret() {
     case "$1" in
     -h | --help)
-        help
+        secret_help
         return 0
         ;;
     esac
@@ -26,7 +26,7 @@ clashsecret() {
     esac
 }
 
-help() {
+secret_help() {
     cat <<EOF
 
 - 查看 Web 密钥
