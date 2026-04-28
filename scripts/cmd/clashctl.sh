@@ -1,6 +1,14 @@
+#!/usr/bin/env bash
+
+. "$CLASHCTL_HOME"/.env
+
 for lib_file in "$CLASHCTL_HOME"/scripts/lib/*.sh; do
-    [ -f "$lib_file" ] || continue
     . "$lib_file"
+done
+
+for cmd_file in "$CLASHCTL_HOME"/scripts/cmd/*.sh; do
+    case "$cmd_file" in *clashctl*) continue ;; esac
+    . "$cmd_file"
 done
 
 clashctl() {
@@ -46,8 +54,8 @@ clashctl() {
         clashupgrade "$@"
         ;;
     *)
-        _fail_cat "Unknown subcommand: $cmd"
-        _fail_cat "Use 'clashctl help' for usage information."
+        _failcat "Unknown subcommand: $cmd"
+        _failcat "Use 'clashctl help' for usage information."
         ;;
     esac
 

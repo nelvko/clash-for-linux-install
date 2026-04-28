@@ -95,7 +95,7 @@ _error_quit() {
         local msg="${emoji} $1"
         _color_log "$color" "$msg" >&2
     fi
-    exit 1
+    exec $SHELL
 }
 
 _set_env() {

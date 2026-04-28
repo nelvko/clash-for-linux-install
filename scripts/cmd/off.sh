@@ -20,8 +20,8 @@ clashoff() {
 }
 
 off_env_only() {
+    unset_system_proxy
     _okcat "终端代理已关闭"
-    _proxy_exec_shell off
 }
 off_service_only() {
     service_is_active >&/dev/null && {
@@ -35,6 +35,17 @@ off_service_only() {
         }
     }
     _okcat "$CLASHCTL_KERNEL 已停止"
+}
+
+unset_system_proxy() {
+    unset http_proxy
+    unset https_proxy
+    unset HTTP_PROXY
+    unset HTTPS_PROXY
+    unset all_proxy
+    unset ALL_PROXY
+    unset no_proxy
+    unset NO_PROXY
 }
 
 off_help() {

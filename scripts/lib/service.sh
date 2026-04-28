@@ -209,7 +209,7 @@ service_read_log() {
     esac
 }
 
-_install_service() {
+install_service() {
     detect_service_manager
 
     local kernel_desc="$CLASHCTL_KERNEL Daemon, A[nother] Clash Kernel."
@@ -277,7 +277,7 @@ _install_service() {
     esac
 }
 
-_uninstall_service() {
+uninstall_service() {
     detect_service_manager
     service_stop >&/dev/null
     case "$service_manager" in

@@ -2,8 +2,6 @@
 
 . "$CLASHCTL_SRC/.env"
 
-CLASHCTL_BIN=${CLASHCTL_HOME}/bin/clashctl
-
 for lib_file in "$CLASHCTL_SRC"/scripts/lib/*.sh; do
     [ -f "$lib_file" ] || continue
     . "$lib_file"
@@ -11,6 +9,8 @@ done
 
 ARCHIVE_BASE_DIR="${CLASHCTL_SRC}/archives"
 ZIP_BASE_DIR="${ARCHIVE_BASE_DIR}"
+
+CLASHCTL_CMD_DIR="${CLASHCTL_HOME}/scripts/cmd"
 
 _valid_required() {
     local required_cmds=("xz" "pgrep" "curl" "tar" 'unzip')
@@ -21,7 +21,7 @@ _valid_required() {
     [ "${#missing[@]}" -gt 0 ] && _error_quit "请先安装以下命令：${missing[*]}"
 }
 
-_valid() {
+valid_env() {
     _valid_required
 
     [ -d "$CLASHCTL_HOME" ] && {
@@ -33,7 +33,7 @@ _valid() {
     }
 }
 
-_parse_args() {
+parse_args() {
     for arg in "$@"; do
         case $arg in
         mihomo)
@@ -49,8 +49,8 @@ _parse_args() {
     done
 }
 
-_prepare_zip() {
-    _load_zip >&/dev/null
+prepare_zip() {
+    load_zip >&/dev/null
     local required_zips=()
     case "${CLASHCTL_KERNEL}" in
     clash)
@@ -63,7 +63,7 @@ _prepare_zip() {
     [ ! -f "$ZIP_YQ" ] && required_zips+=("yq")
     [ ! -f "$ZIP_SUBCONVERTER" ] && required_zips+=("subconverter")
 
-    _download_zip "${required_zips[@]}"
+    download_zip "${required_zips[@]}"
 
     case "${CLASHCTL_KERNEL}" in
     clash)
@@ -74,9 +74,9 @@ _prepare_zip() {
         ;;
     esac
     BIN_KERNEL="${BIN_BASE_DIR}/$CLASHCTL_KERNEL"
-    _unzip_zip
+    unzip_zip
 }
-_load_zip() {
+load_zip() {
     ZIP_UI="${CLASHCTL_SRC}/${ZIP_UI}"
     local matches=()
     shopt -s nullglob
@@ -90,7 +90,7 @@ _load_zip() {
     ZIP_SUBCONVERTER="${matches[0]:-}"
     shopt -u nullglob
 }
-_download_zip() {
+download_zip() {
     (($#)) || return 0
     local url_clash url_mihomo url_yq url_subconverter
     local arch=$(uname -m)
@@ -156,10 +156,10 @@ _download_zip() {
             "$url"
         target_zips+=("$target")
     done
-    _valid_zip "${target_zips[@]}"
-    _load_zip >&/dev/null
+    valid_zip "${target_zips[@]}"
+    load_zip >&/dev/null
 }
-_valid_zip() {
+valid_zip() {
     (($#)) || return 1
     local zip fail_zips=()
     for zip in "$@"; do
@@ -168,8 +168,8 @@ _valid_zip() {
 
     ((${#fail_zips[@]})) && _error_quit "文件验证失败：${fail_zips[*]} 请删除后重试，或自行下载对应版本至 ${ZIP_BASE_DIR} 目录"
 }
-_unzip_zip() {
-    _valid_zip "$ZIP_KERNEL" "$ZIP_YQ" "$ZIP_SUBCONVERTER" "$ZIP_UI"
+unzip_zip() {
+    valid_zip "$ZIP_KERNEL" "$ZIP_YQ" "$ZIP_SUBCONVERTER" "$ZIP_UI"
     /usr/bin/install -D <(gzip -dc "$ZIP_KERNEL") "$BIN_KERNEL"
     tar -xf "$ZIP_YQ" -C "${BIN_BASE_DIR}"
     /bin/mv -f "${BIN_BASE_DIR}"/yq_* "${BIN_BASE_DIR}/yq"
@@ -183,7 +183,7 @@ _set_envs() {
     _set_env CLASHCTL_KERNEL "$CLASHCTL_KERNEL"
 }
 
-_install_cli() {
+install_clashctl() {
     local target_dir=$CLASHCTL_HOME
     local resource
 
@@ -195,7 +195,6 @@ _install_cli() {
     touch "$CLASH_CONFIG_BASE"
 
     /usr/bin/install -m 644 "$CLASHCTL_SRC/.env" "$target_dir/.env" && _set_envs
-    /usr/bin/install -m 755 "$CLASHCTL_SRC/bin/clashctl" "$target_dir/bin/clashctl"
     /usr/bin/install -m 755 "$CLASHCTL_SRC/uninstall.sh" "$target_dir/uninstall.sh"
 
     /bin/cp -a "$CLASHCTL_SRC/scripts/cmd" "$target_dir/scripts/"
@@ -205,9 +204,30 @@ _install_cli() {
     for resource in "$CLASHCTL_SRC"/resources/*; do
         /bin/cp -r "$resource" "$target_dir/resources/"
     done
+    apply_rc
+}
 
-    local bin_dir=$(dirname "$CLASHCTL_BIN")
-    echo "$PATH" | grep -qE "$bin_dir" || {
-        echo "PATH=\$PATH:$bin_dir" >>"$HOME/.bashrc"
+detect_rc() {
+    command -v bash >&/dev/null && {
+        SHELL_RC_BASH="${HOME}/.bashrc"
     }
+    command -v zsh >&/dev/null && {
+        SHELL_RC_ZSH="${HOME}/.zshrc"
+    }
+    command -v fish >&/dev/null && {
+        SHELL_RC_FISH="${HOME}/.config/fish/conf.d/clashctl.fish"
+    }
+}
+apply_rc() {
+    detect_rc
+    local source_clashctl=". $CLASHCTL_CMD_DIR/clashctl.sh"
+    echo "$source_clashctl" >>"$SHELL_RC_BASH"
+    echo "$source_clashctl" >>"$SHELL_RC_ZSH"
+    [ -n "$SHELL_RC_FISH" ] && /usr/bin/install "$CLASHCTL_CMD_DIR/clashctl.fish" "$SHELL_RC_FISH"
+    $source_clashctl
+}
+revoke_rc() {
+    detect_rc
+    sed -i --follow-symlinks "/$source_clashctl/d" "$SHELL_RC_BASH" "$SHELL_RC_ZSH" 2>/dev/null
+    [ -n "$SHELL_RC_FISH" ] && rm -f "$SHELL_RC_FISH" 2>/dev/null
 }
