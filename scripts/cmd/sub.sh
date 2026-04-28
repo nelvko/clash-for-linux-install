@@ -1,5 +1,37 @@
 #!/usr/bin/env bash
 
+clashsub() {
+    case "$1" in
+    add)
+        shift
+        sub_add "$@"
+        ;;
+    del | delete)
+        shift
+        _sub_del "$@"
+        ;;
+    list | ls | '')
+        shift
+        _sub_list "$@"
+        ;;
+    use)
+        shift
+        _sub_use "$@"
+        ;;
+    update)
+        shift
+        _sub_update "$@"
+        ;;
+    log)
+        shift
+        _sub_log "$@"
+        ;;
+    -h | --help | *)
+        sub_help
+        ;;
+    esac
+}
+
 _get_path_by_id() {
     PROFILE_ID=$1 "$BIN_YQ" -e '.profiles[] | select((.id | tostring) == env(PROFILE_ID)) | .path' "$CLASH_PROFILES_META" 2>/dev/null
 }
@@ -16,7 +48,7 @@ _logging_sub() {
     printf '%s %s\n' "$(date +"%Y-%m-%d %H:%M:%S")" "$1" >>"$CLASH_PROFILES_LOG"
 }
 
-_sub_add() {
+sub_add() {
     local use_after_add=false
     local url=
 
@@ -194,40 +226,9 @@ _sub_log() {
     tail "$CLASH_PROFILES_LOG"
 }
 
-clashsub() {
-    case "$1" in
-    add)
-        shift
-        _sub_add "$@"
-        ;;
-    del | delete)
-        shift
-        _sub_del "$@"
-        ;;
-    list | ls | '')
-        shift
-        _sub_list "$@"
-        ;;
-    use)
-        shift
-        _sub_use "$@"
-        ;;
-    update)
-        shift
-        _sub_update "$@"
-        ;;
-    log)
-        shift
-        _sub_log "$@"
-        ;;
-    -h | --help | *)
-        help
-        ;;
-    esac
-}
-
-help() {
+sub_help() {
     cat <<EOF
+
 clashctl sub - 订阅管理工具
 
 Usage:
@@ -241,11 +242,8 @@ Commands:
   update [id]     更新订阅
   log             订阅日志
 
-Options:
-  add:
-    -u, --use     添加后使用订阅
-  update:
-    --auto        配置自动更新
-    --convert     使用订阅转换
+Global Options:
+  -h, --help      显示帮助信息
+
 EOF
 }

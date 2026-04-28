@@ -12,17 +12,6 @@ done
 ARCHIVE_BASE_DIR="${CLASHCTL_SRC}/archives"
 ZIP_BASE_DIR="${ARCHIVE_BASE_DIR}"
 
-_resolve_repo_path() {
-    case "$1" in
-    /*)
-        printf '%s\n' "$1"
-        ;;
-    *)
-        printf '%s\n' "${CLASHCTL_SRC}/$1"
-        ;;
-    esac
-}
-
 _valid_required() {
     local required_cmds=("xz" "pgrep" "curl" "tar" 'unzip')
     local missing=()
@@ -35,20 +24,13 @@ _valid_required() {
 _valid() {
     _valid_required
 
-    if [ -d "$CLASHCTL_HOME" ]; then
+    [ -d "$CLASHCTL_HOME" ] && {
         _error_quit "请先执行卸载脚本,以清除安装路径：$CLASHCTL_HOME"
-        return 1
-    fi
+    }
 
-    local msg="${CLASHCTL_HOME}：当前路径不可用，请在 .env 中更换安装路径。"
-    if ! mkdir -p "$CLASHCTL_HOME"; then
-        _error_quit "$msg"
-    fi
-
-    if [ -z "$ZSH_VERSION" ] && [ -z "$BASH_VERSION" ]; then
-        _error_quit "仅支持：bash、zsh 执行"
-        return 1
-    fi
+    mkdir -p "$CLASHCTL_HOME" || {
+        _error_quit "${CLASHCTL_HOME}：当前路径不可用，请在 .env 中更换安装路径。"
+    }
 }
 
 _parse_args() {
@@ -68,7 +50,6 @@ _parse_args() {
 }
 
 _prepare_zip() {
-    ZIP_UI=$(_resolve_repo_path "$ZIP_UI")
     _load_zip >&/dev/null
     local required_zips=()
     case "${CLASHCTL_KERNEL}" in
@@ -96,6 +77,7 @@ _prepare_zip() {
     _unzip_zip
 }
 _load_zip() {
+    ZIP_UI="${CLASHCTL_SRC}/${ZIP_UI}"
     local matches=()
     shopt -s nullglob
     matches=("${ZIP_BASE_DIR}"/clash*)
@@ -224,16 +206,8 @@ _install_cli() {
         /bin/cp -r "$resource" "$target_dir/resources/"
     done
 
-    CLASHCTL_BIN=${CLASHCTL_HOME}/bin/clashctl
-    local bin_path="$CLASHCTL_BIN"
-    [ ! -w "$(dirname "$bin_path")" ] && {
-        _failcat '📍' "${CLASHCTL_BIN} 不可写，改为安装到 ${CLASHCTL_BIN_FALLBACK}"
-        CLASHCTL_BIN="$CLASHCTL_BIN_FALLBACK"
-    }
-    local dir
-    dir=$(dirname "$CLASHCTL_BIN")
-    echo "$PATH" | grep -qE "$dir" || {
-        PATH=$PATH:$dir
-        echo "PATH=\$PATH:$dir" >>"$HOME/.bashrc"
+    local bin_dir=$(dirname "$CLASHCTL_BIN")
+    echo "$PATH" | grep -qE "$bin_dir" || {
+        echo "PATH=\$PATH:$bin_dir" >>"$HOME/.bashrc"
     }
 }
