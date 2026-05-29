@@ -318,15 +318,18 @@ EOF
 }
 
 _tunstatus() {
-    local tun_status=$("$BIN_YQ" '.tun.enable' "${CLASH_CONFIG_RUNTIME}")
-    case $tun_status in
-    true)
-        _okcat 'Tun 状态：启用'
-        ;;
-    *)
+    if ! clashstatus >&/dev/null; then
         _failcat 'Tun 状态：关闭'
-        ;;
-    esac
+        return 1
+    fi
+    local tun_config=$("$BIN_YQ" '.tun.enable' "${CLASH_CONFIG_RUNTIME}")
+    if [ "$tun_config" = 'true' ]; then
+        _okcat 'Tun 状态：启用'
+        return 0
+    else
+        _failcat 'Tun 状态：关闭'
+        return 1
+    fi
 }
 _tunoff() {
     _tunstatus >/dev/null || return 0
