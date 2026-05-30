@@ -170,6 +170,20 @@ _unzip_zip() {
     tar -xf "$ZIP_SUBCONVERTER" -C "$BIN_BASE_DIR"
     /bin/cp "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
     unzip -oqq "$ZIP_UI" -d "$RESOURCES_BASE_DIR" 2>/dev/null || tar -xf "$ZIP_UI" -C "$RESOURCES_BASE_DIR"
+
+    # ========== SELinux 上下文修复 ==========
+    # Rocky Linux /home 目录下的二进制文件默认是 user_home_t
+    # systemd 以 init_t 运行，无法执行非 bin_t 的文件
+    if command -v chcon >/dev/null 2>&1; then
+        chcon -t bin_t "$BIN_KERNEL" 2>/dev/null
+        # 持久化：仅 SELinux 启用时生效
+        getenforce 2>/dev/null | grep -qiE '^Enforcing' && {
+            command -v semanage >/dev/null 2>&1 && \
+            semanage fcontext -a -t bin_t "$BIN_KERNEL" 2>/dev/null
+            command -v restorecon >/dev/null 2>&1 && \
+            restorecon -v "$BIN_KERNEL" 2>/dev/null
+        }
+    fi
 }
 
 # shellcheck disable=SC2206

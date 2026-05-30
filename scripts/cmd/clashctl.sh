@@ -479,7 +479,7 @@ EOF
     clashstatus >&/dev/null || clashon >/dev/null
     _okcat '⏳' "请求内核升级..."
     [ "$log_flag" = true ] && {
-        log_cmd=(placeholder_follow_log)
+        log_cmd=(journalctl -u mihomo -q -f -n 0)
         ("${log_cmd[@]}" &)
 
     }
@@ -494,6 +494,13 @@ EOF
     [ "$log_flag" = true ] && pkill -9 -f "${log_cmd[*]}"
 
     grep '"status":"ok"' <<<"$res" && {
+        # SELinux 上下文修复：升级后二进制文件可能丢失上下文
+        if command -v chcon >/dev/null 2>&1; then
+            chcon -t bin_t "$BIN_KERNEL" 2>/dev/null
+            getenforce 2>/dev/null | grep -qiE '^Enforcing' && {
+                command -v restorecon >/dev/null 2>&1 && restorecon -v "$BIN_KERNEL" 2>/dev/null
+            }
+        fi
         _okcat "内核升级成功"
         return 0
     }
