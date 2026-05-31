@@ -2,26 +2,25 @@
   clashctl
 </h1>
 
-<p align="center">Linux 下 mihomo / clash 一键安装与管理工具</p>
+<p align="center">mihomo / clash 一键部署与管理工具</p>
 
 <p align="center">
   <img alt="GitHub License" src="https://img.shields.io/github/license/nelvko/clash-for-linux-install" />
   <img alt="GitHub top language" src="https://img.shields.io/github/languages/top/nelvko/clash-for-linux-install" />
   <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/nelvko/clash-for-linux-install" />
+  <a href="https://deepwiki.com/nelvko/clash-for-linux-install"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </p>
 
 ## 📸 Preview
 
-![preview](resources/preview.png)
+![preview](preview.png)
 
 ## ✨ Features
 
-- 一键安装：部署 `mihomo` / `clash` 内核、Web 面板及配套组件。
-- 环境兼容：支持 `root` 与普通用户，适配主流 `Linux` 发行版和容器环境。
-- 服务管理：适配 `systemd`、`OpenRC`、`runit`、`SysVinit`，无服务管理器时使用 `nohup` 运行。
-- 命令管理：通过 `clashctl` 管理代理内核的启停、状态、日志、订阅、Web 密钥和内核升级。
-- 订阅维护：支持订阅添加、切换、更新、自动更新、订阅转换。
-- 配置扩展：支持 `Mixin` 合并、`Tun` 模式、端口冲突检测和运行时配置校验。
+- **开箱即用**：一键部署 `mihomo` / `clash` 内核、Web 面板及运行依赖。
+- **广泛兼容**：支持 `root` / 普通用户，适配主流 `Linux` 发行版、容器环境及 `systemd` / `OpenRC` 等 `init` 系统。
+- **统一管理**：通过 `clashctl` 管理代理启停、状态查看、日志追踪、Web 面板、TUN 模式、访问密钥与内核升级等。
+- **订阅管理**：支持多订阅源配置、一键切换、定时更新，并集成 [subconverter](https://github.com/tindy2013/subconverter) 实现订阅格式转换。
 
 ## 🚀 Installation
 
@@ -34,7 +33,7 @@ git clone --branch master --depth 1 https://gh-proxy.org/https://github.com/nelv
 ```
 
 - 上述命令使用了[加速前缀](https://gh-proxy.org/)，如失效请更换其他[可用链接](https://ghproxy.link/)。
-- 可通过 `.env` 文件自定义安装选项。
+- 可通过 `.env.install` 文件自定义安装选项。
 - 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
 
 ## 📖 Documentation
