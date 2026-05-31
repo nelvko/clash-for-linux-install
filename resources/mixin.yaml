@@ -1,7 +1,3 @@
-_custom:
-  system-proxy:
-    enable: true
-
 mixed-port: 7890
 
 external-controller: "0.0.0.0:9090"
@@ -9,34 +5,32 @@ external-ui: dist
 external-ui-url: https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip
 secret:
 
-allow-lan: false # 若开启务必设置用户验证以防暴露公网后被滥用
-# authentication:
-  # - "username:password" # 用户验证（clashon 会自动填充）
+allow-lan: false # 若开启务必设置身份验证以防暴露公网后被滥用
+authentication:
+  # - "username:password"
 
-# prefix：前置插入
-# suffix：后置插入
-# override：根据 name 匹配并替换原项
-# inject (仅 proxy-groups)：按 name 匹配，把指定 proxy 追加到已有 group 的 .proxies 列表（自动去重）
+# prepend  前置插入：插入到原列表开头，适用于 rules、proxies、proxy-groups
+# append   后置追加：追加到原列表末尾，适用于 rules、proxies、proxy-groups
+# override 整体替换：按 name 匹配并替换整个项目，适用于 proxies、proxy-groups
+# inject   节点注入：向指定 proxy-group 的 proxies 列表注入节点，仅适用于 proxy-groups
+
+# 示例：https://github.com/nelvko/clash-for-linux-install/discussions/562
 rules:
-  prefix:
+  prepend:
     - DOMAIN,api64.ipify.org,DIRECT # 用于 clashui 获取真实公网 IP
     # - DOMAIN-KEYWORD,github,proxy   # 用于 clashupgrade 升级内核
-  suffix:
+  append:
 
 proxies:
-  prefix:
-  suffix:
+  prepend:
+  append:
   override:
 
 proxy-groups:
-  prefix:
-  suffix:
+  prepend:
+  append:
   override:
-  # inject 示例：把自定义的 "我的链式代理" 注入到订阅的 "♻️ 手动切换" 组里
-  # 这样无需 override 整组就能在 dashboard 上选中它
-  # inject:
-  #   "♻️ 手动切换":
-  #     - "我的链式代理"
+  inject:
 
 # tun 配置
 tun:
@@ -52,10 +46,8 @@ tun:
   strict-route: true
   route-exclude-address:
     - 1.1.1.1/32 # 用于 clashui 获取真实内网 IP
-    - 127.0.0.1/32
-  exclude-interface:
-    - docker0 # 避免无法访问容器内服务
-    - podman0 # 详见：https://github.com/nelvko/clash-for-linux-install/issues/100#issuecomment-2995667368
+  exclude-src-port: # 排除源端口，避免无法访问容器内服务 https://github.com/nelvko/clash-for-linux-install/issues/100#issuecomment-2995667368
+    # - 80
 
 # DNS 配置
 dns:

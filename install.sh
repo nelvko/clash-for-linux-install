@@ -1,34 +1,27 @@
 #!/usr/bin/env bash
 
-. scripts/cmd/clashctl.sh
-. scripts/preflight.sh
+CLASHCTL_SRC="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+. "$CLASHCTL_SRC/scripts/preflight.sh"
 
-_valid
-_parse_args "$@"
+valid_env
+parse_args "$@"
 
-_prepare_zip
-_detect_init
+_okcat "安装内核：$CLASHCTL_KERNEL"
+_okcat '📦' "安装路径：$CLASHCTL_HOME"
 
-_okcat "安装内核：$KERNEL_NAME by ${INIT_TYPE}"
-_okcat '📦' "安装路径：$CLASH_BASE_DIR"
+prepare_zip
 
-/bin/cp -rf . "$CLASH_BASE_DIR"
-touch "$CLASH_CONFIG_BASE"
-_set_envs
-_is_regular_sudo && chown -R "$SUDO_USER" "$CLASH_BASE_DIR"
-
-_install_service
-_apply_rc
-
+install_service
+install_clashctl
 
 _merge_config
 _detect_proxy_port
 clashui
-clashsecret "$(_get_random_val)" >/dev/null
+[ -z "$(_get_secret)" ] && clashsecret "$(_get_random_val)" >/dev/null
 clashsecret
 
-_okcat '🎉' 'enjoy 🎉'
-clashctl
-
-_valid_config "$CLASH_CONFIG_BASE" && CLASH_CONFIG_URL="file://$CLASH_CONFIG_BASE"
-_quit "clashsub add $CLASH_CONFIG_URL && clashsub use 1"
+_valid_config "$CLASH_CONFIG_BASE" && {
+    CLASHCTL_SUB_URL="file://$CLASH_CONFIG_BASE"
+}
+clashsub add --use "$CLASHCTL_SUB_URL"
+_okcat '🎉' "请执行 source ~/.bashrc 为当前 SHELL 加载 clashctl 命令"
