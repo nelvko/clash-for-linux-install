@@ -1058,56 +1058,46 @@ _failover_recovery_check() {
         best_id=$(_get_sorted_profile_ids | head -n1)
 
         [ -z "$best_id" ] && continue
+        # 已经在用最高优先级订阅 → 无需回切
         [ "$current_use" = "$best_id" ] && continue
 
-        # 第一关：先确认当前订阅出口确实可用，并记录其延迟作为对比基线。
-        # 若当前订阅本身已不可用，则不在这里处理（交给触发线/切换线），回切只负责“更优时切回”。
-        local current_ms
-        current_ms=$(_probe_active_node "$timeout" "$verify_retries" "${test_urls[@]}") || current_ms=999999
+        # 第一关：回切的前提是“当前订阅出口确实不可用”。
+        # 故障转移的语义是：只有当前节点不能用才换。若当前出口仍然可用，
+        # 即使高优先级订阅延迟更低也绝不切换——延迟高低不是切换依据，
+        # 否则会出现“节点明明能用却被反复切换”的抖动。
+        if _probe_active_node "$timeout" "$verify_retries" "${test_urls[@]}" >/dev/null 2>&1; then
+            continue
+        fi
 
+        # 走到这里说明当前订阅出口已不可用，尝试回切到高优先级订阅。
         # 第二关：尝试下载高优先级订阅最新配置，失败则回退到本地文件
-        local best_url config_file downloaded=false
+        local best_url downloaded=false
         local _fp
         _fp=$(_get_path_by_id "$best_id")
         best_url=$(_get_url_by_id "$best_id")
         if _safe_download_and_validate "$CLASH_CONFIG_TEMP" "$best_url"; then
-            config_file="$CLASH_CONFIG_TEMP"
             downloaded=true
         else
             /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
-            if [ -f "$_fp" ]; then
-                config_file="$_fp"
-            else
+            if [ ! -f "$_fp" ]; then
                 _failcat '🔙' "高优先级订阅 [$best_id] 无法下载且无本地配置，保持 [$current_use]"
                 continue
             fi
         fi
 
         # 第三关：试探性切换到高优先级订阅，用与触发线一致的“真实出口探测”验证。
-        # 高优先级订阅只有真正加载进内核才能测真实代理连通性，因此采用
-        # 切换→验证→不达标则回滚 的方式，彻底统一健康度量（不再用 TCP 探活近似）。
+        # 只判断“是否可用”，不比较延迟。可用则切回，不可用则回滚。
         [ "$downloaded" = true ] && mv "$CLASH_CONFIG_TEMP" "$_fp"
 
-        local candidate_ms
-        if ! candidate_ms=$(_switch_and_verify "$best_id" "$timeout" "$verify_retries" "${test_urls[@]}"); then
-            # 高优先级订阅出口不可用 → 回滚到原订阅
+        if _switch_and_verify "$best_id" "$timeout" "$verify_retries" "${test_urls[@]}" >/dev/null 2>&1; then
+            _okcat '🔙' "高优先级订阅 [$best_id] 已恢复可用，切换回（原 [$current_use] 出口不可用）"
+            _logging_sub "🔙 回切：高优先级订阅 [$best_id] 已恢复可用，从 [$current_use] 切换回"
+        else
+            # 高优先级订阅仍不可用 → 回滚到原订阅，维持现状
             _switch_and_verify "$current_use" "$timeout" "$verify_retries" "${test_urls[@]}" >/dev/null 2>&1 \
                 || clashsub use "$current_use" >/dev/null 2>&1
-            _failcat '🔙' "高优先级订阅 [$best_id] 出口节点不可用，已回滚到 [$current_use]"
-            continue
+            _failcat '🔙' "高优先级订阅 [$best_id] 仍不可用，保持 [$current_use]"
         fi
-
-        # 候选延迟未优于当前 → 回滚，保持当前订阅
-        if [ "$candidate_ms" -ge "$current_ms" ]; then
-            _switch_and_verify "$current_use" "$timeout" "$verify_retries" "${test_urls[@]}" >/dev/null 2>&1 \
-                || clashsub use "$current_use" >/dev/null 2>&1
-            _failcat '🔙' "高优先级订阅 [$best_id] 延迟 ${candidate_ms}ms >= 当前 ${current_ms}ms，保持 [$current_use]"
-            continue
-        fi
-
-        # 候选真实可用且更优，保留切换
-        _okcat '🔙' "高优先级订阅 [$best_id] 已恢复 (${candidate_ms}ms < ${current_ms}ms)，切换回"
-        _logging_sub "🔙 回切：高优先级订阅 [$best_id] 已恢复 (${candidate_ms}ms < ${current_ms}ms)，从 [$current_use] 切换回"
     done
 }
 # 尝试切换到指定订阅并验证其“实际出口节点”真实可用。
