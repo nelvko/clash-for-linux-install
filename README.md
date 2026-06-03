@@ -27,14 +27,19 @@
 在终端中执行以下命令即可完成安装：
 
 ```bash
-git clone --branch master --depth 1 https://gh-proxy.org/https://github.com/nelvko/clash-for-linux-install.git \
-  && cd clash-for-linux-install \
-  && bash install.sh
+curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/dev/install.sh | bash -s -- [内核] [订阅URL]
 ```
 
-- 上述命令使用了[加速前缀](https://gh-proxy.org/)，如失效请更换其他[可用链接](https://ghproxy.link/)。
-- 可通过 `.env.install` 文件自定义安装选项。
-- 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
+- **内核**（可选）：`mihomo`（默认）或 `clash`
+- **订阅URL**（可选）：直接传入初始订阅地址
+
+国内网络可设置代理前缀：
+```bash
+export GH_PROXY=https://gh-proxy.org/
+curl -fsSL ${GH_PROXY}https://raw.githubusercontent.com/nelvko/clash-for-linux-install/dev/install.sh | bash
+```
+
+> 💡 可通过环境变量自定义安装选项（如 `CLASHCTL_HOME`、`GH_PROXY` 等），详见 `.env.install` 文件。无需 `git clone`。若在线安装不可用，也可下载 [源码压缩包](https://codeload.github.com/nelvko/clash-for-linux-install/tar.gz/refs/heads/dev) 解压后执行 `bash install.sh`。
 
 ## 📖 Documentation
 

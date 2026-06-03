@@ -121,13 +121,11 @@ _deploy_persist_proxy() {
     return 0
 }
 
-# 记录部署版本（git 短 SHA）：
-#   CLASHCTL_SRC_REV  由 clashctl update 从 GitHub API 取得后传入
-#   否则尝试 git rev-parse（源码侧克隆可用）
-#   都取不到则记 unknown
+# 记录部署版本：
+#   CLASHCTL_SRC_REV  由调用方从 GitHub API 取得后传入
+#   取不到则记 unknown
 _deploy_record_rev() {
     local rev="${CLASHCTL_SRC_REV:-}"
-    [[ -z "$rev" ]] && rev=$(git -C "$CLASHCTL_SRC" rev-parse --short HEAD 2>/dev/null)
     [[ -z "$rev" ]] && rev=unknown
     _set_env CLASHCTL_REV "$rev"
 }
@@ -224,10 +222,79 @@ deploy_clashctl() {
     _errorcat "更新失败，正在回滚..."
     if _update_restore "$backup"; then
         [[ "$was_active" == true ]] && service_restart >&/dev/null
-        . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" 2>/dev/null
+        . "${CLASHCTL_HOME}/scripts/cmd/clashctl.sh" 2>/dev/null
         _errorcat "已回滚到更新前状态；备份保留：$backup"
     else
         _errorcat "回滚失败！请手动从备份恢复：$backup"
     fi
     return 1
+}
+
+# =============================================================================
+# 远端源码获取（curl tarball，不依赖 git）
+# =============================================================================
+
+# 取远端指定 ref 最新提交 SHA（仅作版本比较优化，失败绝不阻塞）
+# 用法：_update_remote_sha <repo> [ref]
+_update_remote_sha() {
+    local repo=$1 ref=${2:-dev} sha
+    sha=$(
+        curl -s \
+            --max-time 10 \
+            --retry 1 \
+            -H 'Accept: application/vnd.github.sha' \
+            "https://api.github.com/repos/${repo}/commits/${ref}" 2>/dev/null
+    ) || return 0
+    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] && printf '%s\n' "$sha"
+    return 0
+}
+
+# 下载并解压指定 ref 源码到临时目录，校验结构后设置 CLASHCTL_SRC 指向它。
+# 同时设置 _FETCH_TMP（供调用方清理）和 CLASHCTL_SRC_REV。
+# 用法：_update_fetch_src <repo> [ref]
+_update_fetch_src() {
+    local repo=$1 ref=${2:-dev}
+    local url="https://codeload.github.com/${repo}/tar.gz/refs/heads/${ref}"
+    local proxy_url="${GH_PROXY:+${GH_PROXY%/}/}${url}"
+    local tmp
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/clashctl-update.XXXXXX") || {
+        _errorcat "创建临时目录失败"
+        return 1
+    }
+    _FETCH_TMP="$tmp"
+    local tarball="$tmp/src.tar.gz"
+
+    _okcat '⏳' "下载最新源码：${proxy_url}"
+    curl \
+        --fail \
+        --show-error \
+        --insecure \
+        --location \
+        --max-time "${CLASHCTL_DOWNLOAD_TIMEOUT:-60}" \
+        --retry 1 \
+        --output "$tarball" \
+        "$proxy_url" || {
+        _failcat "下载失败，请检查网络或 .env 中的 GH_PROXY"
+        return 1
+    }
+
+    gzip -tq "$tarball" 2>/dev/null || {
+        _failcat "源码包校验失败，请重试"
+        return 1
+    }
+    tar -xf "$tarball" -C "$tmp" || {
+        _failcat "源码解压失败"
+        return 1
+    }
+
+    local top
+    top=$(find "$tmp" -mindepth 1 -maxdepth 1 -type d -name "*-${ref}" 2>/dev/null | head -1)
+    [[ -d "${top}/scripts/cmd" && -f "${top}/scripts/preflight.sh" ]] || {
+        _failcat "源码结构异常，已中止"
+        return 1
+    }
+
+    # shellcheck disable=SC2034  # 供 deploy_clashctl / install_clashctl 使用
+    CLASHCTL_SRC="$top"
+    return 0
 }
