@@ -236,6 +236,8 @@ install_clashctl() {
     touch "$CLASH_CONFIG_BASE"
 
     /usr/bin/install -m 644 "$CLASHCTL_SRC/.env" "$target_dir/.env" && _set_envs
+    _deploy_persist_proxy
+    _deploy_record_rev
     /usr/bin/install -m 755 "$CLASHCTL_SRC/uninstall.sh" "$target_dir/uninstall.sh"
 
     /bin/cp -a "$CLASHCTL_SRC/scripts/cmd" "$target_dir/scripts/"

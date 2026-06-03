@@ -16,6 +16,7 @@ Commands:
   mixin                 Mixin 配置
   secret                Web 密钥
   log                   查看日志
+  update                更新项目
   upgrade               升级内核
 
 Global Options:

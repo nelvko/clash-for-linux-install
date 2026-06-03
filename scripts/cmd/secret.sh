@@ -17,7 +17,7 @@ clashsecret() {
             _failcat "密钥更新失败，请重新输入"
             return 1
         }
-        _merge_config_restart
+        _merge_config_restart || return
         _okcat "密钥更新成功，已重启生效"
         ;;
     *)

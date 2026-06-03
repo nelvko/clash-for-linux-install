@@ -79,7 +79,10 @@ EOF
             return 1
             ;;
         *)
-            [ -n "$url" ] && { _errorcat "仅支持一个订阅链接"; return 1; }
+            [ -n "$url" ] && {
+                _errorcat "仅支持一个订阅链接"
+                return 1
+            }
             url=$1
             ;;
         esac
@@ -90,11 +93,17 @@ EOF
     [ -z "$url" ] && {
         printf '%s' "$(_okcat '✈️ ' '请输入要添加的订阅链接：')"
         read -r url
-        [ -z "$url" ] && { _errorcat "订阅链接不能为空"; return 1; }
+        [ -z "$url" ] && {
+            _errorcat "订阅链接不能为空"
+            return 1
+        }
     }
 
     local existing_id
-    existing_id=$(_get_id_by_url "$url") && { _errorcat "该订阅链接已存在：[$existing_id] $url"; return 1; }
+    existing_id=$(_get_id_by_url "$url") && {
+        _errorcat "该订阅链接已存在：[$existing_id] $url"
+        return 1
+    }
 
     _download_config "$CLASH_CONFIG_TEMP" "$url"
     _valid_config "$CLASH_CONFIG_TEMP" || {
@@ -130,14 +139,20 @@ _sub_del() {
     [ -z "$id" ] && {
         printf '%s' "$(_okcat '✈️ ' '请输入要删除的订阅 id：')"
         read -r id
-        [ -z "$id" ] && { _errorcat "订阅 id 不能为空"; return 1; }
+        [ -z "$id" ] && {
+            _errorcat "订阅 id 不能为空"
+            return 1
+        }
     }
 
     local profile_path url use
     profile_path=$(_get_path_by_id "$id") || _errorcat "订阅 id 不存在，请检查" || return
     url=$(_get_url_by_id "$id")
     use=$("$BIN_YQ" '.use // "" | tostring' "$CLASH_PROFILES_META")
-    [ "$use" = "$id" ] && { _errorcat "删除失败：订阅 $id 正在使用中，请先切换订阅"; return 1; }
+    [ "$use" = "$id" ] && {
+        _errorcat "删除失败：订阅 $id 正在使用中，请先切换订阅"
+        return 1
+    }
 
     /usr/bin/rm -f "$profile_path"
     PROFILE_ID=$id "$BIN_YQ" -i 'del(.profiles[] | select((.id | tostring) == env(PROFILE_ID)))' "$CLASH_PROFILES_META"
@@ -160,7 +175,10 @@ _sub_use() {
         _sub_list
         printf '%s' "$(_okcat '✈️ ' '请输入要使用的订阅 id：')"
         read -r id
-        [ -z "$id" ] && { _errorcat "订阅 id 不能为空"; return 1; }
+        [ -z "$id" ] && {
+            _errorcat "订阅 id 不能为空"
+            return 1
+        }
     }
 
     local profile_path url
@@ -168,7 +186,7 @@ _sub_use() {
     url=$(_get_url_by_id "$id")
 
     cat "$profile_path" >"$CLASH_CONFIG_BASE"
-    _merge_config_restart
+    _merge_config_restart || return
     PROFILE_ID=$id "$BIN_YQ" -i '.use = (env(PROFILE_ID) | tonumber)' "$CLASH_PROFILES_META"
     _logging_sub "🔥 订阅已切换为：[$id] $url"
     _okcat '🔥' '订阅已生效'
@@ -221,7 +239,10 @@ _sub_update() {
     _logging_sub "✅ 订阅更新成功：[$id] $url"
     cat "$CLASH_CONFIG_TEMP" >"$profile_path"
     use=$("$BIN_YQ" '.use // "" | tostring' "$CLASH_PROFILES_META")
-    [ "$use" = "$id" ] && _sub_use "$use" && return
+    [ "$use" = "$id" ] && {
+        _sub_use "$use"
+        return
+    }
     _okcat '订阅已更新'
 }
 
