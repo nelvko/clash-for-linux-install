@@ -709,46 +709,99 @@ _get_priority_by_id() {
 _get_sorted_profile_ids() {
     "$BIN_YQ" '.profiles // [] | sort_by(.priority // 999) | .[].id' "$CLASH_PROFILES_META"
 }
-_test_all_proxies() {
-    local timeout=$1
-    shift
-    local test_urls=("$@")
-    _detect_ext_addr
-    local secret=$(_get_secret)
+# URL 编码节点名（用于拼接 controller API 路径）
+_url_encode_name() {
+    printf '%s' "$1" | sed 's/ /%20/g; s/\[/%5B/g; s/\]/%5D/g; s/#/%23/g'
+}
+
+# 解析 GLOBAL group 当前实际选中的“底层真实出口节点”。
+# group 的 .now 可能仍指向另一个 group（嵌套），递归下钻直到落在一个真实节点上。
+# 成功时把节点名打印到 stdout 并返回 0。
+_get_active_node() {
+    local secret=$1 max_depth=8
     local auth_header=""
     [ -n "$secret" ] && auth_header="Authorization: Bearer $secret"
 
-    local proxies_json
-    proxies_json=$(curl -s --noproxy "*" --max-time 5 \
-        ${auth_header:+-H "$auth_header"} \
-        "http://${EXT_IP}:${EXT_PORT}/proxies")
-    [ -z "$proxies_json" ] && return 1
+    local cur="GLOBAL" depth=0 encoded info kind now
+    while [ "$depth" -lt "$max_depth" ]; do
+        encoded=$(_url_encode_name "$cur")
+        info=$(curl -s --noproxy "*" --max-time 5 \
+            ${auth_header:+-H "$auth_header"} \
+            "http://${EXT_IP}:${EXT_PORT}/proxies/${encoded}")
+        [ -z "$info" ] && return 1
+        kind=$(echo "$info" | "$BIN_YQ" -p json '.type // ""' 2>/dev/null)
+        # 选择器 / 自动测速类 group 才有 .now，否则 cur 本身就是真实节点
+        case "$kind" in
+        Selector | URLTest | Fallback | LoadBalance | Relay)
+            now=$(echo "$info" | "$BIN_YQ" -p json '.now // ""' 2>/dev/null)
+            [ -z "$now" ] && { echo "$cur"; return 0; }
+            cur="$now"
+            depth=$((depth + 1))
+            ;;
+        *)
+            echo "$cur"
+            return 0
+            ;;
+        esac
+    done
+    echo "$cur"
+    return 0
+}
 
-    local proxy_names
-    proxy_names=$(echo "$proxies_json" | "$BIN_YQ" -p json '
-        .proxies | to_entries | .[] |
-        select(.value.type == "Shadowsocks" or .value.type == "VMess" or .value.type == "Trojan" or
-               .value.type == "ShadowsocksR" or .value.type == "Hysteria" or .value.type == "Hysteria2" or
-               .value.type == "VLESS" or .value.type == "WireGuard" or .value.type == "TUIC" or
-               .value.type == "Snell" or .value.type == "Http" or .value.type == "Socks5") |
-        .key
-    ' 2>/dev/null)
-    [ -z "$proxy_names" ] && return 1
+# 对“指定节点”做真实 HTTP 连通性探测。
+# 用法：_probe_node_url <node> <timeout_ms> <retries> <secret> <url>...
+# 任一测试 URL 在任一轮重试中返回 delay>0 即判定可用：把最佳延迟打印到 stdout，返回 0。
+# 全部失败返回 1。
+_probe_node_url() {
+    local node=$1 timeout=$2 retries=$3 secret=$4
+    shift 4
+    local test_urls=("$@")
+    [ -z "$node" ] && return 1
 
-    # 任意一个代理对任意一个测试地址有延迟响应即认为代理可用
-    local name encoded_name delay_result delay url
-    while IFS= read -r name; do
-        encoded_name=$(printf '%s' "$name" | sed 's/ /%20/g; s/\[/%5B/g; s/\]/%5D/g')
+    local auth_header=""
+    [ -n "$secret" ] && auth_header="Authorization: Bearer $secret"
+    local encoded_name
+    encoded_name=$(_url_encode_name "$node")
+
+    local attempt url delay_result delay best_delay=999999
+    for ((attempt = 0; attempt < retries; attempt++)); do
         for url in "${test_urls[@]}"; do
             delay_result=$(curl -s --noproxy "*" --max-time $(( (timeout / 1000) + 2 )) \
                 ${auth_header:+-H "$auth_header"} \
                 "http://${EXT_IP}:${EXT_PORT}/proxies/${encoded_name}/delay?timeout=${timeout}&url=${url}")
             delay=$(echo "$delay_result" | "$BIN_YQ" -p json '.delay // 0' 2>/dev/null)
-            [ -n "$delay" ] && [ "$delay" -gt 0 ] 2>/dev/null && return 0
+            if [ -n "$delay" ] && [ "$delay" -gt 0 ] 2>/dev/null; then
+                [ "$delay" -lt "$best_delay" ] && best_delay=$delay
+            fi
         done
-    done <<<"$proxy_names"
+        # 本轮已拿到可用延迟则无需继续重试
+        [ "$best_delay" -ne 999999 ] && break
+        [ $((attempt + 1)) -lt "$retries" ] && sleep 1
+    done
 
-    return 1
+    [ "$best_delay" -eq 999999 ] && return 1
+    echo "$best_delay"
+    return 0
+}
+
+# 探测“当前订阅实际正在使用的出口节点”是否真的可用（带重试）。
+# 这是触发判断 / 切换验证 / 回切对比 三条线统一使用的健康判据：
+# 始终测“真正在走流量的那个节点”，而不是“随便哪个节点能通”。
+# 成功时把延迟打印到 stdout 并返回 0。
+# 用法：_probe_active_node <timeout_ms> <retries> <url>...
+_probe_active_node() {
+    local timeout=$1 retries=$2
+    shift 2
+    local test_urls=("$@")
+    _detect_ext_addr
+    local secret
+    secret=$(_get_secret)
+
+    local node
+    node=$(_get_active_node "$secret") || return 1
+    [ -z "$node" ] && return 1
+
+    _probe_node_url "$node" "$timeout" "$retries" "$secret" "${test_urls[@]}"
 }
 _failover_is_running() {
     [ -f "$CLASH_FAILOVER_PID" ] || return 1
@@ -894,7 +947,12 @@ _failover_loop() {
     local recovery_pid=$!
     trap "kill $recovery_pid 2>/dev/null; wait $recovery_pid 2>/dev/null" EXIT
 
-    local error_pattern='i/o timeout|connection refused|dial .* error|context deadline exceeded|all proxies.*dead|no available proxy'
+    # 仅匹配“反映链路整体超时/不可达”的内核错误；
+    # 不再匹配 connection refused / dial error 等单连接、单站点级别的噪声，
+    # 这些噪声并不代表当前出口节点失效，曾导致大量误切。
+    local error_pattern='i/o timeout|context deadline exceeded|all proxies.*(dead|timeout)|no available proxy|net/http: TLS handshake timeout'
+    # 确认故障时对“当前实际出口”重复探测的轮数：连续全部失败才判定真故障
+    local confirm_retries=3
     local error_times=()
     local last_switch_time=0
     local last_test_pass_time=0
@@ -926,101 +984,57 @@ _failover_loop() {
             continue
         fi
 
-        # 达到阈值，用多个测试地址调用 API 确认所有代理都超时
-        _failcat '⚠️' "检测到 ${error_count} 次错误 (${window}s 内)，验证代理状态..."
-        if _test_all_proxies "$timeout" "${test_urls[@]}"; then
-            _okcat '✅' "代理延迟测试通过，忽略错误（可能是目标站点本身故障，${test_pass_cooldown}s 内不再检测）"
+        # 达到阈值后，主动探测“当前实际出口节点”是否真的不可用。
+        # 用重试做多数表决，避免单次网络抖动 / controller 繁忙造成误判。
+        _failcat '⚠️' "检测到 ${error_count} 次错误 (${window}s 内)，探测当前出口节点..."
+        local active_delay
+        if active_delay=$(_probe_active_node "$timeout" "$confirm_retries" "${test_urls[@]}"); then
+            _okcat '✅' "当前出口节点可用 (${active_delay}ms)，忽略错误（可能是目标站点本身故障，${test_pass_cooldown}s 内不再检测）"
             error_times=()
             last_test_pass_time=$(date +%s)
             continue
         fi
 
-        # 确认所有代理对所有测试地址都超时，执行切换
+        # 连续 confirm_retries 轮均失败，确认当前出口真故障，执行切换
         local current_use
         current_use=$("$BIN_YQ" '.use // ""' "$CLASH_PROFILES_META")
-        _failcat '⚠️' "订阅 [$current_use] 所有代理超时，开始切换..."
-        _logging_sub "⚠️ 订阅 [$current_use] 所有代理超时"
+        _failcat '⚠️' "订阅 [$current_use] 当前出口节点连续 ${confirm_retries} 次探测失败，开始切换..."
+        _logging_sub "⚠️ 订阅 [$current_use] 当前出口节点不可用"
 
         _do_failover_switch "$current_use" "$timeout" "${test_urls[@]}"
         error_times=()
         last_switch_time=$(date +%s)
     done < <(placeholder_follow_log)
 }
-_tcp_latency() {
-    local host=$1 port=$2 timeout_s=$3
-    local start end ms
-    start=$(date +%s%N 2>/dev/null) || start=$(date +%s)000000000
-    if timeout "$timeout_s" bash -c "echo >/dev/tcp/$host/$port" 2>/dev/null ||
-        nc -z -w "$timeout_s" "$host" "$port" 2>/dev/null; then
-        end=$(date +%s%N 2>/dev/null) || end=$(date +%s)000000000
-        ms=$(( (end - start) / 1000000 ))
-        [ "$ms" -le 0 ] && ms=1
-        echo "$ms"
-        return 0
-    fi
+# 等待内核加载新配置后“真正就绪”：轮询当前出口节点直到能解析出 .now。
+# 避免旧逻辑里固定 sleep 2 在内核尚未加载完成时就去验证导致的误判。
+# 返回 0 表示就绪。
+_wait_kernel_ready() {
+    local secret=$1 max_wait=${2:-10}
+    local i node
+    for ((i = 0; i < max_wait; i++)); do
+        node=$(_get_active_node "$secret")
+        [ -n "$node" ] && return 0
+        sleep 1
+    done
     return 1
 }
-_probe_config_best_latency() {
-    local config=$1
-    local timeout_ms=$2
-    local timeout_s=$(( (timeout_ms / 1000) + 1 ))
 
-    local endpoints
-    endpoints=$("$BIN_YQ" '.proxies[] | .server + ":" + (.port | tostring)' "$config" 2>/dev/null | head -n 5)
-    [ -z "$endpoints" ] && return 1
-
-    local best_ms=999999 ep host port ms
-    while IFS= read -r ep; do
-        host="${ep%%:*}"
-        port="${ep##*:}"
-        [ -z "$host" ] || [ -z "$port" ] && continue
-        ms=$(_tcp_latency "$host" "$port" "$timeout_s") || continue
-        [ "$ms" -lt "$best_ms" ] && best_ms=$ms
-    done <<<"$endpoints"
-    [ "$best_ms" -eq 999999 ] && return 1
-    echo "$best_ms"
-    return 0
-}
-_get_current_best_delay() {
-    local timeout=$1
-    shift
+# 试探性切换到指定订阅并用“真实出口探测”验证。
+# 成功（出口节点真实可用）时把延迟打印到 stdout，返回 0；失败返回 1（调用方负责回滚）。
+# 用法：_switch_and_verify <profile_id> <timeout_ms> <retries> <url>...
+_switch_and_verify() {
+    local target_id=$1 timeout=$2 retries=$3
+    shift 3
     local test_urls=("$@")
+
+    clashsub use "$target_id" >/dev/null 2>&1
     _detect_ext_addr
-    local secret=$(_get_secret)
-    local auth_header=""
-    [ -n "$secret" ] && auth_header="Authorization: Bearer $secret"
+    local secret
+    secret=$(_get_secret)
+    _wait_kernel_ready "$secret" 10 || return 1
 
-    local proxies_json
-    proxies_json=$(curl -s --noproxy "*" --max-time 5 \
-        ${auth_header:+-H "$auth_header"} \
-        "http://${EXT_IP}:${EXT_PORT}/proxies")
-    [ -z "$proxies_json" ] && return 1
-
-    local proxy_names
-    proxy_names=$(echo "$proxies_json" | "$BIN_YQ" -p json '
-        .proxies | to_entries | .[] |
-        select(.value.type == "Shadowsocks" or .value.type == "VMess" or .value.type == "Trojan" or
-               .value.type == "ShadowsocksR" or .value.type == "Hysteria" or .value.type == "Hysteria2" or
-               .value.type == "VLESS" or .value.type == "WireGuard" or .value.type == "TUIC" or
-               .value.type == "Snell" or .value.type == "Http" or .value.type == "Socks5") |
-        .key
-    ' 2>/dev/null)
-    [ -z "$proxy_names" ] && return 1
-
-    local best_delay=999999 name encoded_name delay_result delay url
-    while IFS= read -r name; do
-        encoded_name=$(printf '%s' "$name" | sed 's/ /%20/g; s/\[/%5B/g; s/\]/%5D/g')
-        for url in "${test_urls[@]}"; do
-            delay_result=$(curl -s --noproxy "*" --max-time $(( (timeout / 1000) + 2 )) \
-                ${auth_header:+-H "$auth_header"} \
-                "http://${EXT_IP}:${EXT_PORT}/proxies/${encoded_name}/delay?timeout=${timeout}&url=${url}")
-            delay=$(echo "$delay_result" | "$BIN_YQ" -p json '.delay // 0' 2>/dev/null)
-            [ -n "$delay" ] && [ "$delay" -gt 0 ] 2>/dev/null && [ "$delay" -lt "$best_delay" ] && best_delay=$delay
-        done
-    done <<<"$proxy_names"
-    [ "$best_delay" -eq 999999 ] && return 1
-    echo "$best_delay"
-    return 0
+    _probe_active_node "$timeout" "$retries" "${test_urls[@]}"
 }
 # 后台安全下载验证：不调用 _download_config/_valid_config，避免 _error_quit 杀死后台进程
 _safe_download_and_validate() {
@@ -1034,6 +1048,7 @@ _failover_recovery_check() {
     local timeout=$2
     shift 2
     local test_urls=("$@")
+    local verify_retries=2
 
     while true; do
         sleep "$interval"
@@ -1045,7 +1060,12 @@ _failover_recovery_check() {
         [ -z "$best_id" ] && continue
         [ "$current_use" = "$best_id" ] && continue
 
-        # 第一关：尝试下载最新配置，失败则回退到本地文件
+        # 第一关：先确认当前订阅出口确实可用，并记录其延迟作为对比基线。
+        # 若当前订阅本身已不可用，则不在这里处理（交给触发线/切换线），回切只负责“更优时切回”。
+        local current_ms
+        current_ms=$(_probe_active_node "$timeout" "$verify_retries" "${test_urls[@]}") || current_ms=999999
+
+        # 第二关：尝试下载高优先级订阅最新配置，失败则回退到本地文件
         local best_url config_file downloaded=false
         local _fp
         _fp=$(_get_path_by_id "$best_id")
@@ -1063,109 +1083,101 @@ _failover_recovery_check() {
             fi
         fi
 
-        # 第二关：TCP 探活并测延迟
+        # 第三关：试探性切换到高优先级订阅，用与触发线一致的“真实出口探测”验证。
+        # 高优先级订阅只有真正加载进内核才能测真实代理连通性，因此采用
+        # 切换→验证→不达标则回滚 的方式，彻底统一健康度量（不再用 TCP 探活近似）。
+        [ "$downloaded" = true ] && mv "$CLASH_CONFIG_TEMP" "$_fp"
+
         local candidate_ms
-        candidate_ms=$(_probe_config_best_latency "$config_file" "$timeout")
-        if [ -z "$candidate_ms" ]; then
-            [ "$downloaded" = true ] && /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
-            _failcat '🔙' "高优先级订阅 [$best_id] 代理节点不可达，保持 [$current_use]"
+        if ! candidate_ms=$(_switch_and_verify "$best_id" "$timeout" "$verify_retries" "${test_urls[@]}"); then
+            # 高优先级订阅出口不可用 → 回滚到原订阅
+            _switch_and_verify "$current_use" "$timeout" "$verify_retries" "${test_urls[@]}" >/dev/null 2>&1 \
+                || clashsub use "$current_use" >/dev/null 2>&1
+            _failcat '🔙' "高优先级订阅 [$best_id] 出口节点不可用，已回滚到 [$current_use]"
             continue
         fi
 
-        # 第三关：与当前代理延迟对比，候选更低才切换
-        local current_ms
-        current_ms=$(_get_current_best_delay "$timeout" "${test_urls[@]}") || current_ms=999999
+        # 候选延迟未优于当前 → 回滚，保持当前订阅
         if [ "$candidate_ms" -ge "$current_ms" ]; then
-            [ "$downloaded" = true ] && /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
+            _switch_and_verify "$current_use" "$timeout" "$verify_retries" "${test_urls[@]}" >/dev/null 2>&1 \
+                || clashsub use "$current_use" >/dev/null 2>&1
             _failcat '🔙' "高优先级订阅 [$best_id] 延迟 ${candidate_ms}ms >= 当前 ${current_ms}ms，保持 [$current_use]"
             continue
         fi
 
-        # 全部通过，更新配置并切换
-        [ "$downloaded" = true ] && mv "$CLASH_CONFIG_TEMP" "$_fp"
-        clashsub use "$best_id" >/dev/null 2>&1
+        # 候选真实可用且更优，保留切换
         _okcat '🔙' "高优先级订阅 [$best_id] 已恢复 (${candidate_ms}ms < ${current_ms}ms)，切换回"
         _logging_sub "🔙 回切：高优先级订阅 [$best_id] 已恢复 (${candidate_ms}ms < ${current_ms}ms)，从 [$current_use] 切换回"
     done
+}
+# 尝试切换到指定订阅并验证其“实际出口节点”真实可用。
+# 成功返回 0，失败返回 1。供 _do_failover_switch 复用，消除重复逻辑。
+_try_switch_to() {
+    local next_id=$1 timeout=$2 retries=$3
+    shift 3
+    local test_urls=("$@")
+
+    local _fp _url
+    _fp=$(_get_path_by_id "$next_id")
+    if [ ! -f "$_fp" ]; then
+        _failcat '⚠️' "订阅 [$next_id] 无配置文件，尝试下载..."
+        _url=$(_get_url_by_id "$next_id")
+        if _safe_download_and_validate "$CLASH_CONFIG_TEMP" "$_url"; then
+            mv "$CLASH_CONFIG_TEMP" "$_fp"
+        else
+            /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
+            _failcat '⏭️' "订阅 [$next_id] 下载失败，跳过"
+            return 1
+        fi
+    fi
+
+    _okcat '🔄' "尝试切换到订阅 [$next_id]..."
+    # 切换后等待内核就绪，再验证“真正在用的出口节点”是否可用（带重试），
+    # 而不是旧逻辑里 sleep 2 + 任意节点可用即算成功。
+    local delay
+    if delay=$(_switch_and_verify "$next_id" "$timeout" "$retries" "${test_urls[@]}"); then
+        _okcat '✅' "订阅 [$next_id] 出口节点可用 (${delay}ms)，切换成功"
+        _logging_sub "✅ 故障转移：切换到订阅 [$next_id] 成功 (${delay}ms)"
+        return 0
+    fi
+    _failcat '❌' "订阅 [$next_id] 出口节点不可用，继续尝试..."
+    _logging_sub "❌ 订阅 [$next_id] 出口节点不可用"
+    return 1
 }
 _do_failover_switch() {
     local current_use=$1
     local timeout=$2
     shift 2
     local test_urls=("$@")
+    local verify_retries=2
 
     local sorted_ids next_id found_current=false switched=false
     sorted_ids=$(_get_sorted_profile_ids)
 
-    # 从当前订阅之后按优先级查找下一个可用订阅
+    # 第一轮：从当前订阅之后按优先级依次尝试
     while IFS= read -r next_id; do
         [ "$next_id" = "$current_use" ] && { found_current=true; continue; }
-        [ "$found_current" = true ] && {
-            local _fp _url
-            _fp=$(_get_path_by_id "$next_id")
-            if [ ! -f "$_fp" ]; then
-                _failcat '⚠️' "订阅 [$next_id] 无配置文件，尝试下载..."
-                _url=$(_get_url_by_id "$next_id")
-                _safe_download_and_validate "$CLASH_CONFIG_TEMP" "$_url"
-                if [ $? -eq 0 ]; then
-                    mv "$CLASH_CONFIG_TEMP" "$_fp"
-                else
-                    /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
-                    _failcat '⏭️' "订阅 [$next_id] 下载失败，跳过"
-                    continue
-                fi
-            fi
-            _okcat '🔄' "尝试切换到订阅 [$next_id]..."
-            clashsub use "$next_id" >/dev/null 2>&1
-            sleep 2
-            if _test_all_proxies "$timeout" "${test_urls[@]}"; then
-                _okcat '✅' "订阅 [$next_id] 代理可用，切换成功"
-                _logging_sub "✅ 故障转移：切换到订阅 [$next_id] 成功"
-                switched=true
-                break
-            else
-                _failcat '❌' "订阅 [$next_id] 代理也超时，继续尝试..."
-                _logging_sub "❌ 订阅 [$next_id] 代理超时"
-            fi
-        }
+        [ "$found_current" = true ] || continue
+        if _try_switch_to "$next_id" "$timeout" "$verify_retries" "${test_urls[@]}"; then
+            switched=true
+            break
+        fi
     done <<<"$sorted_ids"
 
-    # 如果后面的都不行，从头开始尝试（循环）
+    # 第二轮：若后面的都不行，从头回绕到当前订阅之前的候选
     [ "$switched" = false ] && {
         while IFS= read -r next_id; do
             [ "$next_id" = "$current_use" ] && break
-            local _fp _url
-            _fp=$(_get_path_by_id "$next_id")
-            if [ ! -f "$_fp" ]; then
-                _failcat '⚠️' "订阅 [$next_id] 无配置文件，尝试下载..."
-                _url=$(_get_url_by_id "$next_id")
-                _safe_download_and_validate "$CLASH_CONFIG_TEMP" "$_url"
-                if [ $? -eq 0 ]; then
-                    mv "$CLASH_CONFIG_TEMP" "$_fp"
-                else
-                    /usr/bin/rm -f "$CLASH_CONFIG_TEMP" "${CLASH_CONFIG_TEMP}.raw"
-                    _failcat '⏭️' "订阅 [$next_id] 下载失败，跳过"
-                    continue
-                fi
-            fi
-            _okcat '🔄' "尝试切换到订阅 [$next_id]..."
-            clashsub use "$next_id" >/dev/null 2>&1
-            sleep 2
-            if _test_all_proxies "$timeout" "${test_urls[@]}"; then
-                _okcat '✅' "订阅 [$next_id] 代理可用，切换成功"
-                _logging_sub "✅ 故障转移：切换到订阅 [$next_id] 成功"
+            if _try_switch_to "$next_id" "$timeout" "$verify_retries" "${test_urls[@]}"; then
                 switched=true
                 break
-            else
-                _failcat '❌' "订阅 [$next_id] 代理也超时，继续尝试..."
-                _logging_sub "❌ 订阅 [$next_id] 代理超时"
             fi
         done <<<"$sorted_ids"
     }
 
     [ "$switched" = false ] && {
-        _failcat '🚨' "所有订阅代理均超时，等待下次错误触发重试..."
-        _logging_sub "🚨 所有订阅代理均超时"
+        _failcat '🚨' "所有订阅出口节点均不可用，等待下次错误触发重试..."
+        _logging_sub "🚨 所有订阅出口节点均不可用"
     }
 }
 _logging_sub() {
