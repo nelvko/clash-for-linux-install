@@ -61,7 +61,7 @@ _update_remote_sha() {
             --max-time 10 \
             --retry 1 \
             -H 'Accept: application/vnd.github.sha' \
-            "https://api.github.com/repos/${repo}/commits/master" 2>/dev/null
+            "https://api.github.com/repos/${repo}/commits/dev" 2>/dev/null
     ) || return 0
     [[ "$sha" =~ ^[0-9a-f]{40}$ ]] && printf '%s\n' "$sha"
     return 0
@@ -70,7 +70,7 @@ _update_remote_sha() {
 # 下载并解压最新源码到临时目录，校验结构后设置 CLASHCTL_SRC 指向它。
 # 下载发生在备份/部署之前，网络失败只返回非 0，不改动系统。
 _update_fetch_src() {
-    local repo=$1 ref='master'
+    local repo=$1 ref='dev'
     local url="https://codeload.github.com/${repo}/tar.gz/refs/heads/${ref}"
     local proxy_url="${GH_PROXY:+${GH_PROXY%/}/}${url}"
     local tmp
