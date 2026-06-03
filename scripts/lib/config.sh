@@ -187,12 +187,34 @@ tunstatus() {
   _failcat 'Tun 状态：关闭'
   return 1
 }
+_is_tun_enabled() {
+  "$BIN_YQ" -e '.tun.enable == true' "$CLASH_CONFIG_RUNTIME" >&/dev/null
+}
 _merge_config_restart() {
-  _merge_config
-  service_stop >&/dev/null
-  service_is_active >&/dev/null && tunstatus >&/dev/null && {
-    service_sudo_stop || _errorcat "请先关闭 Tun 模式" || return
-  }
+  local was_tun_active tun_enabled
+
+  tunstatus >&/dev/null && was_tun_active=true
+  _merge_config || return
+  _is_tun_enabled && tun_enabled=true
+
+  if [ "${was_tun_active}" = true ]; then
+    service_sudo_stop >/dev/null
+    service_is_active >&/dev/null && {
+      _errorcat "请先关闭 Tun 模式"
+      return
+    }
+  else
+    service_stop >&/dev/null
+  fi
+
   sleep 0.1
-  service_start >/dev/null
+
+  if [ "${tun_enabled}" = true ]; then
+    service_sudo_start >/dev/null
+    sleep 1
+    tunstatus >&/dev/null || _errorcat "Tun 模式重启失败，请检查代理内核日志" || return
+  else
+    service_start >/dev/null
+
+  fi
 }
