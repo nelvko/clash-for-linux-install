@@ -10,7 +10,7 @@ CLASHCTL_SRC="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 . "${CLASHCTL_SRC}/scripts/preflight.sh"
 
 _do_update() {
-    local repo='nelvko/clash-for-linux-install' ref='dev'
+    local repo='nelvko/clash-for-linux-install' ref='refactor/install-update'
     local remote_rev remote_short
     remote_rev=$(_update_remote_sha "$repo" "$ref")
     remote_short=${remote_rev:0:7}

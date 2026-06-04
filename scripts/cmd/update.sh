@@ -22,7 +22,7 @@ clashupdate() {
         esac
     done
 
-    local repo='nelvko/clash-for-linux-install' ref='dev'
+    local repo='nelvko/clash-for-linux-install' ref='refactor/install-update'
     local cur_rev="${CLASHCTL_REV:-unknown}" remote_rev remote_short
     remote_rev=$(_update_remote_sha "$repo" "$ref")
     remote_short=${remote_rev:0:7}

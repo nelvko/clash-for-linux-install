@@ -27,7 +27,7 @@
 在终端中执行以下命令即可完成安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/dev/install.sh | bash -s -- [内核] [订阅URL]
+curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/refactor/install-update/install.sh | bash -s -- [内核] [订阅URL]
 ```
 
 - **内核**（可选）：`mihomo`（默认）或 `clash`
@@ -36,10 +36,10 @@ curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/dev/
 国内网络可设置代理前缀：
 ```bash
 export GH_PROXY=https://gh-proxy.org/
-curl -fsSL ${GH_PROXY}https://raw.githubusercontent.com/nelvko/clash-for-linux-install/dev/install.sh | bash
+curl -fsSL ${GH_PROXY}https://raw.githubusercontent.com/nelvko/clash-for-linux-install/refactor/install-update/install.sh | bash
 ```
 
-> 💡 可通过环境变量自定义安装选项（如 `CLASHCTL_HOME`、`GH_PROXY` 等），详见 `.env.install` 文件。无需 `git clone`。若在线安装不可用，也可下载 [源码压缩包](https://codeload.github.com/nelvko/clash-for-linux-install/tar.gz/refs/heads/dev) 解压后执行 `bash install.sh`。
+> 💡 可通过环境变量自定义安装选项（如 `CLASHCTL_HOME`、`GH_PROXY` 等），详见 `.env.install` 文件。无需 `git clone`。若在线安装不可用，也可下载 [源码压缩包](https://codeload.github.com/nelvko/clash-for-linux-install/tar.gz/refs/heads/refactor/install-update) 解压后执行 `bash install.sh`。
 
 ## 📖 Documentation
 

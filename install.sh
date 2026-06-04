@@ -18,7 +18,7 @@ _bootstrap() {
     _err() { _clr 249 47 96 "📢 $*" >&2; }
 
     _ok "检测到在线安装，正在下载完整源码..."
-    local repo='nelvko/clash-for-linux-install' ref='dev'
+    local repo='nelvko/clash-for-linux-install' ref='refactor/install-update'
     local url="https://codeload.github.com/${repo}/tar.gz/refs/heads/${ref}"
     local proxy="${GH_PROXY:+${GH_PROXY%/}/}${url}"
     local tmp tarball top
