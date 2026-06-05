@@ -748,6 +748,37 @@ _get_active_node() {
     return 0
 }
 
+# 解析指定 group（默认 GLOBAL）下"所有候选节点"的列表。
+# 与 _get_active_node 互补：本函数返回 .all（候选集合），用于"切到订阅后做全节点验证"，
+# 避免只看 .now 单个节点把"半个订阅都死"误判为"订阅恢复"。
+# 输出：候选节点名列表（每行一个），到 stdout。
+# 失败 / 非 selector 类 group → 返回 1。
+_get_group_candidates() {
+    local group=${1:-GLOBAL}
+    local secret
+    secret=$(_get_secret 2>/dev/null)
+    local auth_header=""
+    [ -n "$secret" ] && auth_header="Authorization: Bearer $secret"
+    _detect_ext_addr
+
+    local encoded info kind
+    encoded=$(_url_encode_name "$group")
+    info=$(curl -s --noproxy "*" --max-time 5 \
+        ${auth_header:+-H "$auth_header"} \
+        "http://${EXT_IP}:${EXT_PORT}/proxies/${encoded}" 2>/dev/null)
+    [ -z "$info" ] && return 1
+    kind=$(echo "$info" | "$BIN_YQ" -p json '.type // ""' 2>/dev/null)
+    case "$kind" in
+    Selector | URLTest | Fallback | LoadBalance | Relay)
+        echo "$info" | "$BIN_YQ" -p json '.all[]?' 2>/dev/null
+        ;;
+    *)
+        # 非 selector：group 本身就是单一真实节点
+        echo "$group"
+        ;;
+    esac
+}
+
 # 对“指定节点”做真实 HTTP 连通性探测。
 # 用法：_probe_node_url <node> <timeout_ms> <retries> <secret> <url>...
 # 任一测试 URL 在任一轮重试中返回 delay>0 即判定可用：把最佳延迟打印到 stdout，返回 0。
@@ -802,6 +833,59 @@ _probe_active_node() {
     [ -z "$node" ] && return 1
 
     _probe_node_url "$node" "$timeout" "$retries" "$secret" "${test_urls[@]}"
+}
+
+# 探测"整个订阅"是否真的可用：枚举 GLOBAL group 下 .all 中的所有候选节点
+# （而非只看 .now），逐个用真实 HTTP 测试 URL 探测；通过数 >= 1 才算订阅可用。
+#
+# 修复背景：旧判据是"切到订阅后测一次 .now 节点"，会被 .now 节点偶然能通（5ms）
+# 但其他节点全死透的订阅误判为"恢复可用"，造成切到 1 后业务全部连不通。
+# 用法：_probe_profile_available <timeout_ms> <retries> <url>...
+# 成功（订阅至少 1 个真实节点可用）时把最佳延迟和通过数打印到 stdout，返回 0。
+# 全部失败返回 1。
+_probe_profile_available() {
+    local timeout=$1 retries=$2
+    shift 2
+    local test_urls=("$@")
+    _detect_ext_addr
+    local secret
+    secret=$(_get_secret)
+
+    local candidates node delay total=0 ok=0 best=999999
+    candidates=$(_get_group_candidates "GLOBAL") || return 1
+    [ -z "$candidates" ] && return 1
+
+    while IFS= read -r node; do
+        [ -z "$node" ] && continue
+        total=$((total + 1))
+        if delay=$(_probe_node_url "$node" "$timeout" "$retries" "$secret" "${test_urls[@]}"); then
+            ok=$((ok + 1))
+            [ "$delay" -lt "$best" ] && best="$delay"
+        fi
+    done <<< "$candidates"
+
+    [ "$ok" -eq 0 ] && return 1
+    echo "$best $ok/$total"
+    return 0
+}
+
+# 试探性切换到指定订阅并用"全节点真实出口探测"验证——和 _switch_and_verify
+# 同样的入口（保证 _do_failover_switch 仍可用），但验证阶段从"只看 .now"
+# 升级为"枚举 GLOBAL 下所有候选节点全测"，以避免 .now 偶然能通但订阅整体死透
+# 的误判。成功返回 0，失败返回 1（调用方负责回滚）。
+# 用法：_switch_and_verify_full <profile_id> <timeout_ms> <retries> <url>...
+_switch_and_verify_full() {
+    local target_id=$1 timeout=$2 retries=$3
+    shift 3
+    local test_urls=("$@")
+
+    clashsub use "$target_id" >/dev/null 2>&1
+    _detect_ext_addr
+    local secret
+    secret=$(_get_secret)
+    _wait_kernel_ready "$secret" 10 || return 1
+
+    _probe_profile_available "$timeout" "$retries" "${test_urls[@]}"
 }
 _failover_is_running() {
     [ -f "$CLASH_FAILOVER_PID" ] || return 1
@@ -1101,13 +1185,16 @@ _failover_recovery_check() {
         fi
         [ "$downloaded" = true ] && mv "$CLASH_CONFIG_TEMP" "$_fp"
 
-        # 第二关：试探性切换到高优先级订阅并验证其真实出口可用性。
-        if _switch_and_verify "$best_id" "$timeout" "$verify_retries" "${test_urls[@]}" >/dev/null 2>&1; then
+        # 第二关：试探性切换到高优先级订阅，并枚举其 GLOBAL 下"所有候选节点"
+        # 做真实 HTTP 连通性探测（而非只测 .now）——避免 .now 节点偶然能通
+        # 但订阅整体死透造成的误回切（典型现象：日志里"5ms 已恢复"实际全部连不通）。
+        local probe_info=""
+        if probe_info=$(_switch_and_verify_full "$best_id" "$timeout" "$verify_retries" "${test_urls[@]}" 2>/dev/null); then
             # 高优先级订阅可用 → 回切完成，留在它上面，不回滚（避免抖动）。退避重置。
             backoff=0
             skip_rounds=0
-            _okcat '🔙' "高优先级订阅 [$best_id] 已恢复可用，回切（原 [$current_use]）"
-            _logging_sub "🔙 回切：高优先级订阅 [$best_id] 恢复可用，从 [$current_use] 回切"
+            _okcat '🔙' "高优先级订阅 [$best_id] 已恢复可用，回切（原 [$current_use]，节点 ${probe_info}）"
+            _logging_sub "🔙 回切：高优先级订阅 [$best_id] 恢复可用，从 [$current_use] 回切（节点探活 ${probe_info}）"
         else
             # 高优先级订阅仍不可用 → 回滚到原订阅，并指数退避，
             # 避免对持续不可用的高优先级订阅每轮都试切打断网络。
@@ -1116,7 +1203,7 @@ _failover_recovery_check() {
             backoff=$((backoff + 1))
             [ "$backoff" -gt "$backoff_max" ] && backoff="$backoff_max"
             skip_rounds=$(( (1 << (backoff - 1)) ))
-            _logging_sub "⏳ 高优先级订阅 [$best_id] 暂不可用，退避 ${skip_rounds} 轮后重试"
+            _logging_sub "⏳ 高优先级订阅 [$best_id] 暂不可用（全节点验证失败），退避 ${skip_rounds} 轮后重试"
         fi
     done
 }
