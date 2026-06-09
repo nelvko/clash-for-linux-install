@@ -18,7 +18,7 @@
 ## ✨ Features
 
 - **开箱即用**：一键部署 `mihomo` / `clash` 内核、Web 面板及运行依赖。
-- **广泛兼容**：支持 `root` / 普通用户，适配主流 `Linux` 发行版、容器环境及 `systemd` / `OpenRC` 等 `init` 系统。
+- **广泛兼容**：支持 `root` / 普通用户，适配主流 `Linux` 发行版、容器环境、`systemd` / `OpenRC` 等 `init` 系统，以及 `macOS launchd`。
 - **统一管理**：通过 `clashctl` 管理代理启停、状态查看、日志追踪、Web 面板、TUN 模式、访问密钥与内核升级等。
 - **订阅管理**：支持多订阅源配置、一键切换、定时更新，并集成 [subconverter](https://github.com/tindy2013/subconverter) 实现订阅格式转换。
 
@@ -34,6 +34,7 @@ git clone --branch master --depth 1 https://gh-proxy.org/https://github.com/nelv
 
 - 上述命令使用了[加速前缀](https://gh-proxy.org/)，如失效请更换其他[可用链接](https://ghproxy.link/)。
 - 可通过 `.env.install` 文件自定义安装选项。
+- `macOS` 目前仅支持 `mihomo` 内核。
 - 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
 
 ## 📖 Documentation

@@ -139,7 +139,7 @@ _sub_del() {
     use=$("$BIN_YQ" '.use // "" | tostring' "$CLASH_PROFILES_META")
     [ "$use" = "$id" ] && { _errorcat "删除失败：订阅 $id 正在使用中，请先切换订阅"; return 1; }
 
-    /usr/bin/rm -f "$profile_path"
+    rm -f "$profile_path"
     PROFILE_ID=$id "$BIN_YQ" -i 'del(.profiles[] | select((.id | tostring) == env(PROFILE_ID)))' "$CLASH_PROFILES_META"
     _logging_sub "➖ 已删除订阅：[$id] $url"
     _okcat '🎉' "订阅已删除：[$id] $url"

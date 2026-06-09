@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>placeholder_launchd_label</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>placeholder_cmd_path</string>
+    <string>-d</string>
+    <string>placeholder_work_dir</string>
+    <string>-f</string>
+    <string>placeholder_config_path</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>placeholder_work_dir</string>
+
+  <key>StandardOutPath</key>
+  <string>placeholder_log_path</string>
+
+  <key>StandardErrorPath</key>
+  <string>placeholder_log_path</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <false/>
+</dict>
+</plist>

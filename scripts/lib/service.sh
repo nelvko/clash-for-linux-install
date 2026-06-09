@@ -3,9 +3,31 @@
 service_manager=
 service_log_path=
 service_pid_path=
+service_launchd_label=
+service_launchd_domain=
+service_launchd_plist=
+
+_launchd_setup() {
+    service_launchd_label="com.clashctl.${CLASHCTL_KERNEL}"
+    if _is_root; then
+        service_launchd_domain="system"
+        service_launchd_plist="/Library/LaunchDaemons/${service_launchd_label}.plist"
+    else
+        service_launchd_domain="gui/$(id -u)"
+        service_launchd_plist="${HOME}/Library/LaunchAgents/${service_launchd_label}.plist"
+    fi
+}
 
 detect_service_manager() {
     [ -n "$service_manager" ] && return 0
+    if _is_macos; then
+        service_manager="launchd"
+        service_log_path="${CLASH_RESOURCES_DIR}/${CLASHCTL_KERNEL}.log"
+        service_pid_path="${CLASH_RESOURCES_DIR}/${CLASHCTL_KERNEL}.pid"
+        _launchd_setup
+        return 0
+    fi
+
     [ -z "$INIT_TYPE" ] && INIT_TYPE=$(readlink /proc/1/exe 2>/dev/null || echo "nohup")
     grep -qsE "docker|kubepods|containerd|podman|lxc" /proc/1/cgroup 2>/dev/null && INIT_TYPE='nohup'
     _is_root || INIT_TYPE='nohup'
@@ -44,6 +66,10 @@ detect_service_manager() {
 service_start() {
     detect_service_manager
     case "$service_manager" in
+    launchd)
+        launchctl bootstrap "$service_launchd_domain" "$service_launchd_plist" >/dev/null 2>&1 || true
+        launchctl kickstart -k "${service_launchd_domain}/${service_launchd_label}"
+        ;;
     systemd)
         systemctl start "$CLASHCTL_KERNEL"
         ;;
@@ -84,6 +110,9 @@ service_sudo_stop() {
 service_stop() {
     detect_service_manager
     case "$service_manager" in
+    launchd)
+        launchctl bootout "$service_launchd_domain" "$service_launchd_plist" >/dev/null 2>&1 || true
+        ;;
     systemd)
         systemctl stop "$CLASHCTL_KERNEL"
         ;;
@@ -107,6 +136,10 @@ service_stop() {
 service_restart() {
     detect_service_manager
     case "$service_manager" in
+    launchd)
+        service_stop >/dev/null 2>&1
+        service_start
+        ;;
     systemd)
         systemctl restart "$CLASHCTL_KERNEL"
         ;;
@@ -130,6 +163,9 @@ service_restart() {
 service_status() {
     detect_service_manager
     case "$service_manager" in
+    launchd)
+        launchctl print "${service_launchd_domain}/${service_launchd_label}"
+        ;;
     systemd)
         systemctl status "$CLASHCTL_KERNEL" "$@"
         ;;
@@ -151,6 +187,10 @@ service_status() {
 service_is_active() {
     detect_service_manager
     case "$service_manager" in
+    launchd)
+        launchctl print "${service_launchd_domain}/${service_launchd_label}" 2>/dev/null | grep -qs "state = running" ||
+            pgrep -fa "$BIN_KERNEL" >/dev/null 2>&1
+        ;;
     systemd)
         systemctl is-active "$CLASHCTL_KERNEL" >/dev/null 2>&1
         ;;
@@ -175,6 +215,13 @@ service_log() {
     systemd)
         journalctl -u "$CLASHCTL_KERNEL" "$@"
         ;;
+    launchd)
+        [ $# -gt 0 ] && {
+            tail "$@" "$service_log_path"
+            return
+        }
+        less "$service_log_path"
+        ;;
     *)
         [ $# -gt 0 ] && {
             tail "$@" "$service_log_path"
@@ -191,6 +238,9 @@ service_follow_log() {
     systemd)
         journalctl -u "$CLASHCTL_KERNEL" -q -f -n 0
         ;;
+    launchd)
+        tail -f -n 0 "$service_log_path"
+        ;;
     *)
         tail -f -n 0 "$service_log_path"
         ;;
@@ -202,6 +252,9 @@ service_read_log() {
     case "$service_manager" in
     systemd)
         journalctl -u "$CLASHCTL_KERNEL" --no-pager
+        ;;
+    launchd)
+        cat "$service_log_path" 2>/dev/null
         ;;
     *)
         cat "$service_log_path" 2>/dev/null
@@ -220,6 +273,10 @@ install_service() {
     local service_src service_target
 
     case "$service_manager" in
+    launchd)
+        service_src="${template_dir}/launchd.plist"
+        service_target="$service_launchd_plist"
+        ;;
     systemd)
         service_src="${template_dir}/systemd.sh"
         service_target="/etc/systemd/system/${CLASHCTL_KERNEL}.service"
@@ -241,8 +298,8 @@ install_service() {
         ;;
     esac
 
-    /usr/bin/install -D -m +x "$service_src" "$service_target"
-    sed -i \
+    _install_file 0755 "$service_src" "$service_target"
+    _sed_inplace \
         -e "s#placeholder_cmd_path#$cmd_path#g" \
         -e "s#placeholder_cmd_args#$cmd_arg#g" \
         -e "s#placeholder_cmd_full#$cmd_full#g" \
@@ -250,9 +307,21 @@ install_service() {
         -e "s#placeholder_pid_path#$service_pid_path#g" \
         -e "s#placeholder_kernel_name#$CLASHCTL_KERNEL#g" \
         -e "s#placeholder_kernel_desc#$kernel_desc#g" \
+        -e "s#placeholder_launchd_label#$service_launchd_label#g" \
+        -e "s#placeholder_work_dir#$CLASH_RESOURCES_DIR#g" \
+        -e "s#placeholder_config_path#$CLASH_CONFIG_RUNTIME#g" \
         "$service_target"
 
     case "$service_manager" in
+    launchd)
+        launchctl bootout "$service_launchd_domain" "$service_target" >/dev/null 2>&1 || true
+        launchctl bootstrap "$service_launchd_domain" "$service_target" || {
+            _failcat '❌' '注册 launchd 服务失败'
+            exit 1
+        }
+        _okcat '🧩' "已注册 launchd 服务：$service_launchd_label"
+        _okcat '🚀' '已设置开机自启'
+        ;;
     systemd)
         systemctl daemon-reload || {
             _failcat '❌' '重载 systemd 配置失败'
@@ -340,9 +409,17 @@ uninstall_service() {
     detect_service_manager
     service_stop >&/dev/null
     case "$service_manager" in
+    launchd)
+        launchctl bootout "$service_launchd_domain" "$service_launchd_plist" >/dev/null 2>&1 || true
+        rm -f -- "$service_launchd_plist" || {
+            _failcat '❌' '移除 launchd 服务失败'
+            return 1
+        }
+        _okcat '🧹' "已注销 launchd 服务：$service_launchd_label"
+        ;;
     systemd)
         systemctl disable "$CLASHCTL_KERNEL" >&/dev/null
-        /usr/bin/rm -f -- "/etc/systemd/system/${CLASHCTL_KERNEL}.service" || {
+        rm -f -- "/etc/systemd/system/${CLASHCTL_KERNEL}.service" || {
             _failcat '❌' '移除 systemd 服务失败'
             return 1
         }
@@ -361,15 +438,15 @@ uninstall_service() {
         elif command -v update-rc.d >/dev/null 2>&1; then
             update-rc.d "$CLASHCTL_KERNEL" remove >/dev/null 2>&1 || true
         fi
-        /usr/bin/rm -f "/etc/init.d/${CLASHCTL_KERNEL}"
+        rm -f "/etc/init.d/${CLASHCTL_KERNEL}"
         ;;
     openrc)
         rc-update del "$CLASHCTL_KERNEL" default >/dev/null 2>&1 || true
-        /usr/bin/rm -f "/etc/init.d/${CLASHCTL_KERNEL}"
+        rm -f "/etc/init.d/${CLASHCTL_KERNEL}"
         ;;
     runit)
-        /usr/bin/rm -f "/etc/runit/runsvdir/default/${CLASHCTL_KERNEL}"
-        /usr/bin/rm -rf "/etc/sv/${CLASHCTL_KERNEL}"
+        rm -f "/etc/runit/runsvdir/default/${CLASHCTL_KERNEL}"
+        rm -rf "/etc/sv/${CLASHCTL_KERNEL}"
         ;;
     nohup | *)
         return 0
