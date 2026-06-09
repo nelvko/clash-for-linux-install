@@ -3,19 +3,21 @@
 _download_config() {
     local dest=$1
     local url=$2
+    local timeout=${3:-$CLASHCTL_SUB_TIMEOUT}
     [ "${url:0:4}" = 'file' ] || _okcat '⏳' '正在下载...'
-    _download_raw_config "$dest" "$url" || return 1
+    _download_raw_config "$dest" "$url" "$timeout" || return 1
     _okcat '🍃' '验证订阅配置...'
     _valid_config "$dest" || {
         _failcat '🍂' "验证失败：尝试订阅转换..."
         cat "$dest" >"${dest}.raw"
-        _download_convert_config "$dest" "$url"
+        _download_convert_config "$dest" "$url" "$timeout"
     }
 }
 
 _download_raw_config() {
     local dest=$1
     local url=$2
+    local timeout=${3:-$CLASHCTL_SUB_TIMEOUT}
 
     curl \
         --silent \
@@ -23,7 +25,7 @@ _download_raw_config() {
         --fail \
         --insecure \
         --location \
-        --max-time "$CLASHCTL_SUB_TIMEOUT" \
+        --max-time "$timeout" \
         --retry 1 \
         --user-agent "$CLASHCTL_SUB_UA" \
         --output "$dest" \
@@ -31,7 +33,7 @@ _download_raw_config() {
         wget \
             --no-verbose \
             --no-check-certificate \
-            --timeout "$CLASHCTL_SUB_TIMEOUT" \
+            --timeout "$timeout" \
             --tries 1 \
             --user-agent "$CLASHCTL_SUB_UA" \
             --output-document "$dest" \
@@ -41,6 +43,7 @@ _download_raw_config() {
 _download_convert_config() {
     local dest=$1
     local url=$2
+    local timeout=${3:-$CLASHCTL_SUB_TIMEOUT}
     local flag
 
     [ "${url:0:4}" = 'file' ] && return 0
@@ -55,13 +58,14 @@ _download_convert_config() {
             --silent \
             --show-error \
             --location \
+            --max-time "$timeout" \
             --output /dev/null \
             --data-urlencode "target=$target" \
             --data-urlencode "url=$url" \
             --write-out '%{url_effective}' \
             "$base_url"
     )
-    curl --user-agent "$CLASHCTL_SUB_UA" --silent --output "$dest" "$convert_url"
+    curl --max-time "$timeout" --user-agent "$CLASHCTL_SUB_UA" --silent --output "$dest" "$convert_url"
     flag=$?
     _stop_convert
     return $flag

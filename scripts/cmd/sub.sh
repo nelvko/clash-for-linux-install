@@ -51,24 +51,33 @@ _logging_sub() {
 sub_add() {
     local use_after_add=false
     local url=
+    local timeout=$CLASHCTL_SUB_TIMEOUT
 
     while [ $# -gt 0 ]; do
         case "$1" in
         -h | --help)
             cat <<EOF
 
-- 添加订阅
-  clashctl sub add <url>
+Usage:
+  clashctl sub add [OPTIONS] <url>
 
-- 添加后立即使用该订阅
-  clashctl sub add -u <url>
-  clashctl sub add --use <url>
+Options:
+  -u, --use              添加后立即使用该订阅
+  -t, --timeout <秒>     下载超时时间（默认: $CLASHCTL_SUB_TIMEOUT）
+  -h, --help             显示帮助信息
 
 EOF
             return 0
             ;;
         -u | --use)
             use_after_add=true
+            ;;
+        -t | --timeout)
+            timeout=$2
+            shift
+            ;;
+        --timeout=*)
+            timeout="${1#*=}"
             ;;
         --)
             shift
@@ -96,7 +105,7 @@ EOF
     local existing_id
     existing_id=$(_get_id_by_url "$url") && { _errorcat "该订阅链接已存在：[$existing_id] $url"; return 1; }
 
-    _download_config "$CLASH_CONFIG_TEMP" "$url"
+    _download_config "$CLASH_CONFIG_TEMP" "$url" "$timeout"
     _valid_config "$CLASH_CONFIG_TEMP" || {
         _errorcat "订阅无效，请检查：
     原始订阅：${CLASH_CONFIG_TEMP}.raw
@@ -175,9 +184,11 @@ _sub_use() {
 }
 
 _sub_update() {
-    local arg is_convert=false
-    for arg in "$@"; do
-        case $arg in
+    local is_convert=false
+    local timeout=$CLASHCTL_SUB_TIMEOUT
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
         --auto)
             command -v crontab >/dev/null || _errorcat "未检测到 crontab 命令，请先安装 cron 服务" || return
             crontab -l 2>/dev/null | grep -Fqs "$CLASHCTL_CRON_TAG" || {
@@ -192,7 +203,26 @@ _sub_update() {
         --convert)
             is_convert=true
             ;;
+        -t | --timeout)
+            timeout=$2
+            shift
+            ;;
+        --timeout=*)
+            timeout="${1#*=}"
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            _errorcat "未知选项：$1"
+            return 1
+            ;;
+        *)
+            break
+            ;;
         esac
+        shift
     done
 
     local id=$1
@@ -204,9 +234,9 @@ _sub_update() {
     _okcat "✈️ " "更新订阅：[$id] $url"
 
     if [ "$is_convert" = true ]; then
-        _download_convert_config "$CLASH_CONFIG_TEMP" "$url"
+        _download_convert_config "$CLASH_CONFIG_TEMP" "$url" "$timeout"
     else
-        _download_config "$CLASH_CONFIG_TEMP" "$url"
+        _download_config "$CLASH_CONFIG_TEMP" "$url" "$timeout"
     fi
 
     _valid_config "$CLASH_CONFIG_TEMP" || {
@@ -249,8 +279,9 @@ Commands:
   update [id]     更新订阅
   log             订阅日志
 
-Global Options:
-  -h, --help      显示帮助信息
+Options:
+  -t, --timeout <seconds>   下载超时时间（默认：$CLASHCTL_SUB_TIMEOUT 秒）
+  -h, --help                显示帮助信息
 
 EOF
 }
