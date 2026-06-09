@@ -14,14 +14,22 @@ ZIP_BASE_DIR="${ARCHIVE_BASE_DIR}"
 CLASHCTL_CMD_DIR="${CLASHCTL_HOME}/scripts/cmd"
 
 valid_required() {
-    local required_cmds=("xz" "pgrep" "pkill" "curl" "tar" 'unzip' 'gzip' 'shuf')
+    local required_cmds=("pgrep" "pkill" "curl" "tar" 'unzip' 'gzip')
     local missing=()
     for cmd in "${required_cmds[@]}"; do
         command -v "$cmd" >&/dev/null || missing+=("$cmd")
     done
 
-    command -v ss >&/dev/null || command -v netstat >&/dev/null || missing+=("ss/netstat")
-    command -v ip >&/dev/null || command -v hostname >&/dev/null || missing+=("ip/hostname")
+    if _is_macos; then
+        command -v lsof >&/dev/null || command -v netstat >&/dev/null || missing+=("lsof/netstat")
+        command -v route >&/dev/null || missing+=("route")
+        command -v ipconfig >&/dev/null || missing+=("ipconfig")
+        command -v ifconfig >&/dev/null || missing+=("ifconfig")
+    else
+        command -v shuf >&/dev/null || missing+=("shuf")
+        command -v ss >&/dev/null || command -v netstat >&/dev/null || missing+=("ss/netstat")
+        command -v ip >&/dev/null || command -v hostname >&/dev/null || missing+=("ip/hostname")
+    fi
 
     [ ${#missing[@]} -eq 0 ] || _errorcat "请先安装以下命令：${missing[*]}" || exit
 }
@@ -56,6 +64,11 @@ parse_args() {
 }
 
 prepare_zip() {
+    _is_macos && [ "$CLASHCTL_KERNEL" = "clash" ] && {
+        _errorcat "macOS 暂不支持 clash 内核，请使用 mihomo"
+        exit 1
+    }
+
     load_zip >&/dev/null
     local required_zips=()
     case "${CLASHCTL_KERNEL}" in
@@ -85,14 +98,36 @@ prepare_zip() {
 load_zip() {
     local matches=()
     shopt -s nullglob
-    matches=("${ZIP_BASE_DIR}"/clash*)
-    ZIP_CLASH="${matches[0]:-}"
-    matches=("${ZIP_BASE_DIR}"/mihomo*)
-    ZIP_MIHOMO="${matches[0]:-}"
-    matches=("${ZIP_BASE_DIR}"/yq*)
-    ZIP_YQ="${matches[0]:-}"
-    matches=("${ZIP_BASE_DIR}"/subconverter*)
-    ZIP_SUBCONVERTER="${matches[0]:-}"
+    if _is_macos; then
+        ZIP_CLASH=
+        case "$(uname -m)" in
+        x86_64)
+            matches=("${ZIP_BASE_DIR}"/mihomo-darwin-amd64-*.gz)
+            ZIP_MIHOMO="${matches[0]:-}"
+            matches=("${ZIP_BASE_DIR}"/yq_darwin_amd64.tar.gz)
+            ZIP_YQ="${matches[0]:-}"
+            matches=("${ZIP_BASE_DIR}"/subconverter_darwin64.tar.gz)
+            ZIP_SUBCONVERTER="${matches[0]:-}"
+            ;;
+        arm64 | aarch64)
+            matches=("${ZIP_BASE_DIR}"/mihomo-darwin-arm64-*.gz)
+            ZIP_MIHOMO="${matches[0]:-}"
+            matches=("${ZIP_BASE_DIR}"/yq_darwin_arm64.tar.gz)
+            ZIP_YQ="${matches[0]:-}"
+            matches=("${ZIP_BASE_DIR}"/subconverter_darwinarm.tar.gz)
+            ZIP_SUBCONVERTER="${matches[0]:-}"
+            ;;
+        esac
+    else
+        matches=("${ZIP_BASE_DIR}"/clash*)
+        ZIP_CLASH="${matches[0]:-}"
+        matches=("${ZIP_BASE_DIR}"/mihomo*)
+        ZIP_MIHOMO="${matches[0]:-}"
+        matches=("${ZIP_BASE_DIR}"/yq*)
+        ZIP_YQ="${matches[0]:-}"
+        matches=("${ZIP_BASE_DIR}"/subconverter*)
+        ZIP_SUBCONVERTER="${matches[0]:-}"
+    fi
     shopt -u nullglob
 }
 _fetch_latest_tag() {
@@ -122,7 +157,9 @@ _resolve_version() {
 download_zip() {
     (($#)) || return 0
     local url_clash url_mihomo url_yq url_subconverter
-    local arch=$(uname -m)
+    local os arch
+    os=$(uname -s)
+    arch=$(uname -m)
 
     _okcat '🔎' "查询依赖最新版本..."
     local item
@@ -134,53 +171,72 @@ download_zip() {
         esac
     done
 
-    case "$arch" in
-    x86_64)
-        local flags=$(grep -m1 '^flags' /proc/cpuinfo)
-        local level=v1
-        grep -qw sse4_2 <<<"$flags" && grep -qw popcnt <<<"$flags" && level=v2
-        grep -qw avx2 <<<"$flags" && grep -qw fma <<<"$flags" && level=v3
-        VERSION_MIHOMO=${level}-$VERSION_MIHOMO
+    if [ "$os" = "Darwin" ]; then
+        case "$arch" in
+        x86_64)
+            url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO}/mihomo-darwin-amd64-${VERSION_MIHOMO}.gz
+            url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_darwin_amd64.tar.gz
+            url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_darwin64.tar.gz
+            ;;
+        arm64 | aarch64)
+            url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO}/mihomo-darwin-arm64-${VERSION_MIHOMO}.gz
+            url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_darwin_arm64.tar.gz
+            url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_darwinarm.tar.gz
+            ;;
+        *)
+            _errorcat "未知的 macOS 架构版本：$arch，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录" || exit
+            ;;
+        esac
+    else
+        case "$arch" in
+        x86_64)
+            local flags level
+            flags=$(grep -m1 '^flags' /proc/cpuinfo)
+            level=v1
+            grep -qw sse4_2 <<<"$flags" && grep -qw popcnt <<<"$flags" && level=v2
+            grep -qw avx2 <<<"$flags" && grep -qw fma <<<"$flags" && level=v3
+            VERSION_MIHOMO=${level}-$VERSION_MIHOMO
 
-        url_clash=https://github.com/nelvko/clash-for-linux-install/releases/download/clash/clash-linux-amd64-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-amd64-${VERSION_MIHOMO}.gz
-        url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_amd64.tar.gz
-        url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_linux64.tar.gz
-        ;;
-    *86*)
-        url_clash=https://github.com/nelvko/clash-for-linux-install/releases/download/clash/clash-linux-386-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-386-${VERSION_MIHOMO}.gz
-        url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_386.tar.gz
-        url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_linux32.tar.gz
-        ;;
-    armv*)
-        url_clash=https://github.com/nelvko/clash-for-linux-install/releases/download/clash/clash-linux-armv5-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-armv7-${VERSION_MIHOMO}.gz
-        url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_arm.tar.gz
-        url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_armv7.tar.gz
-        ;;
-    aarch64)
-        url_clash=https://github.com/nelvko/clash-for-linux-install/releases/download/clash/clash-linux-arm64-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-arm64-${VERSION_MIHOMO}.gz
-        url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_arm64.tar.gz
-        url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_aarch64.tar.gz
-        ;;
-    *)
-        _errorcat "未知的架构版本：$arch，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录" || exit
-        ;;
-    esac
+            url_clash=https://github.com/nelvko/clash-for-linux-install/releases/download/clash/clash-linux-amd64-2023.08.17.gz
+            url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-amd64-${VERSION_MIHOMO}.gz
+            url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_amd64.tar.gz
+            url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_linux64.tar.gz
+            ;;
+        *86*)
+            url_clash=https://github.com/nelvko/clash-for-linux-install/releases/download/clash/clash-linux-386-2023.08.17.gz
+            url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-386-${VERSION_MIHOMO}.gz
+            url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_386.tar.gz
+            url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_linux32.tar.gz
+            ;;
+        armv*)
+            url_clash=https://github.com/nelvko/clash-for-linux-install/releases/download/clash/clash-linux-armv5-2023.08.17.gz
+            url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-armv7-${VERSION_MIHOMO}.gz
+            url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_arm.tar.gz
+            url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_armv7.tar.gz
+            ;;
+        aarch64)
+            url_clash=https://github.com/nelvko/clash-for-linux-install/releases/download/clash/clash-linux-arm64-2023.08.17.gz
+            url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-arm64-${VERSION_MIHOMO}.gz
+            url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_arm64.tar.gz
+            url_subconverter=https://github.com/tindy2013/subconverter/releases/download/${VERSION_SUBCONVERTER}/subconverter_aarch64.tar.gz
+            ;;
+        *)
+            _errorcat "未知的架构版本：$arch，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录" || exit
+            ;;
+        esac
+    fi
 
-    local -A urls=(
-        [clash]="$url_clash"
-        [mihomo]="$url_mihomo"
-        [yq]="$url_yq"
-        [subconverter]="$url_subconverter"
-    )
-
-    local item target_zips=() level=
-    _okcat '🖥️ ' "系统架构：$arch $level"
+    local item target_zips=() url=
+    _okcat '🖥️ ' "系统架构：$os $arch"
     for item in "$@"; do
-        local url="${urls[$item]}"
+        case $item in
+        clash) url=$url_clash ;;
+        mihomo) url=$url_mihomo ;;
+        yq) url=$url_yq ;;
+        subconverter) url=$url_subconverter ;;
+        esac
+        [ -n "$url" ] || _errorcat "未找到 ${item} 对应下载地址" || exit
+
         local proxy_url="${GH_PROXY:+${GH_PROXY%/}/}${url}"
         url="$proxy_url"
         _okcat '⏳' "正在下载：${item}：$url"
@@ -211,10 +267,14 @@ valid_zip() {
 }
 unzip_zip() {
     valid_zip "$ZIP_KERNEL" "$ZIP_YQ" "$ZIP_SUBCONVERTER" "$ZIP_UI"
-    /usr/bin/install -D <(gzip -dc "$ZIP_KERNEL") "$BIN_KERNEL"
+    /usr/bin/install -d "$BIN_BASE_DIR" "$CLASH_RESOURCES_DIR"
+    gzip -dc "$ZIP_KERNEL" >"$BIN_KERNEL"
+    chmod 0755 "$BIN_KERNEL"
     tar -xf "$ZIP_YQ" -C "${BIN_BASE_DIR}"
     /bin/mv -f "${BIN_BASE_DIR}"/yq_* "${BIN_BASE_DIR}/yq"
+    chmod 0755 "${BIN_BASE_DIR}/yq"
     tar -xf "$ZIP_SUBCONVERTER" -C "$BIN_BASE_DIR"
+    chmod 0755 "$BIN_SUBCONVERTER" 2>/dev/null || true
     /bin/cp "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
     unzip -oqq "$ZIP_UI" -d "$CLASH_RESOURCES_DIR" 2>/dev/null || tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"
 }
@@ -304,7 +364,7 @@ revoke_rc() {
     local rc
     for rc in "$SHELL_RC_BASH" "$SHELL_RC_ZSH"; do
         [ ! -f "$rc" ] && continue
-        sed -i.bak --follow-symlinks '/CLASHCTL_HOME/d' "$rc" 2>/dev/null
+        _sed_inplace '/CLASHCTL_HOME/d' "$rc" 2>/dev/null
     done
 
     [ -n "$SHELL_RC_FISH" ] && rm -f -- "$SHELL_RC_FISH" 2>/dev/null

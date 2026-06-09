@@ -14,7 +14,7 @@ command -v crontab >&/dev/null && {
     crontab -l 2>/dev/null | grep -Fv "$CLASHCTL_CRON_TAG" | crontab -
 }
 
-/usr/bin/rm -rf "$CLASHCTL_HOME"
+rm -rf "$CLASHCTL_HOME"
 revoke_rc
 
 _okcat '✨' "已卸载，相关配置已清除"

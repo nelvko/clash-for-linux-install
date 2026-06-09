@@ -21,7 +21,15 @@ CLASH_PROFILES_LOG="${CLASH_RESOURCES_DIR}/profiles.log"
 
 CLASHCTL_CRON_TAG="# clashctl-auto-update"
 
+_is_macos() {
+    [ "$(uname -s)" = "Darwin" ]
+}
+
 _is_port_used() {
+    if _is_macos; then
+        { lsof -nP -iTCP:"$1" -iUDP:"$1" 2>/dev/null || netstat -an 2>/dev/null; } | grep -qs "[.:]$1[[:space:]]"
+        return
+    fi
     { ss -tunlp 2>/dev/null || netstat -tunlp 2>/dev/null; } | grep -qs "$1"
 }
 
@@ -33,7 +41,13 @@ _get_random_port() {
     local fail_count=0
     while [ "$fail_count" -lt 100 ]; do
         local random_port
-        random_port=$(shuf -i 1024-65535 -n 1)
+        if command -v shuf >&/dev/null; then
+            random_port=$(shuf -i 1024-65535 -n 1)
+        elif command -v jot >&/dev/null; then
+            random_port=$(jot -r 1 1024 65535)
+        else
+            random_port=$((RANDOM % 64512 + 1024))
+        fi
         ! _is_port_used "$random_port" && {
             printf '%s\n' "$random_port"
             return 0
@@ -45,13 +59,19 @@ _get_random_port() {
 
 _get_local_ip() {
     local local_ip
-    local_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
-    [ -z "$local_ip" ] && local_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    if _is_macos; then
+        local iface
+        iface=$(route get 1.1.1.1 2>/dev/null | awk '/interface:/{print $2}')
+        [ -n "$iface" ] && local_ip=$(ipconfig getifaddr "$iface" 2>/dev/null)
+    else
+        local_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
+        [ -z "$local_ip" ] && local_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
     printf '%s\n' "$local_ip"
 }
 
 _get_random_val() {
-    tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 6
+    LC_ALL=C tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 6
 }
 
 _color_log() {
@@ -107,8 +127,22 @@ _set_env() {
         value=${value//\\/\\\\}
         value=${value//&/\\&}
         value=${value//|/\\|}
-        sed -i "s|^${key}=.*|${key}=${value}|" "$env_path"
+        _sed_inplace "s|^${key}=.*|${key}=${value}|" "$env_path"
         return $?
     }
     printf '%s=%s\n' "$key" "$value" >>"$env_path"
+}
+
+_sed_inplace() {
+    if _is_macos; then
+        sed -i '' "$@"
+    else
+        sed -i "$@"
+    fi
+}
+
+_install_file() {
+    local mode=$1 src=$2 target=$3
+    /usr/bin/install -d "$(dirname -- "$target")"
+    /usr/bin/install -m "$mode" "$src" "$target"
 }

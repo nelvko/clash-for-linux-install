@@ -11,11 +11,11 @@ _okcat '📦' "安装路径：$CLASHCTL_HOME"
 
 prepare_zip
 
-install_service
 install_clashctl
 
 _merge_config
 _detect_proxy_port
+install_service
 clashui
 [ -z "$(_get_secret)" ] && clashsecret "$(_get_random_val)" >/dev/null
 clashsecret

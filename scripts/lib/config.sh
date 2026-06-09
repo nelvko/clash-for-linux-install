@@ -180,7 +180,7 @@ tunstatus() {
   local device
   device=$("$BIN_YQ" '.tun.device // ""' "$CLASH_CONFIG_RUNTIME")
   [ -z "$device" ] && device="Meta"
-  ip link show | grep -qs "$device" && {
+  { if _is_macos; then ifconfig; else ip link show; fi; } 2>/dev/null | grep -qs "$device" && {
     _okcat 'Tun 状态：启用'
     return 0
   }
