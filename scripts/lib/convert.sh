@@ -83,12 +83,13 @@ _detect_subconverter_port() {
 }
 
 _start_convert() {
-    _detect_subconverter_port
-
     local check_url="http://localhost:${BIN_SUBCONVERTER_PORT}/version"
     curl --silent --fail "$check_url" >/dev/null 2>&1 && return 0
 
-    "$BIN_SUBCONVERTER" >"$BIN_SUBCONVERTER_LOG" 2>&1 &
+    _detect_subconverter_port
+    check_url="http://localhost:${BIN_SUBCONVERTER_PORT}/version"
+
+    BIN_SUBCONVERTER_PID=$("$BIN_SUBCONVERTER" >"$BIN_SUBCONVERTER_LOG" 2>&1 & echo $!)
 
     local start now
     start=$(date +%s)
@@ -100,8 +101,7 @@ _start_convert() {
 }
 
 _stop_convert() {
-    pkill -TERM -x subconverter 2>/dev/null
+    [ -n "${BIN_SUBCONVERTER_PID:-}" ] && kill -TERM "$BIN_SUBCONVERTER_PID" 2>/dev/null
     sleep 0.2
-    pkill -KILL -x subconverter 2>/dev/null
-    return 0
+    [ -n "${BIN_SUBCONVERTER_PID:-}" ] && kill -KILL "$BIN_SUBCONVERTER_PID" 2>/dev/null
 }
