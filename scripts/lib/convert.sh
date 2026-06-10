@@ -61,7 +61,14 @@ _download_convert_config() {
             --write-out '%{url_effective}' \
             "$base_url"
     )
-    curl --user-agent "$CLASHCTL_SUB_UA" --silent --output "$dest" "$convert_url"
+    curl \
+        --user-agent "$CLASHCTL_SUB_UA" \
+        --silent \
+        --show-error \
+        --fail \
+        --max-time "$CLASHCTL_SUB_TIMEOUT" \
+        --output "$dest" \
+        "$convert_url"
     flag=$?
     _stop_convert
     return $flag
