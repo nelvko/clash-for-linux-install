@@ -256,7 +256,7 @@ detect_rc() {
     fi
 
     command -v bash >&/dev/null && {
-        SHELL_RC_BASH="${HOME}/.bashrc"
+        SHELL_RC_BASH="${USER_HOME}/.bashrc"
     }
     command -v zsh >&/dev/null && {
         SHELL_RC_ZSH="${USER_HOME}/.zshrc"
