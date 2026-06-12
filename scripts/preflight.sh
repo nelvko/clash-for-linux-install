@@ -249,14 +249,20 @@ install_clashctl() {
 }
 
 detect_rc() {
+    local USER_HOME="${HOME}"
+
+    if [ -n "${SUDO_USER}" ]; then
+        USER_HOME=$(eval echo "~{SUDO_USER}")
+    fi
+
     command -v bash >&/dev/null && {
         SHELL_RC_BASH="${HOME}/.bashrc"
     }
     command -v zsh >&/dev/null && {
-        SHELL_RC_ZSH="${HOME}/.zshrc"
+        SHELL_RC_ZSH="${USER_HOME}/.zshrc"
     }
     command -v fish >&/dev/null && {
-        SHELL_RC_FISH="${HOME}/.config/fish/conf.d/clashctl.fish"
+        SHELL_RC_FISH="${USER_HOME}/.config/fish/conf.d/clashctl.fish"
     }
 }
 apply_rc() {
