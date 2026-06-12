@@ -75,9 +75,13 @@ service_sudo_start() {
 
 service_sudo_stop() {
     _is_root && service_stop && return 0
-    sudo pkill -TERM -x "$CLASHCTL_KERNEL" 2>/dev/null
-    sleep 0.2
-    sudo pkill -KILL -x "$CLASHCTL_KERNEL" 2>/dev/null
+    if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+        sudo systemctl stop "$CLASHCTL_KERNEL" 2>/dev/null
+    else
+        sudo pkill -TERM -x "$CLASHCTL_KERNEL" 2>/dev/null
+        sleep 0.2
+        sudo pkill -KILL -x "$CLASHCTL_KERNEL" 2>/dev/null
+    fi
     stty opost 2>/dev/null
 }
 
