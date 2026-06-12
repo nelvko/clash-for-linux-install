@@ -252,7 +252,7 @@ detect_rc() {
     local USER_HOME="${HOME}"
 
     if [ -n "${SUDO_USER}" ]; then
-        USER_HOME=$(eval echo "~{SUDO_USER}")
+        USER_HOME=$(eval echo "~${SUDO_USER}")
     fi
 
     command -v bash >&/dev/null && {
