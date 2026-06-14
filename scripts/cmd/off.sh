@@ -30,9 +30,6 @@ off_service_only() {
             service_sudo_stop || _errorcat "请先关闭 Tun 模式" || return
         }
         service_is_active >&/dev/null && {
-            service_sudo_stop >/dev/null 2>&1
-        }
-        service_is_active >&/dev/null && {
             _failcat "$CLASHCTL_KERNEL 停止失败"
             return 1
         }
