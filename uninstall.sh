@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
-. .env
-. "$CLASH_BASE_DIR/scripts/cmd/clashctl.sh" 2>/dev/null
-. scripts/preflight.sh
 
-pgrep -f "$BIN_KERNEL" -u 0 >/dev/null && ! _is_root && _error_quit "请先关闭 Tun 模式"
-clashoff 2>/dev/null
-_uninstall_service
-_revoke_rc
+CLASHCTL_SRC="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+. "$CLASHCTL_SRC/scripts/preflight.sh"
+. "$CLASHCTL_SRC/scripts/cmd/off.sh"
 
-command -v crontab >&/dev/null && crontab -l | grep -v "clashsub" | crontab -
+! _is_root && tunstatus >&/dev/null && {
+    _errorcat "请先关闭 Tun 模式"
+    exit
+}
+uninstall_service
 
-/usr/bin/rm -rf "$CLASH_BASE_DIR"
+command -v crontab >&/dev/null && {
+    crontab -l 2>/dev/null | grep -Fv "$CLASHCTL_CRON_TAG" | crontab -
+}
 
-echo '✨' '已卸载，相关配置已清除'
-_quit
+/usr/bin/rm -rf "$CLASHCTL_HOME"
+revoke_rc
+
+_okcat '✨' "已卸载，相关配置已清除"
+[ -n "$http_proxy" ] && _failcat '❗' "当前终端仍残留代理环境变量，重开终端即可清除"
