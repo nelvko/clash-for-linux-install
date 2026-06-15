@@ -11,6 +11,7 @@ Commands:
   off                   关闭代理
   status                内核状态
   ui                    面板地址
+  select                策略组节点
   sub                   订阅管理
   tun                   Tun 模式
   mixin                 Mixin 配置
