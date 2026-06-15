@@ -2,6 +2,7 @@ set fn_arr \
 clashui \
 clashstatus \
 clashsecret \
+clashselect \
 clashtun \
 clashmixin \
 clashsub \

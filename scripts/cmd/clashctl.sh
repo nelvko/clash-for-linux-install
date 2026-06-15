@@ -186,6 +186,255 @@ function clashui() {
     printf "\n"
 }
 
+_api_base() {
+    _detect_ext_addr
+    clashstatus >&/dev/null || clashon >/dev/null
+    echo "http://${EXT_IP}:${EXT_PORT}"
+}
+_json_escape() {
+    sed 's/\\/\\\\/g; s/"/\\"/g' <<<"$1"
+}
+_urlencode() {
+    local value=$1 encoded= char hex
+    local i
+    LC_ALL=C
+    for ((i = 0; i < ${#value}; i++)); do
+        char=${value:i:1}
+        case "$char" in
+        [a-zA-Z0-9.~_-])
+            encoded+="$char"
+            ;;
+        *)
+            printf -v hex '%%%02X' "'$char"
+            encoded+="$hex"
+            ;;
+        esac
+    done
+    echo "$encoded"
+}
+_clash_api() {
+    local method=$1
+    local path=$2
+    local data=$3
+    local base
+    base=$(_api_base)
+
+    case "$method" in
+    GET)
+        curl --silent --show-error --fail --noproxy "*" \
+            -H "Authorization: Bearer $(_get_secret)" \
+            "${base}${path}"
+        ;;
+    PUT)
+        curl --silent --show-error --fail --noproxy "*" \
+            -X PUT \
+            -H "Authorization: Bearer $(_get_secret)" \
+            -H "Content-Type: application/json" \
+            --data "$data" \
+            "${base}${path}"
+        ;;
+    esac
+}
+_select_groups() {
+    _clash_api GET '/proxies' | "$BIN_YQ" -p=json -r '
+      .proxies |
+      to_entries |
+      .[] |
+      select(.value.all != null) |
+      .key + "\t" + .value.type + "\t" + (.value.now // "")
+    '
+}
+_select_group_names() {
+    _select_groups | awk -F '\t' '{print $1}'
+}
+_select_nodes() {
+    local group=$1
+    [ -z "$group" ] && _error_quit "请指定策略组名称"
+    local path="/proxies/$(_urlencode "$group")"
+    local res now node
+    res=$(_clash_api GET "$path") || return 1
+    now=$("$BIN_YQ" -p=json -r '.now // ""' <<<"$res")
+    "$BIN_YQ" -p=json -r '.all[]' <<<"$res" | while IFS= read -r node; do
+        [ "$node" = "$now" ] && printf '* %s\n' "$node" || printf '  %s\n' "$node"
+    done
+}
+_select_node_names() {
+    local group=$1
+    [ -z "$group" ] && _error_quit "请指定策略组名称"
+    local path="/proxies/$(_urlencode "$group")"
+    _clash_api GET "$path" | "$BIN_YQ" -p=json -r '.all[]'
+}
+_select_node_rows() {
+    local group=$1
+    [ -z "$group" ] && _error_quit "请指定策略组名称"
+    local path="/proxies/$(_urlencode "$group")"
+    local res now node mark
+    res=$(_clash_api GET "$path") || return 1
+    now=$("$BIN_YQ" -p=json -r '.now // ""' <<<"$res")
+    "$BIN_YQ" -p=json -r '.all[]' <<<"$res" | while IFS= read -r node; do
+        mark=' '
+        [ "$node" = "$now" ] && mark='*'
+        printf '%s\t%s\n' "$mark" "$node"
+    done
+}
+_select_now() {
+    local group=$1
+    [ -z "$group" ] && _error_quit "请指定策略组名称"
+    local path="/proxies/$(_urlencode "$group")"
+    _clash_api GET "$path" | "$BIN_YQ" -p=json -r '.now'
+}
+_select_use() {
+    local group=$1
+    local node=$2
+    [ -z "$group" ] && _error_quit "请指定策略组名称"
+    [ -z "$node" ] && _error_quit "请指定节点名称"
+
+    local path="/proxies/$(_urlencode "$group")"
+    local body="{\"name\":\"$(_json_escape "$node")\"}"
+    _clash_api PUT "$path" "$body" >/dev/null || {
+        _failcat "切换失败：请检查策略组或节点名称"
+        return 1
+    }
+    _okcat "已切换：[$group] -> $node"
+}
+_select_pick() {
+    local title=$1
+    shift
+    local items=("$@")
+    local choice
+
+    ((${#items[@]})) || return 1
+    printf "\n%s\n" "$title"
+    local i
+    for i in "${!items[@]}"; do
+        printf "  %2d) %s\n" "$((i + 1))" "${items[$i]}"
+    done
+    printf "  %2s) %s\n" q 退出
+    printf "\n请输入序号："
+    read -r choice
+
+    case "$choice" in
+    q | Q)
+        return 1
+        ;;
+    '' | *[!0-9]*)
+        _failcat "请输入有效序号"
+        return 2
+        ;;
+    esac
+    [ "$choice" -ge 1 ] && [ "$choice" -le "${#items[@]}" ] || {
+        _failcat "序号超出范围"
+        return 2
+    }
+    SELECT_PICK_RESULT=${items[$((choice - 1))]}
+}
+_select_fzf() {
+    command -v fzf >&/dev/null || return 1
+    [ -t 0 ] || return 1
+
+    local group_line group node_line node
+    group_line=$(
+        _select_groups | fzf \
+            --height=80% \
+            --layout=reverse \
+            --border \
+            --prompt='策略组 > ' \
+            --header='选择策略组，输入可搜索，Enter 确认，Esc 退出'
+    ) || return 130
+    group=${group_line%%$'\t'*}
+    [ -n "$group" ] || return 130
+
+    node_line=$(
+        _select_node_rows "$group" | fzf \
+            --height=80% \
+            --layout=reverse \
+            --border \
+            --prompt="${group} > " \
+            --header='* 表示当前节点；选择新节点后 Enter 切换，Esc 退出'
+    ) || return 130
+    node=${node_line#*$'\t'}
+    [ -n "$node" ] || return 130
+
+    _select_use "$group" "$node"
+}
+_select_interactive() {
+    local groups=() nodes=()
+    local line group node now
+
+    _select_fzf
+    case $? in
+    0)
+        return 0
+        ;;
+    130)
+        return 130
+        ;;
+    esac
+
+    while IFS= read -r line; do
+        [ -n "$line" ] && groups+=("$line")
+    done < <(_select_group_names)
+    _select_pick "请选择策略组：" "${groups[@]}" || return $?
+    group=$SELECT_PICK_RESULT
+    now=$(_select_now "$group")
+
+    while IFS= read -r line; do
+        [ -n "$line" ] && nodes+=("$line")
+    done < <(_select_node_names "$group")
+    _okcat "当前节点：$now"
+    _select_pick "请选择 [$group] 的节点：" "${nodes[@]}" || return $?
+    node=$SELECT_PICK_RESULT
+
+    _select_use "$group" "$node"
+}
+function clashselect() {
+    case "$1" in
+    -h | --help)
+        cat <<EOF
+
+- 查看可切换策略组
+  clashselect ls
+
+- 交互式切换策略组节点
+  clashselect
+
+- 查看策略组当前节点
+  clashselect now <策略组>
+
+- 查看策略组可选节点
+  clashselect nodes <策略组>
+
+- 切换策略组节点
+  clashselect use <策略组> <节点>
+  clashselect <策略组> <节点>
+
+EOF
+        return 0
+        ;;
+    '')
+        _select_interactive
+        ;;
+    ls | list)
+        _select_groups
+        ;;
+    nodes)
+        shift
+        _select_nodes "$@"
+        ;;
+    now)
+        shift
+        _select_now "$@"
+        ;;
+    use)
+        shift
+        _select_use "$@"
+        ;;
+    *)
+        _select_use "$@"
+        ;;
+    esac
+}
+
 _merge_config() {
     cat "$CLASH_CONFIG_RUNTIME" >"$CLASH_CONFIG_TEMP" 2>/dev/null
     # shellcheck disable=SC2016
@@ -686,6 +935,10 @@ function clashctl() {
         shift
         clashproxy "$@"
         ;;
+    select)
+        shift
+        clashselect "$@"
+        ;;
     tun)
         shift
         clashtun "$@"
@@ -723,6 +976,7 @@ Commands:
   on                    开启代理
   off                   关闭代理
   proxy                 系统代理
+  select                策略组节点
   status                内核状态
   ui                    面板地址
   sub                   订阅管理

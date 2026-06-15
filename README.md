@@ -40,6 +40,7 @@ Commands:
     off                   关闭代理
     status                内核状况
     proxy                 系统代理
+    select                策略组节点
     ui                    Web 面板
     secret                Web 密钥
     sub                   订阅管理
@@ -64,6 +65,50 @@ $ clashoff
 ```
 - 在启停代理内核的同时，同步设置系统代理。
 - 亦可通过 `clashproxy` 单独控制系统代理。
+
+### 策略组与节点切换
+
+```bash
+$ clashselect
+```
+
+若已安装 `fzf`，会进入可搜索的交互选择界面；未安装时自动回退为编号菜单：
+
+```bash
+请选择策略组：
+   1) Proxy
+   2) Auto
+   q) 退出
+
+请输入序号：1
+😼 当前节点：香港 01
+请选择 [Proxy] 的节点：
+   1) 香港 01
+   2) 日本 01
+   3) 新加坡 01
+   q) 退出
+
+请输入序号：2
+😼 已切换：[Proxy] -> 日本 01
+
+$ clashselect ls
+Proxy	Selector	香港 01
+Auto	URLTest	新加坡 01
+
+$ clashselect nodes Proxy
+* 香港 01
+  日本 01
+  新加坡 01
+
+$ clashselect use Proxy "日本 01"
+😼 已切换：[Proxy] -> 日本 01
+```
+
+- `clashctl select` 同 `clashselect`。
+- `clashselect` 默认进入交互式选择界面；安装 `fzf` 后支持模糊搜索、方向键选择和回车确认。
+- 策略组或节点名称包含空格、中文或特殊字符时，请使用引号包裹。
+- `clashselect ls` 可查看可切换策略组。
+- `clashselect now <策略组>` 可查看当前节点。
 
 ### Web 控制台
 
