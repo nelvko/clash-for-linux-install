@@ -255,7 +255,11 @@ _select_nodes() {
     res=$(_clash_api GET "$path") || return 1
     now=$("$BIN_YQ" -p=json -r '.now // ""' <<<"$res")
     "$BIN_YQ" -p=json -r '.all[]' <<<"$res" | while IFS= read -r node; do
-        [ "$node" = "$now" ] && printf '* %s\n' "$node" || printf '  %s\n' "$node"
+        if [ "$node" = "$now" ]; then
+            printf '* %s\n' "$node"
+        else
+            printf '  %s\n' "$node"
+        fi
     done
 }
 _select_node_names() {
@@ -322,10 +326,10 @@ _select_pick() {
         return 2
         ;;
     esac
-    [ "$choice" -ge 1 ] && [ "$choice" -le "${#items[@]}" ] || {
+    if [ "$choice" -lt 1 ] || [ "$choice" -gt "${#items[@]}" ]; then
         _failcat "序号超出范围"
         return 2
-    }
+    fi
     SELECT_PICK_RESULT=${items[$((choice - 1))]}
 }
 _select_fzf() {
