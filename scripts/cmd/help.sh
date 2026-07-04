@@ -12,6 +12,7 @@ Commands:
   status                内核状态
   ui                    面板地址
   sub                   订阅管理
+  node                  节点切换
   tun                   Tun 模式
   mixin                 Mixin 配置
   secret                Web 密钥
