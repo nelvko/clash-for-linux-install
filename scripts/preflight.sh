@@ -26,8 +26,22 @@ valid_required() {
     [ ${#missing[@]} -eq 0 ] || _errorcat "请先安装以下命令：${missing[*]}" || exit
 }
 
+_normalize_path() {
+    realpath -m -- "$1" 2>/dev/null || echo "$1"
+}
+
 valid_env() {
     valid_required
+
+    local src_real home_real
+    src_real=$(_normalize_path "$CLASHCTL_SRC")
+    home_real=$(_normalize_path "$CLASHCTL_HOME")
+    case "$home_real" in
+    "$src_real" | "$src_real"/*)
+        _errorcat "安装路径不能是源码目录或其子目录：$CLASHCTL_HOME，请在 .env.install 中更换安装路径。"
+        exit
+        ;;
+    esac
 
     [ -d "$CLASHCTL_HOME" ] && {
         _errorcat "请先执行卸载脚本,以清除安装路径：$CLASHCTL_HOME"
