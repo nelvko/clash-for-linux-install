@@ -97,9 +97,8 @@ load_zip() {
 }
 _fetch_latest_tag() {
     local repo=$1
-    # 网络受限时此处会失败，由调用方提示用户在 .env.install 手动指定版本
     local body
-    body=$(curl -sL --max-time 10 --retry 1 -H 'Accept: application/vnd.github+json' \
+    body=$(curl -sSL --fail --max-time 10 --retry 1 -H 'Accept: application/vnd.github+json' \
         "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null) || return 1
     local tag
     tag=$(printf '%s' "$body" | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 |
@@ -109,14 +108,38 @@ _fetch_latest_tag() {
 
 _resolve_version() {
     local varname=$1 repo=$2
-    [ -n "${!varname}" ] && return 0
-    local tag
-    tag=$(_fetch_latest_tag "$repo") || {
-        _errorcat "${repo} 版本获取失败，请在 .env.install 手动指定 $varname"
-        return 1
+    local local_version="${!varname}"
+    local check_latest="${CLASHCTL_CHECK_LATEST_VERSION:-1}"
+    local latest_failed=0
+
+    case "$check_latest" in
+    1)
+        local tag
+        tag=$(_fetch_latest_tag "$repo") && {
+            printf -v "$varname" '%s' "$tag"
+            _okcat '🏷️ ' "${repo} → $tag（最新版本）"
+            return 0
+        }
+        latest_failed=1
+        ;;
+    esac
+
+    [ -n "$local_version" ] && {
+        if [ "$latest_failed" -ne 0 ] && [ "${CLASHCTL_LATEST_VERSION_FALLBACK_WARNED:-0}" -eq 0 ]; then
+            _errorcat '⚠️ ' "依赖最新版本查询失败，已回退到指定版本" || true
+            CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=1
+        fi
+        printf -v "$varname" '%s' "$local_version"
+        _okcat '🏷️ ' "${repo} → $local_version（指定版本）"
+        return 0
     }
-    printf -v "$varname" '%s' "$tag"
-    _okcat '🏷️ ' "${repo} → $tag"
+
+    if [ "$latest_failed" -ne 0 ]; then
+        _errorcat "${repo} 最新版本查询失败，且未在 .env.install 指定 $varname"
+    else
+        _errorcat "${repo} 未指定版本，请在 .env.install 手动指定 $varname"
+    fi
+    return 1
 }
 
 download_zip() {
@@ -124,7 +147,10 @@ download_zip() {
     local url_clash url_mihomo url_yq url_subconverter
     local arch=$(uname -m)
 
-    _okcat '🔎' "查询依赖最新版本..."
+    CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=0
+    case "${CLASHCTL_CHECK_LATEST_VERSION:-1}" in
+    1) _okcat '🔎' "查询依赖最新版本..." ;;
+    esac
     local item
     for item in "$@"; do
         case $item in
