@@ -259,6 +259,7 @@ detect_rc() {
         SHELL_RC_FISH="${HOME}/.config/fish/conf.d/clashctl.fish"
     }
 }
+
 apply_rc() {
     detect_rc
 
