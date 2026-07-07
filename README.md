@@ -20,6 +20,7 @@
 - **开箱即用**：一键部署 `mihomo` / `clash` 内核、Web 面板及运行依赖。
 - **广泛兼容**：支持 `root` / 普通用户，适配主流 `Linux` 发行版、容器环境及 `systemd` / `OpenRC` 等 `init` 系统。
 - **统一管理**：通过 `clashctl` 管理代理启停、状态查看、日志追踪、Web 面板、TUN 模式、访问密钥与内核升级等。
+- **终端切换**：支持在 CLI 中切换策略组节点，并在选择节点时实时显示延迟。
 - **订阅管理**：支持多订阅源配置、一键切换、定时更新，并集成 [subconverter](https://github.com/tindy2013/subconverter) 实现订阅格式转换。
 
 ## 🚀 Installation
