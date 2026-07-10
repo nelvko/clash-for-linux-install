@@ -123,6 +123,7 @@ EOF
     _logging_sub "➕ 已添加订阅：[$id] $url"
     _okcat '🎉' "订阅已添加：[$id] $url"
     [ "$use_after_add" = true ] && _sub_use "$id"
+    return 0
 }
 
 _sub_del() {

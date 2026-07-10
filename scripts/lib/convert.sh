@@ -66,8 +66,8 @@ _is_html_response() {
 
 _is_native_yaml_config() {
     "$BIN_YQ" -e '
-      ((.proxies // []) | type == "!!seq" and length > 0) or
-      ((.proxy-providers // {}) | type == "!!map" and length > 0)
+      ((.proxies // []) | (type == "!!seq" and length > 0)) or
+      ((.proxy-providers // {}) | (type == "!!map" and length > 0))
     ' "$1" >/dev/null 2>&1
 }
 
@@ -88,6 +88,23 @@ _download_raw_config() {
     local dest=$1
     local url=$2
 
+    _curl_download "$dest" "$url" "$CLASHCTL_SUB_UA" ||
+        _wget_download "$dest" "$url" "$CLASHCTL_SUB_UA"
+
+    # 首次下载结果非原生 YAML 时，自动用 clash.meta UA 重试一次
+    # 常见场景：UA=mihomo → 订阅端返回 base64 编码（缺 anytls/hy2 节点）
+    if ! _is_native_yaml_config "$dest"; then
+        local backup_ua="$CLASHCTL_SUB_UA"
+        [ "$backup_ua" = 'clash.meta' ] && return 0
+        _failcat '🍂' "UA=${backup_ua} 响应非原生配置，用 clash.meta 重试..."
+        _curl_download "$dest" "$url" 'clash.meta' ||
+            _wget_download "$dest" "$url" 'clash.meta'
+    fi
+    return 0
+}
+
+_curl_download() {
+    local dest=$1 url=$2 ua=$3
     curl \
         --silent \
         --show-error \
@@ -96,17 +113,21 @@ _download_raw_config() {
         --location \
         --max-time "$CLASHCTL_SUB_TIMEOUT" \
         --retry 1 \
-        --user-agent "$CLASHCTL_SUB_UA" \
+        --user-agent "$ua" \
         --output "$dest" \
-        "$url" ||
-        wget \
-            --no-verbose \
-            --no-check-certificate \
-            --timeout "$CLASHCTL_SUB_TIMEOUT" \
-            --tries 1 \
-            --user-agent "$CLASHCTL_SUB_UA" \
-            --output-document "$dest" \
-            "$url"
+        "$url"
+}
+
+_wget_download() {
+    local dest=$1 url=$2 ua=$3
+    wget \
+        --no-verbose \
+        --no-check-certificate \
+        --timeout "$CLASHCTL_SUB_TIMEOUT" \
+        --tries 1 \
+        --user-agent "$ua" \
+        --output-document "$dest" \
+        "$url"
 }
 
 _download_convert_config() {
@@ -156,6 +177,7 @@ _start_convert() {
     curl --silent --fail "$check_url" >/dev/null 2>&1 && return 0
 
     "$BIN_SUBCONVERTER" >"$BIN_SUBCONVERTER_LOG" 2>&1 &
+    disown "$!" 2>/dev/null
 
     local start now
     start=$(date +%s)
