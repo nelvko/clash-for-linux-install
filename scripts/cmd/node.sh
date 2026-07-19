@@ -298,41 +298,6 @@ EOF
 #            列表
 ########################################
 
-# 估算字符串终端显示宽度：CJK/emoji 计 2 列，旗帜按对各计 1（合 2），
-# VS16(FE0F) 把前一字符提升为宽。依赖 UTF-8 locale 下的逐字符索引。
-_node_dispwidth() {
-    local s=$1 w=0 i c cp
-    for ((i = 0; i < ${#s}; i++)); do
-        c=${s:i:1}
-        printf -v cp '%d' "'$c"
-        if ((cp == 0xFE0F)); then
-            ((w += 1)) # 变体选择符：补足前一字符到宽
-        elif ((cp >= 0x1100 && cp <= 0x115F)) ||
-            ((cp >= 0x2E80 && cp <= 0xA4CF)) ||
-            ((cp >= 0xAC00 && cp <= 0xD7A3)) ||
-            ((cp >= 0xF900 && cp <= 0xFAFF)) ||
-            ((cp >= 0xFE30 && cp <= 0xFE4F)) ||
-            ((cp >= 0xFF00 && cp <= 0xFF60)) ||
-            ((cp >= 0xFFE0 && cp <= 0xFFE6)) ||
-            ((cp >= 0x1F300 && cp <= 0x1FAFF)) ||
-            ((cp >= 0x20000 && cp <= 0x3FFFD)); then
-            ((w += 2))
-        else
-            ((w += 1))
-        fi
-    done
-    printf '%d' "$w"
-}
-
-# 按显示宽度右侧补空格，使字符串占满 target 列
-_node_pad() {
-    local s=$1 target=$2 w pad
-    w=$(_node_dispwidth "$s")
-    pad=$((target - w))
-    ((pad < 0)) && pad=0
-    printf '%s%*s' "$s" "$pad" ''
-}
-
 _node_list() {
     case "${1:-}" in
     -h | --help)
@@ -372,16 +337,16 @@ EOF
 
     local i w namew=0 noww=0
     for i in "${!names[@]}"; do
-        w=$(_node_dispwidth "${names[$i]}")
+        w=$(_dispwidth "${names[$i]}")
         ((w > namew)) && namew=$w
-        w=$(_node_dispwidth "${nows[$i]}")
+        w=$(_dispwidth "${nows[$i]}")
         ((w > noww)) && noww=$w
     done
 
     for i in "${!names[@]}"; do
         printf '  %s → %s  [%s]\n' \
-            "$(_node_pad "${names[$i]}" "$namew")" \
-            "$(_node_pad "${nows[$i]}" "$noww")" \
+            "$(_pad "${names[$i]}" "$namew")" \
+            "$(_pad "${nows[$i]}" "$noww")" \
             "${types[$i]}"
     done
     return 0
@@ -414,7 +379,7 @@ _node_list_members() {
 
     local i w namew=0
     for i in "${!members[@]}"; do
-        w=$(_node_dispwidth "${members[$i]}")
+        w=$(_dispwidth "${members[$i]}")
         ((w > namew)) && namew=$w
     done
 
@@ -424,7 +389,7 @@ _node_list_members() {
         [ "${members[$i]}" = "$now" ] && marker='*'
         printf '  %s %s  [%s]\n' \
             "$marker" \
-            "$(_node_pad "${members[$i]}" "$namew")" \
+            "$(_pad "${members[$i]}" "$namew")" \
             "${member_types[${members[$i]}]:-—}"
     done
     return 0
@@ -489,9 +454,9 @@ _node_pick_group() {
 
     local w namew=0 noww=0
     for i in "${!names[@]}"; do
-        w=$(_node_dispwidth "${names[$i]}")
+        w=$(_dispwidth "${names[$i]}")
         ((w > namew)) && namew=$w
-        w=$(_node_dispwidth "${nows[$i]:-—}")
+        w=$(_dispwidth "${nows[$i]:-—}")
         ((w > noww)) && noww=$w
     done
 
@@ -530,8 +495,8 @@ _node_pick_group() {
                 printf '%s\t%s\t%s → %s  [%s]\n' \
                     "$((i + 1))" \
                     "${names[$i]}" \
-                    "$(_node_pad "${names[$i]}" "$namew")" \
-                    "$(_node_pad "${nows[$i]:-—}" "$noww")" \
+                    "$(_pad "${names[$i]}" "$namew")" \
+                    "$(_pad "${nows[$i]:-—}" "$noww")" \
                     "${types[$i]}"
             done | NODE_FZF_PREVIEW_DIR=$preview_dir fzf \
                 --height=80% \
@@ -560,8 +525,8 @@ _node_pick_group() {
         tok="[$((i + 1))]"
         printf '  %-*s %s → %s  [%s]\n' \
             $((idxw + 2)) "$tok" \
-            "$(_node_pad "${names[$i]}" "$namew")" \
-            "$(_node_pad "${nows[$i]:-—}" "$noww")" \
+            "$(_pad "${names[$i]}" "$namew")" \
+            "$(_pad "${nows[$i]:-—}" "$noww")" \
             "${types[$i]}" >&2
     done
     local choice
@@ -592,7 +557,7 @@ _node_pick_proxy() {
 
     local w namew=0
     for i in "${!names[@]}"; do
-        w=$(_node_dispwidth "${names[$i]}")
+        w=$(_dispwidth "${names[$i]}")
         ((w > namew)) && namew=$w
     done
 
@@ -614,7 +579,7 @@ _node_pick_proxy() {
                 printf '%s\t%s\t%s  [%s]\n' \
                     "$((i + 1))" \
                     "${names[$i]}" \
-                    "$(_node_pad "${names[$i]}" "$namew")" \
+                    "$(_pad "${names[$i]}" "$namew")" \
                     "${types[$i]}"
             done | NODE_FZF_PREVIEW_DIR=$preview_dir fzf \
                 --height=80% \
@@ -686,10 +651,10 @@ _node_pick_member() {
     local delayw=0 namew=0 w pad
     if [ "$with_delay" = true ]; then
         for i in "${!members[@]}"; do
-            w=$(_node_dispwidth "${members[$i]}")
+            w=$(_dispwidth "${members[$i]}")
             ((w > namew)) && namew=$w
             delay_label=$(_node_delay_label "${delays[${members[$i]}]:-}")
-            w=$(_node_dispwidth "$delay_label")
+            w=$(_dispwidth "$delay_label")
             ((w > delayw)) && delayw=$w
         done
     fi
@@ -733,12 +698,12 @@ _node_pick_member() {
                 [ "${members[$i]}" = "$now" ] && marker='*'
                 if [ "$with_delay" = true ]; then
                     delay_label=$(_node_delay_label "${delays[${members[$i]}]:-}")
-                    pad=$((delayw - $(_node_dispwidth "$delay_label")))
+                    pad=$((delayw - $(_dispwidth "$delay_label")))
                     printf '%s\t%s\t%s %s  %s\n' \
                         "$((i + 1))" \
                         "${members[$i]}" \
                         "$marker" \
-                        "$(_node_pad "${members[$i]}" "$namew")" \
+                        "$(_pad "${members[$i]}" "$namew")" \
                         "$(_node_spaces "$pad")$(_node_delay_color "$delay_label")"
                 else
                     printf '%s\t%s\t%s %s\n' "$((i + 1))" "${members[$i]}" "$marker" "${members[$i]}"
@@ -772,10 +737,10 @@ _node_pick_member() {
         tok="[$((i + 1))]"
         if [ "$with_delay" = true ]; then
             delay_label=$(_node_delay_label "${delays[${members[$i]}]:-}")
-            pad=$((delayw - $(_node_dispwidth "$delay_label")))
+            pad=$((delayw - $(_dispwidth "$delay_label")))
             printf '%s %-*s %s  %s\n' \
                 "$marker" $((idxw + 2)) "$tok" \
-                "$(_node_pad "${members[$i]}" "$namew")" \
+                "$(_pad "${members[$i]}" "$namew")" \
                 "$(_node_spaces "$pad")$(_node_delay_color "$delay_label")" >&2
         else
             printf '%s %-*s %s\n' "$marker" $((idxw + 2)) "$tok" "${members[$i]}" >&2

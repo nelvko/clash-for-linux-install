@@ -98,6 +98,41 @@ _errorcat() {
     return 1
 }
 
+# 估算字符串终端显示宽度：CJK/emoji 计 2 列，旗帜按对各计 1（合 2），
+# VS16(FE0F) 把前一字符提升为宽。依赖 UTF-8 locale 下的逐字符索引。
+_dispwidth() {
+    local s=$1 w=0 i c cp
+    for ((i = 0; i < ${#s}; i++)); do
+        c=${s:i:1}
+        printf -v cp '%d' "'$c"
+        if ((cp == 0xFE0F)); then
+            ((w += 1)) # 变体选择符：补足前一字符到宽
+        elif ((cp >= 0x1100 && cp <= 0x115F)) ||
+            ((cp >= 0x2E80 && cp <= 0xA4CF)) ||
+            ((cp >= 0xAC00 && cp <= 0xD7A3)) ||
+            ((cp >= 0xF900 && cp <= 0xFAFF)) ||
+            ((cp >= 0xFE30 && cp <= 0xFE4F)) ||
+            ((cp >= 0xFF00 && cp <= 0xFF60)) ||
+            ((cp >= 0xFFE0 && cp <= 0xFFE6)) ||
+            ((cp >= 0x1F300 && cp <= 0x1FAFF)) ||
+            ((cp >= 0x20000 && cp <= 0x3FFFD)); then
+            ((w += 2))
+        else
+            ((w += 1))
+        fi
+    done
+    printf '%d' "$w"
+}
+
+# 按显示宽度右侧补空格，使字符串占满 target 列
+_pad() {
+    local s=$1 target=$2 w pad
+    w=$(_dispwidth "$s")
+    pad=$((target - w))
+    ((pad < 0)) && pad=0
+    printf '%s%*s' "$s" "$pad" ''
+}
+
 _set_env() {
     local key=$1
     local value=$2
