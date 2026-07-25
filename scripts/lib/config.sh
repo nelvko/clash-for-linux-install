@@ -162,12 +162,35 @@ _merge_config() {
 
       ########################################
       #         ProxyGroups Inject           #
+      # inject-all 仅注入手动选择组，且跳过    #
+      # mixin 自己 prepend/append 的组，避免   #
+      # 链式代理被注入到自己的出站组而成环     #
       ########################################
       ($mixin.proxy-groups.inject // {}) as $inj |
+      ($mixin.proxy-groups.inject-all // []) as $injAll |
+      ($mixin.proxy-groups.inject-all-exclude // "") as $injAllExclude |
+      (
+        (($mixin.proxy-groups.prepend // []) + ($mixin.proxy-groups.append // []))
+        | map(.name)
+      ) as $mixinNames |
       .proxy-groups[] |= (
         . as $g |
-        ($inj | .[$g.name] // []) as $extra |
-        .proxies = (.proxies + $extra | unique)
+        (
+          ($inj | .[$g.name] // []) +
+          (
+            (
+              $injAll | select(
+                ($g.type == "select") and
+                (($mixinNames | any_c(. == $g.name)) | not) and
+                (($injAllExclude == "") or (($g.name | test($injAllExclude)) | not))
+              )
+            ) // []
+          )
+        ) as $extra |
+        with(
+          select(($extra | length) > 0);
+          .proxies = ((.proxies // []) + $extra | unique)
+        )
       )
     ' "$CLASH_CONFIG_BASE" "$CLASH_CONFIG_MIXIN" >"$CLASH_CONFIG_RUNTIME"
 
