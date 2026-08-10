@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>clashctl / traffic</title>
+  <style>
+    :root {
+      --ink: #091015;
+      --panel: #101a20;
+      --panel-2: #15232a;
+      --line: #26353b;
+      --muted: #8ca0a6;
+      --text: #e9f1ef;
+      --mint: #79f2c0;
+      --mint-dim: #2dbf91;
+      --amber: #f6c76b;
+      --coral: #ff806f;
+      --blue: #75b8ff;
+      --unknown: #68777d;
+      --shadow: rgba(0, 0, 0, .28);
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--ink); }
+    body {
+      margin: 0;
+      min-width: 320px;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 82% -10%, rgba(121, 242, 192, .12), transparent 35rem),
+        linear-gradient(135deg, #091015 0%, #0d171d 52%, #091015 100%);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: .01em;
+    }
+    button { font: inherit; }
+    .shell { width: min(1480px, calc(100% - 44px)); margin: 0 auto; padding: 28px 0 44px; }
+    .masthead { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding-bottom: 26px; border-bottom: 1px solid var(--line); }
+    .eyebrow { color: var(--mint); font: 700 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .18em; text-transform: uppercase; }
+    h1 { margin: 8px 0 0; font: 650 clamp(30px, 5vw, 58px)/.95 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: -.08em; }
+    .lead { max-width: 510px; margin: 13px 0 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+    .status-cluster { display: flex; align-items: center; gap: 12px; padding-top: 4px; color: var(--muted); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .status-dot { width: 9px; height: 9px; border-radius: 99px; background: var(--mint); box-shadow: 0 0 0 5px rgba(121, 242, 192, .1), 0 0 18px var(--mint); }
+    .status-dot[data-bad="true"] { background: var(--coral); box-shadow: 0 0 0 5px rgba(255, 128, 111, .1), 0 0 18px var(--coral); }
+    .hero { display: grid; grid-template-columns: 1.15fr .85fr; gap: 18px; padding: 28px 0 18px; }
+    .hero-card, .card { min-width: 0; border: 1px solid var(--line); background: linear-gradient(145deg, rgba(21, 35, 42, .96), rgba(13, 23, 29, .96)); box-shadow: 0 18px 50px var(--shadow); }
+    .hero-card { position: relative; overflow: hidden; padding: clamp(24px, 4vw, 42px); min-height: 260px; }
+    .hero-card::after { content: ""; position: absolute; right: -60px; bottom: -100px; width: 300px; height: 300px; border: 1px solid rgba(121, 242, 192, .3); border-radius: 50%; box-shadow: 0 0 0 22px rgba(121, 242, 192, .025), 0 0 0 44px rgba(121, 242, 192, .025); }
+    .hero-label { color: var(--muted); font-size: 12px; }
+    .total { position: relative; z-index: 1; margin: 30px 0 12px; font: 600 clamp(44px, 7vw, 92px)/.9 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: -.08em; color: var(--amber); }
+    .hero-note { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 9px 20px; color: var(--muted); font-size: 13px; }
+    .hero-note strong { color: var(--text); font-weight: 600; }
+    .controls { display: flex; flex-direction: column; justify-content: space-between; padding: 22px; }
+    .controls-title { display: flex; justify-content: space-between; align-items: center; gap: 16px; color: var(--muted); font-size: 12px; }
+    .range { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+    .range button { cursor: pointer; border: 1px solid var(--line); border-radius: 0; color: var(--muted); background: rgba(9, 16, 21, .75); padding: 9px 12px; font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; }
+    .range button:hover, .range button:focus-visible { border-color: var(--mint-dim); color: var(--text); outline: none; }
+    .range button[aria-pressed="true"] { border-color: var(--mint); background: rgba(121, 242, 192, .11); color: var(--mint); }
+    .health { margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--line); }
+    .health-line { display: flex; justify-content: space-between; gap: 16px; margin-top: 10px; color: var(--muted); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .health-line strong { color: var(--mint); font-weight: 500; }
+    .health-line strong[data-bad="true"] { color: var(--coral); }
+    .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 0 0 18px; }
+    .kpi { padding: 18px; border: 1px solid var(--line); background: rgba(16, 26, 32, .88); }
+    .kpi-label { color: var(--muted); font-size: 12px; }
+    .kpi-value { margin-top: 10px; font: 550 25px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: -.05em; }
+    .kpi-sub { margin-top: 8px; color: var(--muted); font-size: 11px; }
+    .grid { min-width: 0; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(340px, .65fr); gap: 18px; }
+    .card { padding: 20px; }
+    .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+    .card-title { margin: 0; font-size: 15px; font-weight: 650; }
+    .card-meta { margin-top: 5px; color: var(--muted); font-size: 12px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: 11px; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .legend i { width: 7px; height: 7px; display: inline-block; border-radius: 50%; background: var(--mint); }
+    .legend .up i { background: var(--coral); }
+    .legend .unknown i { background: var(--unknown); }
+    .chart-wrap { position: relative; min-height: 280px; }
+    #timeline { width: 100%; height: 280px; overflow: visible; }
+    .chart-empty { position: absolute; inset: 30% 10%; display: grid; place-items: center; color: var(--muted); text-align: center; font-size: 13px; }
+    .chart-empty[hidden] { display: none; }
+    .users-card { grid-column: 1 / -1; }
+    .table-wrap { min-width: 0; max-width: 100%; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 720px; }
+    th { padding: 0 10px 12px; color: var(--muted); border-bottom: 1px solid var(--line); text-align: left; font: 700 10px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .11em; text-transform: uppercase; }
+    td { padding: 15px 10px; border-bottom: 1px solid rgba(38, 53, 59, .7); font-size: 13px; vertical-align: middle; }
+    tbody tr:hover { background: rgba(121, 242, 192, .035); }
+    .identity { display: flex; align-items: center; gap: 11px; min-width: 190px; }
+    .avatar { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid rgba(121, 242, 192, .35); color: var(--mint); font: 700 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .identity-name { color: var(--text); font-weight: 600; }
+    .identity-kind { margin-top: 3px; color: var(--muted); font-size: 11px; }
+    .user-id { margin-top: 4px; color: var(--mint); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+    .bytes { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+    .share { min-width: 180px; }
+    .bar { height: 5px; background: #223138; }
+    .bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--mint-dim), var(--mint)); }
+    .confidence { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+    .confidence::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--unknown); }
+    .confidence[data-level="high"]::before { background: var(--mint); }
+    .confidence[data-level="medium"]::before { background: var(--amber); }
+    .live-list { display: grid; gap: 10px; }
+    .live-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px; background: rgba(9, 16, 21, .58); border-left: 2px solid var(--mint-dim); }
+    .live-name { font-weight: 600; font-size: 13px; }
+    .live-detail { margin-top: 5px; color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .live-total { color: var(--mint); font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+    .footnote { margin-top: 18px; color: var(--muted); font-size: 11px; line-height: 1.7; }
+    .error { color: var(--coral); }
+    @media (max-width: 940px) { .hero, .grid { grid-template-columns: 1fr; } .kpis { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 560px) { .shell { width: min(100% - 28px, 1480px); padding-top: 18px; } .masthead { flex-direction: column; } .kpis { grid-template-columns: 1fr 1fr; gap: 8px; } .kpi { padding: 13px; } .kpi-value { font-size: 19px; } .total { font-size: 56px; } .card-head { flex-direction: column; } .legend { width: 100%; } }
+    @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <div>
+        <div class="eyebrow">clashctl / traffic telemetry</div>
+        <h1>谁在使用代理</h1>
+        <p class="lead">按可识别身份汇总 Mihomo 的连接字节增量。只保留统计，不保留目标地址或流量内容。</p>
+      </div>
+      <div class="status-cluster"><span class="status-dot" id="status-dot"></span><span id="status-text">连接采集中</span></div>
+    </header>
+
+    <section class="hero" aria-label="traffic overview">
+      <div class="hero-card">
+        <div class="hero-label">selected range / total traffic</div>
+        <div class="total" id="hero-total">—</div>
+        <div class="hero-note"><span>下载 <strong id="hero-download">—</strong></span><span>上传 <strong id="hero-upload">—</strong></span><span>身份覆盖 <strong id="hero-coverage">—</strong></span></div>
+      </div>
+      <div class="card controls">
+        <div>
+          <div class="controls-title"><span>观察窗口</span><span id="last-sample">等待首个采样</span></div>
+          <div class="range" role="group" aria-label="观察窗口">
+            <button type="button" data-range="today" aria-pressed="true">今天</button>
+            <button type="button" data-range="24h" aria-pressed="false">24 小时</button>
+            <button type="button" data-range="7d" aria-pressed="false">7 天</button>
+          </div>
+        </div>
+        <div class="health">
+          <div class="eyebrow">collector health</div>
+          <div class="health-line"><span>数据源</span><strong id="source-state">检测中</strong></div>
+          <div class="health-line"><span>采样间隔</span><span id="sample-interval">—</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="kpis" aria-label="summary metrics">
+      <div class="kpi"><div class="kpi-label">tracked identities</div><div class="kpi-value" id="tracked-users">—</div><div class="kpi-sub">当前窗口有流量记录</div></div>
+      <div class="kpi"><div class="kpi-label">active now</div><div class="kpi-value" id="active-users">—</div><div class="kpi-sub">最近一次采样的活跃身份</div></div>
+      <div class="kpi"><div class="kpi-label">download / upload</div><div class="kpi-value" id="ratio">—</div><div class="kpi-sub">方向比例</div></div>
+      <div class="kpi"><div class="kpi-label">samples</div><div class="kpi-value" id="sample-count">—</div><div class="kpi-sub">采集器累计采样次数</div></div>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <div class="card-head"><div><h2 class="card-title">Traffic signal</h2><div class="card-meta">按 5 分钟聚合；实线为已采样数据，断点代表采集器没有成功采样。</div></div><div class="legend"><span><i></i>下载</span><span class="up"><i></i>上传</span><span class="unknown"><i></i>采样空洞</span></div></div>
+        <div class="chart-wrap"><svg id="timeline" viewBox="0 0 900 280" role="img" aria-label="traffic over time"></svg><div class="chart-empty" id="chart-empty">还没有足够的采样数据<br>启动采集器后，这里会出现流量信号。</div></div>
+      </article>
+      <article class="card">
+        <div class="card-head"><div><h2 class="card-title">On the wire</h2><div class="card-meta">最近一次采样中的活跃连接</div></div></div>
+        <div class="live-list" id="live-list"><div class="card-meta">等待连接数据…</div></div>
+      </article>
+      <article class="card users-card">
+        <div class="card-head"><div><h2 class="card-title">Identity ledger</h2><div class="card-meta">统计按总字节排序；Linux user_id 仅显示数值 UID，无法映射时显示为空。</div></div><div class="card-meta" id="table-range">—</div></div>
+        <div class="table-wrap"><table><thead><tr><th>身份</th><th>下载</th><th>上传</th><th>总计 / 占比</th><th>归属置信度</th></tr></thead><tbody id="users-body"><tr><td colspan="5" class="card-meta">等待采样数据…</td></tr></tbody></table></div>
+        <div class="footnote">这是基于连接接口的采样统计，不是计费级计量。每条连接第一次出现时只建立基线；采集器停止期间产生的流量不会被追溯补记。要获得高置信度的远程用户归属，请为不同用户配置独立代理认证账号。</div>
+      </article>
+    </section>
+  </main>
+  <script>
+    (() => {
+      const state = { range: 'today', summary: null, series: [], live: [] };
+      const $ = (id) => document.getElementById(id);
+      const fmt = (bytes) => {
+        if (!Number.isFinite(bytes)) return '—';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB']; let n = Math.max(0, bytes), i = 0;
+        while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+        return `${n >= 100 || i === 0 ? n.toFixed(0) : n.toFixed(1)} ${units[i]}`;
+      };
+      const pct = (value) => `${(Number(value) || 0).toFixed(1)}%`;
+      const escInitial = (name) => (name || '?').trim().slice(0, 1).toUpperCase();
+      const timeLabel = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const setText = (id, text) => { $(id).textContent = text; };
+      const create = (tag, className, text) => { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; };
+
+      function setHealth(health) {
+        const ok = Boolean(health && health.controller_reachable);
+        $('status-dot').dataset.bad = ok ? 'false' : 'true';
+        setText('status-text', ok ? '连接采集中' : '等待数据源');
+        const source = $('source-state'); source.textContent = ok ? 'Mihomo online' : (health?.last_error || 'unreachable'); source.dataset.bad = ok ? 'false' : 'true';
+        setText('sample-interval', health?.sample_interval ? `${health.sample_interval}s` : '—');
+        setText('last-sample', health?.last_sample_at ? `last ${new Date(health.last_sample_at).toLocaleTimeString()}` : '等待首个采样');
+      }
+
+      function renderSummary(summary) {
+        state.summary = summary;
+        setText('hero-total', fmt(summary.total)); setText('hero-download', fmt(summary.download)); setText('hero-upload', fmt(summary.upload)); setText('hero-coverage', pct(summary.attribution_percent));
+        setText('tracked-users', String(summary.tracked_identities ?? 0)); setText('active-users', String(summary.active_identities ?? 0));
+        setText('ratio', summary.total ? `${Math.round(summary.download * 100 / summary.total)} / ${Math.round(summary.upload * 100 / summary.total)}` : '—'); setText('sample-count', String(summary.sample_count ?? 0));
+        setText('table-range', summary.since ? new Date(summary.since).toLocaleString() : '—');
+        renderUsers(summary.users || []);
+      }
+
+      function renderUsers(users) {
+        const body = $('users-body'); body.replaceChildren();
+        if (!users.length) { const row = create('tr'); const cell = create('td', 'card-meta', '还没有流量增量。'); cell.colSpan = 5; row.appendChild(cell); body.appendChild(row); return; }
+        const total = users.reduce((sum, user) => sum + Number(user.upload || 0) + Number(user.download || 0), 0);
+        users.forEach((user) => {
+          const upload = Number(user.upload || 0), download = Number(user.download || 0), amount = upload + download, share = total ? amount / total * 100 : 0;
+          const row = create('tr'); const identityCell = create('td'); const identity = create('div', 'identity'); identity.appendChild(create('div', 'avatar', escInitial(user.display_name))); const copy = create('div'); copy.appendChild(create('div', 'identity-name', user.display_name)); copy.appendChild(create('div', 'identity-kind', user.identity_kind)); copy.appendChild(create('div', 'user-id', `Linux user_id: ${user.user_id ?? '—'}`)); copy.appendChild(create('div', 'identity-kind', `identity: ${user.identity_key || 'unknown'}`)); identity.appendChild(copy); identityCell.appendChild(identity); row.appendChild(identityCell);
+          row.appendChild(create('td', 'bytes', fmt(download))); row.appendChild(create('td', 'bytes', fmt(upload)));
+          const shareCell = create('td', 'share'); const shareText = create('div', 'bytes', `${fmt(amount)} · ${pct(share)}`); const bar = create('div', 'bar'); const fill = create('span'); fill.style.width = `${Math.min(100, share)}%`; bar.appendChild(fill); shareCell.append(shareText, bar); row.appendChild(shareCell);
+          const confidence = create('span', 'confidence', user.confidence); confidence.dataset.level = user.confidence; const confidenceCell = create('td'); confidenceCell.appendChild(confidence); row.appendChild(confidenceCell); body.appendChild(row);
+        });
+      }
+
+      function renderLive(items) {
+        const list = $('live-list'); list.replaceChildren();
+        if (!items.length) { list.appendChild(create('div', 'card-meta', '当前没有活跃连接。')); return; }
+        items.forEach((item) => { const row = create('div', 'live-row'); const copy = create('div'); copy.appendChild(create('div', 'live-name', item.display_name)); copy.appendChild(create('div', 'live-detail', `${item.connection_count} connections · ${item.confidence}`)); copy.appendChild(create('div', 'user-id', `Linux user_id: ${item.user_id ?? '—'}`)); copy.appendChild(create('div', 'identity-kind', `identity: ${item.identity_key || 'unknown'}`)); row.appendChild(copy); row.appendChild(create('div', 'live-total', fmt(Number(item.upload_bytes || 0) + Number(item.download_bytes || 0)))); list.appendChild(row); });
+      }
+
+      function svgElement(name, attrs = {}) { const node = document.createElementNS('http://www.w3.org/2000/svg', name); Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value)); return node; }
+      function renderChart(series) {
+        const svg = $('timeline'); svg.replaceChildren(); const empty = $('chart-empty'); empty.hidden = series.some((point) => Number(point.upload || 0) + Number(point.download || 0) > 0);
+        if (!series.length) return;
+        const W = 900, H = 280, left = 46, right = 14, top = 18, bottom = 34, width = W - left - right, height = H - top - bottom;
+        const max = Math.max(1, ...series.flatMap((point) => [Number(point.upload || 0), Number(point.download || 0)]));
+        [0, .25, .5, .75, 1].forEach((ratio) => { const y = top + height - ratio * height; svg.appendChild(svgElement('line', { x1: left, y1: y, x2: W - right, y2: y, stroke: '#26353b', 'stroke-width': 1 })); const label = svgElement('text', { x: left - 8, y: y + 4, fill: '#8ca0a6', 'font-size': 10, 'text-anchor': 'end' }); label.textContent = fmt(max * ratio); svg.appendChild(label); });
+        const points = series.map((point, index) => ({ x: left + (series.length === 1 ? width / 2 : index / (series.length - 1) * width), point }));
+        const signalPath = (field) => { let path = ''; let active = false; points.forEach((p) => { if (!p.point.sampled) { active = false; return; } const value = Number(p.point[field] || 0); const y = top + height - value / max * height; path += `${active ? 'L' : 'M'}${p.x.toFixed(1)} ${y.toFixed(1)} `; active = true; }); return path.trim(); };
+        points.forEach((p) => { if (!p.point.sampled) svg.appendChild(svgElement('line', { x1: p.x, y1: top, x2: p.x, y2: top + height, stroke: '#68777d', 'stroke-width': 1, 'stroke-dasharray': '3 6', opacity: .55 })); });
+        const downloadPath = signalPath('download'); const uploadPath = signalPath('upload');
+        if (downloadPath) svg.appendChild(svgElement('path', { d: downloadPath, fill: 'none', stroke: '#79f2c0', 'stroke-width': 2 }));
+        if (uploadPath) svg.appendChild(svgElement('path', { d: uploadPath, fill: 'none', stroke: '#ff806f', 'stroke-width': 2 }));
+        [0, Math.floor(series.length / 2), series.length - 1].forEach((index) => { if (!series[index]) return; const text = svgElement('text', { x: points[index].x, y: H - 8, fill: '#8ca0a6', 'font-size': 10, 'text-anchor': index === 0 ? 'start' : (index === series.length - 1 ? 'end' : 'middle') }); text.textContent = timeLabel(series[index].timestamp); svg.appendChild(text); });
+      }
+
+      async function load() {
+        try {
+          const [health, summary, range, live] = await Promise.all([
+            fetch('/api/health').then((response) => response.json()),
+            fetch(`/api/summary?since=${encodeURIComponent(state.range)}`).then((response) => response.json()),
+            fetch(`/api/range?since=${encodeURIComponent(state.range)}`).then((response) => response.json()),
+            fetch('/api/live').then((response) => response.json()),
+          ]);
+          setHealth(health); renderSummary(summary); renderChart(range.series || []); renderLive(live.identities || []);
+        } catch (error) { $('status-dot').dataset.bad = 'true'; setText('status-text', '仪表盘请求失败'); setText('source-state', 'dashboard error'); }
+      }
+      document.querySelectorAll('[data-range]').forEach((button) => button.addEventListener('click', () => { state.range = button.dataset.range; document.querySelectorAll('[data-range]').forEach((item) => item.setAttribute('aria-pressed', String(item === button))); load(); }));
+      load(); setInterval(load, 10000);
+    })();
+  </script>
+</body>
+</html>
