@@ -17,6 +17,8 @@ from model import normalize_connection, parse_int
 from store import TrafficStore, utc_now
 
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+DEFAULT_CONTROLLER = "127.0.0.1:9090"
+ALLOWED_NETWORKS = frozenset({"tcp", "udp"})
 
 
 class TrafficError(RuntimeError):
@@ -34,8 +36,9 @@ def _strip_yaml_scalar(value: str) -> str:
 
 def runtime_connection_config(config_path: Path) -> tuple[str, str]:
     """Read only top-level controller fields without a YAML dependency."""
-    controller = "127.0.0.1:9090"
-    secret = ""
+    controller = DEFAULT_CONTROLLER
+    # An empty string means the controller has no configured secret.
+    secret = str()  # nosec B105
     try:
         lines = config_path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError as exc:
@@ -52,19 +55,47 @@ def runtime_connection_config(config_path: Path) -> tuple[str, str]:
     return controller, secret
 
 
+def _validated_port(port_text: str) -> int:
+    port = int(port_text)
+    if not 1 <= port <= 65535:
+        raise ValueError("Mihomo controller 端口必须在 1-65535 之间")
+    return port
+
+
+def _bracketed_host_port(value: str) -> tuple[str, int]:
+    closing = value.find("]")
+    if closing < 0:
+        raise ValueError("Mihomo controller IPv6 地址缺少右括号")
+    host = value[1:closing]
+    suffix = value[closing + 1 :]
+    if suffix and not suffix.startswith(":"):
+        raise ValueError("Mihomo controller IPv6 地址格式不正确")
+    return host, _validated_port(suffix[1:] if suffix else "9090")
+
+
+def _plain_host_port(value: str) -> tuple[str, int]:
+    if value.count(":") > 1:
+        raise ValueError("Mihomo controller IPv6 地址必须使用方括号")
+    host, separator, port_text = value.rpartition(":")
+    if not separator:
+        host, port_text = value, "9090"
+    return host, _validated_port(port_text)
+
+
+def _controller_host_port(value: str) -> tuple[str, int]:
+    if any(character in value for character in ("/", "@", "?", "#")):
+        raise ValueError("Mihomo controller 必须是 host:port，不能包含 URL 组件")
+    return _bracketed_host_port(value) if value.startswith("[") else _plain_host_port(value)
+
+
 def controller_address(controller: str) -> str:
-    value = (controller or "").strip()
-    if value.startswith("[") and "]" in value:
-        host = value[1 : value.index("]")]
-        suffix = value[value.index("]") + 1 :]
-        port = int(suffix[1:]) if suffix.startswith(":") else 9090
-    elif ":" in value:
-        host, port_value = value.rsplit(":", 1)
-        port = int(port_value)
-    else:
-        host, port = value or "127.0.0.1", 9090
-    if host in {"0.0.0.0", "::", "[::]", ""}:
+    value = (controller or DEFAULT_CONTROLLER).strip()
+    host, port = _controller_host_port(value)
+    wildcard_ipv4 = str(ipaddress.ip_address(0))
+    if host in {wildcard_ipv4, "::", ""}:
         host = "127.0.0.1"
+    elif ":" in host:
+        host = f"[{host}]"
     return f"{host}:{port}"
 
 
@@ -87,7 +118,8 @@ def fetch_connections(controller: str, secret: str) -> dict[str, Any]:
     if secret:
         request.add_header("Authorization", f"Bearer {secret}")
     try:
-        with urllib.request.urlopen(request, timeout=4) as response:
+        # controller_address() rejects schemes, paths, userinfo, and invalid ports.
+        with urllib.request.urlopen(request, timeout=4) as response:  # nosec B310
             payload = _read_response(response)
     except (OSError, urllib.error.URLError, http.client.HTTPException) as exc:
         raise TrafficError(f"Mihomo 控制接口不可用：{type(exc).__name__}") from exc
@@ -100,29 +132,40 @@ def fetch_connections(controller: str, secret: str) -> dict[str, Any]:
     return value
 
 
+def _proc_socket_owner(line: str) -> tuple[int, int] | None:
+    fields = line.split()
+    if len(fields) < 8:
+        return None
+    try:
+        local_port = int(fields[1].rsplit(":", 1)[1], 16)
+        uid = int(fields[7])
+    except (IndexError, ValueError):
+        return None
+    if not 0 < local_port <= 65535 or uid < 0:
+        return None
+    return local_port, uid
+
+
+def _socket_table_lines(path: Path) -> list[str]:
+    try:
+        return path.read_text(encoding="ascii", errors="replace").splitlines()[1:]
+    except OSError:
+        return []
+
+
 def proc_socket_uid_snapshot(
     proc_net: Path = Path("/proc/net"),
 ) -> dict[tuple[str, int], int]:
     """Return unambiguous local-port owners from Linux proc socket tables."""
     owners: dict[tuple[str, int], set[int]] = {}
     for name in ("tcp", "tcp6", "udp", "udp6"):
-        path = proc_net / name
-        try:
-            lines = path.read_text(encoding="ascii", errors="replace").splitlines()[1:]
-        except OSError:
-            continue
         network = "tcp" if name.startswith("tcp") else "udp"
-        for line in lines:
-            fields = line.split()
-            if len(fields) < 8:
+        for line in _socket_table_lines(proc_net / name):
+            owner = _proc_socket_owner(line)
+            if owner is None:
                 continue
-            try:
-                local_port = int(fields[1].rsplit(":", 1)[1], 16)
-                uid = int(fields[7])
-            except (IndexError, ValueError):
-                continue
-            if 0 < local_port <= 65535 and uid >= 0:
-                owners.setdefault((network, local_port), set()).add(uid)
+            local_port, uid = owner
+            owners.setdefault((network, local_port), set()).add(uid)
     return {
         key: next(iter(values))
         for key, values in owners.items()
@@ -130,27 +173,34 @@ def proc_socket_uid_snapshot(
     }
 
 
+def _loopback_address(value: Any) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    source_ip = str(value or "").strip().strip("[]").split("%", 1)[0]
+    try:
+        address = ipaddress.ip_address(source_ip)
+    except ValueError:
+        return None
+    if address.version == 6 and address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+    return address if address.is_loopback else None
+
+
+def _source_port(value: Any) -> int | None:
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        return None
+    return port if 0 < port <= 65535 else None
+
+
 def local_socket_uid(
     metadata: dict[str, Any], snapshot: dict[tuple[str, int], int]
 ) -> int | None:
     """Resolve a loopback client's Linux UID from its local source port."""
-    source_ip = str(metadata.get("sourceIP") or "").strip().strip("[]")
-    try:
-        address = ipaddress.ip_address(source_ip.split("%", 1)[0])
-    except ValueError:
+    if _loopback_address(metadata.get("sourceIP")) is None:
         return None
-    if address.version == 6 and address.ipv4_mapped is not None:
-        address = address.ipv4_mapped
-    if not address.is_loopback:
-        return None
-    try:
-        source_port = int(metadata.get("sourcePort"))
-    except (TypeError, ValueError):
-        return None
-    if not 0 < source_port <= 65535:
-        return None
+    source_port = _source_port(metadata.get("sourcePort"))
     network = str(metadata.get("network") or "tcp").strip().lower()
-    if network not in {"tcp", "udp"}:
+    if source_port is None or network not in ALLOWED_NETWORKS:
         return None
     return snapshot.get((network, source_port))
 

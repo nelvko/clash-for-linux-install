@@ -45,6 +45,17 @@ def linux_uid_identity(uid: int) -> Identity:
     return Identity(f"uid:{uid}", label, "linux-user", "high")
 
 
+def _metadata_uid(metadata: dict[str, Any]) -> int | None:
+    value = metadata.get("uid")
+    if value is None or not str(value).strip():
+        return None
+    try:
+        uid = int(str(value))
+    except ValueError:
+        return None
+    return uid if uid > 0 else None
+
+
 def identify_connection(
     metadata: dict[str, Any], local_uid: int | None = None
 ) -> Identity:
@@ -60,15 +71,10 @@ def identify_connection(
     if local_uid is not None and local_uid >= 0:
         return linux_uid_identity(local_uid)
 
-    uid_value = metadata.get("uid")
-    if uid_value is not None and str(uid_value).strip() != "":
-        try:
-            uid = int(str(uid_value))
-        except ValueError:
-            uid = None
-        if uid is not None and uid > 0:
-            identity = linux_uid_identity(uid)
-            return Identity(identity.key, identity.label, identity.kind, "medium")
+    metadata_uid = _metadata_uid(metadata)
+    if metadata_uid is not None:
+        identity = linux_uid_identity(metadata_uid)
+        return Identity(identity.key, identity.label, identity.kind, "medium")
 
     source_ip = str(metadata.get("sourceIP") or "").strip()
     if source_ip:

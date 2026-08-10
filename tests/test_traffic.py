@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import socket
-import subprocess
+import subprocess  # nosec B404  # nosemgrep
 import sys
 import tempfile
 import threading
@@ -20,6 +20,150 @@ from model import ConnectionSample, Identity, identify_connection  # noqa: E402
 from server import DashboardServer  # noqa: E402
 from store import TrafficStore, format_utc  # noqa: E402
 import traffic as traffic_cli  # noqa: E402
+
+
+def start_json_server(payloads: list[dict]):
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, _format, *_args):
+            return
+
+        def do_GET(self):  # noqa: N802
+            body = json.dumps(payloads.pop(0)).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, thread
+
+
+def stop_http_server(server, thread) -> None:
+    server.shutdown()
+    server.server_close()
+    thread.join(timeout=2)
+
+
+def traffic_payload(upload: int, download: int) -> dict:
+    return {
+        "uploadTotal": upload,
+        "downloadTotal": download,
+        "connections": [
+            {
+                "id": "connection-1",
+                "upload": upload,
+                "download": download,
+                "metadata": {
+                    "inboundUser": "alice",
+                    "host": "private.example",
+                    "processPath": "/sensitive/process",
+                },
+            }
+        ],
+    }
+
+
+def start_incrementing_controller(counter: dict[str, int]):
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, _format, *_args):
+            return
+
+        def do_GET(self):  # noqa: N802
+            counter["value"] += 1
+            value = counter["value"] * 1024
+            body = json.dumps(
+                {
+                    "uploadTotal": value,
+                    "downloadTotal": value * 2,
+                    "connections": [
+                        {
+                            "id": "live-connection",
+                            "upload": value,
+                            "download": value * 2,
+                            "metadata": {"inboundUser": "alice"},
+                        }
+                    ],
+                }
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, thread
+
+
+def available_loopback_port() -> int:
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
+
+
+def start_traffic_process(config_path: Path, state_dir: Path, port: int):
+    return subprocess.Popen(  # nosec B603  # nosemgrep
+        [
+            sys.executable,
+            str(TRAFFIC_DIR / "traffic.py"),
+            "serve",
+            "--config-path",
+            str(config_path),
+            "--state-dir",
+            str(state_dir),
+            "--port",
+            str(port),
+            "--interval",
+            "1",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+
+
+def load_loopback_json(port: int, path: str, timeout: float = 2) -> dict:
+    url = f"http://127.0.0.1:{port}{path}"
+    with urllib.request.urlopen(url, timeout=timeout) as response:  # nosec B310
+        return json.load(response)
+
+
+def wait_for_collector_health(port: int, counter: dict[str, int]) -> dict | None:
+    deadline = time.time() + 6
+    while time.time() < deadline:
+        try:
+            health = load_loopback_json(port, "/api/health", timeout=1)
+            if counter["value"] >= 2:
+                return health
+        except OSError:
+            pass
+        time.sleep(0.15)
+    return None
+
+
+def stop_traffic_process(state_dir: Path):
+    return subprocess.run(  # nosec B603  # nosemgrep
+        [
+            sys.executable,
+            str(TRAFFIC_DIR / "traffic.py"),
+            "stop",
+            "--state-dir",
+            str(state_dir),
+        ],
+        text=True,
+        capture_output=True,
+        timeout=5,
+        check=False,
+    )
 
 
 class IdentityTests(unittest.TestCase):
@@ -72,10 +216,15 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(result["download"], 20)
 
     def test_database_does_not_store_destination_or_process_fields(self) -> None:
+        schema_queries = (
+            "PRAGMA table_info(traffic_minute)",
+            "PRAGMA table_info(connection_state)",
+            "PRAGMA table_info(live_identity)",
+        )
         columns = {
             row[1]
-            for table in ("traffic_minute", "connection_state", "live_identity")
-            for row in self.store.connection.execute(f"PRAGMA table_info({table})")
+            for query in schema_queries
+            for row in self.store.connection.execute(query)
         }
         forbidden = {"host", "destination", "process", "process_path", "source_port"}
         self.assertTrue(columns.isdisjoint(forbidden))
@@ -109,7 +258,7 @@ class DashboardServerTests(unittest.TestCase):
 
         def client() -> None:
             try:
-                result["response"] = urllib.request.urlopen(
+                result["response"] = urllib.request.urlopen(  # nosec B310  # nosemgrep
                     self.base_url + path, timeout=2
                 )
             except Exception as exc:  # re-raised in the test thread
@@ -221,89 +370,59 @@ class CollectorTests(unittest.TestCase):
 
         self.assertEqual(controller_address("0.0.0.0:9090"), "127.0.0.1:9090")
         self.assertEqual(controller_address("[::]:9091"), "127.0.0.1:9091")
+        self.assertEqual(controller_address("[::1]:9092"), "[::1]:9092")
+
+    def test_controller_address_rejects_url_syntax_and_invalid_ports(self) -> None:
+        from collector import controller_address
+
+        for value in (
+            "http://example.com:9090",
+            "file:///tmp/controller",
+            "user@example.com:9090",
+            "127.0.0.1:9090/connections",
+            "127.0.0.1:0",
+            "127.0.0.1:65536",
+        ):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                controller_address(value)
 
     def test_collect_once_reads_mihomo_payload_and_never_persists_destination(self) -> None:
-        from http.server import BaseHTTPRequestHandler, HTTPServer
         from collector import collect_once
 
-        payloads = [
-            {
-                "uploadTotal": 100,
-                "downloadTotal": 200,
-                "connections": [
-                    {
-                        "id": "connection-1",
-                        "upload": 10,
-                        "download": 20,
-                        "metadata": {
-                            "inboundUser": "alice",
-                            "host": "private.example",
-                            "processPath": "/sensitive/process",
-                        },
-                    }
-                ],
-            },
-            {
-                "uploadTotal": 150,
-                "downloadTotal": 280,
-                "connections": [
-                    {
-                        "id": "connection-1",
-                        "upload": 30,
-                        "download": 70,
-                        "metadata": {
-                            "inboundUser": "alice",
-                            "host": "private.example",
-                            "processPath": "/sensitive/process",
-                        },
-                    }
-                ],
-            },
-        ]
-
-        class Handler(BaseHTTPRequestHandler):
-            def log_message(self, _format, *_args):
-                return
-
-            def do_GET(self):  # noqa: N802
-                body = json.dumps(payloads.pop(0)).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-        server = HTTPServer(("127.0.0.1", 0), Handler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
+        payloads = [traffic_payload(10, 20), traffic_payload(30, 70)]
+        payloads[0].update(uploadTotal=100, downloadTotal=200)
+        payloads[1].update(uploadTotal=150, downloadTotal=280)
+        server, thread = start_json_server(payloads)
         try:
             with tempfile.TemporaryDirectory() as directory:
                 store = TrafficStore(Path(directory) / "traffic.sqlite3")
-                address = f"127.0.0.1:{server.server_port}"
-                collect_once(store, address, "")
-                result = collect_once(store, address, "")
-                self.assertEqual(result["upload"], 20)
-                self.assertEqual(result["download"], 50)
-                dump = "\n".join(
-                    row[0]
-                    for row in store.connection.execute(
-                        "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL"
+                try:
+                    address = f"127.0.0.1:{server.server_port}"
+                    collect_once(store, address, "")
+                    result = collect_once(store, address, "")
+                    self.assertEqual((result["upload"], result["download"]), (20, 50))
+                    schema = "\n".join(
+                        row[0]
+                        for row in store.connection.execute(
+                            "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL"
+                        )
                     )
-                )
-                rows = repr(store.connection.execute("SELECT * FROM connection_state").fetchall())
-                self.assertNotIn("private.example", dump + rows)
-                self.assertNotIn("/sensitive/process", dump + rows)
-                store.close()
+                    rows = repr(
+                        store.connection.execute(
+                            "SELECT * FROM connection_state"
+                        ).fetchall()
+                    )
+                    self.assertNotIn("private.example", schema + rows)
+                    self.assertNotIn("/sensitive/process", schema + rows)
+                finally:
+                    store.close()
         finally:
-            server.shutdown()
-            server.server_close()
-            thread.join(timeout=2)
+            stop_http_server(server, thread)
+
 
 
 class CliTests(unittest.TestCase):
     def setUp(self) -> None:
-        import subprocess
-
         self.subprocess = subprocess
         self.temp_dir = tempfile.TemporaryDirectory()
         self.state_dir = Path(self.temp_dir.name) / "state"
@@ -318,7 +437,7 @@ class CliTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def run_cli(self, *args: str):
-        return self.subprocess.run(
+        return self.subprocess.run(  # nosec B603  # nosemgrep
             [sys.executable, str(TRAFFIC_DIR / "traffic.py"), *args],
             text=True,
             capture_output=True,
@@ -389,7 +508,7 @@ class ProcessLifecycleTests(unittest.TestCase):
             blocker.listen(1)
             port = blocker.getsockname()[1]
             try:
-                result = subprocess.run(
+                result = subprocess.run(  # nosec B603  # nosemgrep
                     [
                         sys.executable,
                         str(TRAFFIC_DIR / "traffic.py"),
@@ -412,119 +531,39 @@ class ProcessLifecycleTests(unittest.TestCase):
             self.assertFalse((state_dir / "traffic.pid").exists())
 
     def test_real_process_health_sampling_and_stop(self) -> None:
-        from http.server import BaseHTTPRequestHandler, HTTPServer
-
         counter = {"value": 0}
-
-        class Handler(BaseHTTPRequestHandler):
-            def log_message(self, _format, *_args):
-                return
-
-            def do_GET(self):  # noqa: N802
-                counter["value"] += 1
-                value = counter["value"] * 1024
-                body = json.dumps(
-                    {
-                        "uploadTotal": value,
-                        "downloadTotal": value * 2,
-                        "connections": [
-                            {
-                                "id": "live-connection",
-                                "upload": value,
-                                "download": value * 2,
-                                "metadata": {"inboundUser": "alice"},
-                            }
-                        ],
-                    }
-                ).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-        controller = HTTPServer(("127.0.0.1", 0), Handler)
-        controller_thread = threading.Thread(
-            target=controller.serve_forever, daemon=True
-        )
-        controller_thread.start()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            state_dir = root / "state"
-            config_path = root / "runtime.yaml"
-            config_path.write_text(
-                f"external-controller: 127.0.0.1:{controller.server_port}\n"
-                "secret: ''\n",
-                encoding="utf-8",
-            )
-            dashboard_socket = socket.socket()
-            dashboard_socket.bind(("127.0.0.1", 0))
-            dashboard_port = dashboard_socket.getsockname()[1]
-            dashboard_socket.close()
-            process = subprocess.Popen(
-                [
-                    sys.executable,
-                    str(TRAFFIC_DIR / "traffic.py"),
-                    "serve",
-                    "--config-path",
-                    str(config_path),
-                    "--state-dir",
-                    str(state_dir),
-                    "--port",
-                    str(dashboard_port),
-                    "--interval",
-                    "1",
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                text=True,
-            )
-            try:
-                health = None
-                deadline = time.time() + 6
-                while time.time() < deadline:
-                    try:
-                        with urllib.request.urlopen(
-                            f"http://127.0.0.1:{dashboard_port}/api/health",
-                            timeout=1,
-                        ) as response:
-                            health = json.load(response)
-                        if counter["value"] >= 2:
-                            break
-                    except OSError:
-                        pass
-                    time.sleep(0.15)
-                self.assertIsNotNone(health)
-                self.assertTrue(health["controller_reachable"])
-                with urllib.request.urlopen(
-                    f"http://127.0.0.1:{dashboard_port}/api/summary?since=24h",
-                    timeout=2,
-                ) as response:
-                    summary = json.load(response)
-                self.assertGreater(summary["total"], 0)
-                stop = subprocess.run(
-                    [
-                        sys.executable,
-                        str(TRAFFIC_DIR / "traffic.py"),
-                        "stop",
-                        "--state-dir",
-                        str(state_dir),
-                    ],
-                    text=True,
-                    capture_output=True,
-                    timeout=5,
-                    check=False,
+        controller, controller_thread = start_incrementing_controller(counter)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                state_dir = root / "state"
+                config_path = root / "runtime.yaml"
+                config_path.write_text(
+                    f"external-controller: 127.0.0.1:{controller.server_port}\n"
+                    "secret: ''\n",
+                    encoding="utf-8",
                 )
-                self.assertEqual(stop.returncode, 0, stop.stderr)
-                process.wait(timeout=5)
-                self.assertFalse((state_dir / "traffic.pid").exists())
-            finally:
-                if process.poll() is None:
-                    process.terminate()
+                dashboard_port = available_loopback_port()
+                process = start_traffic_process(config_path, state_dir, dashboard_port)
+                try:
+                    health = wait_for_collector_health(dashboard_port, counter)
+                    self.assertIsNotNone(health)
+                    self.assertTrue(health["controller_reachable"])
+                    summary = load_loopback_json(
+                        dashboard_port, "/api/summary?since=24h"
+                    )
+                    self.assertGreater(summary["total"], 0)
+                    stop = stop_traffic_process(state_dir)
+                    self.assertEqual(stop.returncode, 0, stop.stderr)
                     process.wait(timeout=5)
-        controller.shutdown()
-        controller.server_close()
-        controller_thread.join(timeout=2)
+                    self.assertFalse((state_dir / "traffic.pid").exists())
+                finally:
+                    if process.poll() is None:
+                        process.terminate()
+                        process.wait(timeout=5)
+        finally:
+            stop_http_server(controller, controller_thread)
+
 
 
 class InstallLifecycleTests(unittest.TestCase):
@@ -595,7 +634,7 @@ class DashboardRouteTests(unittest.TestCase):
 
         def client() -> None:
             try:
-                result["response"] = urllib.request.urlopen(
+                result["response"] = urllib.request.urlopen(  # nosec B310  # nosemgrep
                     self.base_url + path, timeout=2
                 )
             except Exception as exc:
