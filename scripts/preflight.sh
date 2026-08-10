@@ -267,6 +267,7 @@ install_clashctl() {
     /bin/cp -a "$CLASHCTL_SRC/scripts/cmd" "$target_dir/scripts/"
     /bin/cp -a "$CLASHCTL_SRC/scripts/lib" "$target_dir/scripts/"
     /bin/cp -a "$CLASHCTL_SRC/scripts/init" "$target_dir/scripts/"
+    /bin/cp -a "$CLASHCTL_SRC/scripts/traffic" "$target_dir/scripts/"
 
     for resource in "$CLASHCTL_SRC"/resources/*; do
         /bin/cp -r "$resource" "$target_dir/resources/"

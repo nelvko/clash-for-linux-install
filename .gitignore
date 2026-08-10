@@ -9,3 +9,6 @@ archives/*
 test.sh
 
 !.gitkeep
+
+__pycache__/
+*.py[cod]
