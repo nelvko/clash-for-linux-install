@@ -8,6 +8,20 @@ _okcat() { printf '%s\n' "$*"; return 0; }
 . "$REPO/scripts/cmd/traffic.sh"
 
 fail=0
+original_override=${CLASHCTL_TRAFFIC_PYTHON-}
+CLASHCTL_TRAFFIC_PYTHON=$(command -v bash)
+if [ "$(traffic_python)" != "$CLASHCTL_TRAFFIC_PYTHON" ]; then
+  printf '%s\n' 'FAIL: traffic_python did not honor CLASHCTL_TRAFFIC_PYTHON' >&2
+  fail=1
+fi
+CLASHCTL_TRAFFIC_PYTHON=/definitely/missing/python
+if traffic_python >/dev/null 2>&1; then
+  printf '%s\n' 'FAIL: traffic_python accepted a missing override' >&2
+  fail=1
+fi
+CLASHCTL_TRAFFIC_PYTHON=$original_override
+unset original_override
+
 expect_invalid() {
   local expected=$1
   shift

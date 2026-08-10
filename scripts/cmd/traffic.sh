@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 
 traffic_python() {
+    if [ -n "${CLASHCTL_TRAFFIC_PYTHON:-}" ]; then
+        [ -x "$CLASHCTL_TRAFFIC_PYTHON" ] || return 1
+        printf '%s\n' "$CLASHCTL_TRAFFIC_PYTHON"
+        return 0
+    fi
     command -v python3 2>/dev/null || command -v python 2>/dev/null
 }
 
