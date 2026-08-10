@@ -287,6 +287,18 @@ class DashboardServerTests(unittest.TestCase):
         self.assertEqual(payload["users"][0]["display_name"], "alice")
         self.assertIsNone(payload["users"][0]["user_id"])
 
+    def test_client_disconnect_does_not_trigger_error_response(self) -> None:
+        handler = mock.Mock()
+        handler.send_response = mock.Mock()
+        handler.send_header = mock.Mock()
+        handler.end_headers = mock.Mock(side_effect=BrokenPipeError)
+        handler.wfile = mock.Mock()
+
+        from server import DashboardHandler
+
+        DashboardHandler._send(handler, 200, "application/json", b"{}")
+        handler.wfile.write.assert_not_called()
+
     def test_security_header_is_not_duplicated(self) -> None:
         with self.request("/") as response:
             values = response.headers.get_all("X-Content-Type-Options")
@@ -392,6 +404,42 @@ class CollectorTests(unittest.TestCase):
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 controller_address(value)
+
+    def test_collect_once_treats_null_connections_as_empty_sample(self) -> None:
+        from collector import collect_once
+
+        payload = {"connections": None, "uploadTotal": 12, "downloadTotal": 34}
+        with tempfile.TemporaryDirectory() as directory:
+            store = TrafficStore(Path(directory) / "traffic.sqlite3")
+            try:
+                with mock.patch("collector.fetch_connections", return_value=payload), mock.patch(
+                    "collector.proc_socket_uid_snapshot"
+                ) as snapshot:
+                    result = collect_once(store, "127.0.0.1:9090", "")
+                snapshot.assert_called_once_with()
+                self.assertEqual(
+                    result,
+                    {"connections": 0, "identities": 0, "upload": 0, "download": 0},
+                )
+                self.assertEqual(store.get_meta("controller_reachable"), "1")
+                self.assertEqual(store.get_meta("global_upload_total"), "12")
+                self.assertEqual(store.get_meta("global_download_total"), "34")
+            finally:
+                store.close()
+
+    def test_collect_once_rejects_non_list_non_null_connections(self) -> None:
+        from collector import TrafficError, collect_once
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = TrafficStore(Path(directory) / "traffic.sqlite3")
+            try:
+                with mock.patch(
+                    "collector.fetch_connections", return_value={"connections": {}}
+                ), self.assertRaises(TrafficError):
+                    collect_once(store, "127.0.0.1:9090", "")
+                self.assertEqual(store.get_meta("controller_reachable"), "0")
+            finally:
+                store.close()
 
     def test_collect_once_reads_mihomo_payload_and_never_persists_destination(self) -> None:
         from collector import collect_once

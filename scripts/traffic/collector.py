@@ -205,12 +205,19 @@ def local_socket_uid(
     return snapshot.get((network, source_port))
 
 
+def _connection_list(payload: dict[str, Any]) -> list[Any]:
+    connections = payload.get("connections")
+    if connections is None:
+        return []
+    if not isinstance(connections, list):
+        raise TrafficError("Mihomo 返回中缺少 connections 列表")
+    return connections
+
+
 def collect_once(store: TrafficStore, controller: str, secret: str) -> dict[str, int]:
     try:
         payload = fetch_connections(controller, secret)
-        connections = payload.get("connections")
-        if not isinstance(connections, list):
-            raise TrafficError("Mihomo 返回中缺少 connections 列表")
+        connections = _connection_list(payload)
         socket_uids = proc_socket_uid_snapshot()
         samples = []
         for item in connections:
