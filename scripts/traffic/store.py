@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as datetime_module
 import os
 import sqlite3
+import stat
 import time
 from pathlib import Path
 from typing import Any, Iterable
@@ -98,8 +99,8 @@ class TrafficStore:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            # The state directory is intentionally accessible only by its owner.
-            os.chmod(self.path.parent, 0o700)  # nosec B103
+            # Owner-only access: read, write, and directory traversal.
+            os.chmod(self.path.parent, stat.S_IRWXU)
         except OSError:
             pass
         self.connection = sqlite3.connect(self.path, timeout=30)

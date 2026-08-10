@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import socket
+import stat
 import subprocess  # nosec B404  # nosemgrep
 import sys
 import tempfile
@@ -214,6 +215,12 @@ class StoreTests(unittest.TestCase):
         result = self.store.record_sample([self.sample(10, 20)], 1_700_000_005)
         self.assertEqual(result["upload"], 10)
         self.assertEqual(result["download"], 20)
+
+    def test_store_uses_owner_only_filesystem_permissions(self) -> None:
+        directory_mode = stat.S_IMODE(self.store.path.parent.stat().st_mode)
+        database_mode = stat.S_IMODE(self.store.path.stat().st_mode)
+        self.assertEqual(directory_mode, stat.S_IRWXU)
+        self.assertEqual(database_mode, stat.S_IRUSR | stat.S_IWUSR)
 
     def test_database_does_not_store_destination_or_process_fields(self) -> None:
         schema_queries = (
