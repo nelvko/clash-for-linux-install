@@ -10,6 +10,11 @@ CLASHCTL_SRC="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 }
 uninstall_service
 
+# 清理旧版 sub update --auto 遗留的自管 crontab
+command -v crontab >&/dev/null && {
+    crontab -l 2>/dev/null | grep -Fv "$CLASHCTL_CRON_TAG" | crontab -
+}
+
 /usr/bin/rm -rf "$CLASHCTL_HOME"
 revoke_rc
 
