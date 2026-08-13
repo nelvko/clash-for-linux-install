@@ -10,10 +10,6 @@ CLASHCTL_SRC="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 }
 uninstall_service
 
-command -v crontab >&/dev/null && {
-    crontab -l 2>/dev/null | grep -Fv "$CLASHCTL_CRON_TAG" | crontab -
-}
-
 /usr/bin/rm -rf "$CLASHCTL_HOME"
 revoke_rc
 

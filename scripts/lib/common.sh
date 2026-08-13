@@ -6,6 +6,9 @@ CLASH_CONFIG_BASE="${CLASH_RESOURCES_DIR}/config.yaml"
 CLASH_CONFIG_MIXIN="${CLASH_RESOURCES_DIR}/mixin.yaml"
 CLASH_CONFIG_RUNTIME="${CLASH_RESOURCES_DIR}/runtime.yaml"
 CLASH_CONFIG_TEMP="${CLASH_RESOURCES_DIR}/temp.yaml"
+# 订阅下载/校验失败时保留的调试产物（稳定路径，便于排障）
+CLASH_CONFIG_DEBUG="${CLASH_RESOURCES_DIR}/last-failed.yaml"
+CLASH_CONFIG_DEBUG_RAW="${CLASH_RESOURCES_DIR}/last-failed.raw"
 
 BIN_BASE_DIR="${CLASHCTL_HOME}/bin"
 BIN_KERNEL="${BIN_BASE_DIR}/$CLASHCTL_KERNEL"
@@ -18,6 +21,7 @@ BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
 CLASH_PROFILES_DIR="${CLASH_RESOURCES_DIR}/profiles"
 CLASH_PROFILES_META="${CLASH_RESOURCES_DIR}/profiles.yaml"
 CLASH_PROFILES_LOG="${CLASH_RESOURCES_DIR}/profiles.log"
+CLASH_PROFILES_LOCK="${CLASH_RESOURCES_DIR}/profiles.lock"
 
 CLASHCTL_CRON_TAG="# clashctl-auto-update"
 
@@ -57,6 +61,13 @@ _get_random_val() {
 _color_log() {
     local color="$1"
     local msg="$2"
+
+    # 输出目标非终端（cron / 管道 / 重定向）时不加颜色码，避免污染日志与 cron 邮件。
+    # fd1 已随调用方的 >&2 重定向，故此判断对 _okcat 与 _failcat/_errorcat 均成立。
+    [ -t 1 ] || {
+        printf '%s\n' "$msg"
+        return
+    }
 
     local hex="${color#\#}"
     local r=$((16#${hex:0:2}))

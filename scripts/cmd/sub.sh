@@ -96,6 +96,88 @@ _logging_sub() {
 }
 
 ########################################
+#            并发互斥
+########################################
+# 串行化所有订阅写操作（含 cron 自动更新）：交互与下载在锁外完成，
+# 仅把“改元数据 + 落盘”的临界区放进锁内。加锁实现内部禁止再调用本函数
+# （临界区之间改用 _xxx_locked 内层函数组合），以免自我死锁。
+# 无 flock 时降级为直接执行（尽力而为）。
+_with_profiles_lock() {
+    command -v flock >/dev/null 2>&1 || {
+        "$@"
+        return
+    }
+    (
+        flock -w 60 9 || {
+            _errorcat "另一订阅操作正在进行（可能是定时更新），请稍后再试"
+            exit 1
+        }
+        "$@"
+    ) 9>>"$CLASH_PROFILES_LOCK"
+}
+
+# 下载并校验订阅到独立的临时工作文件（mktemp，避免固定路径的并发互踩）。
+#   用法：_sub_download <url> <strategy(auto|raw|convert)>
+#     auto    下载；原生且有效则直用，否则回退 subconverter 转换（默认）
+#     raw     仅下载，绝不转换（校验失败即失败）
+#     convert 始终经 subconverter 转换
+#   返回：0 表示已下载且通过内核校验；非 0 表示失败。
+# 成功后：_SUB_DL_FILE 指向可原子 mv 到目标的工作文件。
+# 失败后：产物落到 last-failed.*（供排障），
+#   _SUB_DL_REASON     去除颜色码后的最后一行错误（写入日志）
+#   _SUB_DL_DEBUG_HINT 指向已保留调试产物的多行提示（供报错展示）
+_sub_download() {
+    local url=$1 strategy=${2:-auto}
+    local work err_log rc
+    _SUB_DL_FILE=''
+    _SUB_DL_REASON=''
+    _SUB_DL_DEBUG_HINT=''
+    FETCH_USERINFO='' # 由 _download_raw_config 在成功时填充（机场流量信息）
+    FETCH_FILENAME='' # 由 _download_raw_config 在成功时填充（content-disposition 文件名）
+
+    work=$(mktemp "${CLASH_RESOURCES_DIR}/.fetch.XXXXXX") || {
+        _errorcat "无法创建临时文件：$CLASH_RESOURCES_DIR"
+        return 1
+    }
+    err_log="${work}.err"
+
+    case $strategy in
+    convert) _download_convert_config "$work" "$url" 2>"$err_log" ;;
+    raw) _download_config "$work" "$url" false 2>"$err_log" ;;
+    *) _download_config "$work" "$url" true 2>"$err_log" ;;
+    esac
+    rc=$?
+    [ -s "$err_log" ] && cat "$err_log" >&2
+    _SUB_DL_REASON=$(sed $'s/\x1b\\[[0-9;]*m//g' "$err_log" 2>/dev/null | awk 'NF{last=$0} END{print last}')
+    /usr/bin/rm -f "$err_log"
+
+    [ "$rc" -eq 0 ] && {
+        _SUB_DL_FILE=$work
+        /usr/bin/rm -f "${work}.raw" # 转换成功遗留的原始订阅，无需保留
+        return 0
+    }
+
+    # 失败：保留调试产物到稳定路径，并按实际存在的文件拼装提示
+    local hint='' converted=false
+    { [ "$strategy" = convert ] || [ -f "${work}.raw" ]; } && converted=true
+    if [ -s "$work" ]; then
+        /bin/mv -f "$work" "$CLASH_CONFIG_DEBUG"
+        hint="待检配置：$CLASH_CONFIG_DEBUG"
+    else
+        /usr/bin/rm -f "$work"
+    fi
+    [ -f "${work}.raw" ] && {
+        /bin/mv -f "${work}.raw" "$CLASH_CONFIG_DEBUG_RAW"
+        hint="${hint:+$hint
+}原始订阅：$CLASH_CONFIG_DEBUG_RAW"
+    }
+    [ "$converted" = true ] && hint="${hint:+$hint
+}转换日志：$BIN_SUBCONVERTER_LOG"
+    _SUB_DL_DEBUG_HINT=$hint
+    return "$rc"
+}
+
+########################################
 #            名称与文件工具
 ########################################
 
@@ -113,6 +195,19 @@ _sub_default_name() {
     esac
     [ -z "$host" ] && host=sub
     printf '%s' "$host"
+}
+
+# 清洗 content-disposition 文件名为可用订阅名（保留中文等 Unicode）：
+# 去扩展名、路径分隔符与控制字符、首尾空白；非法（空/以 - 开头）则输出空串
+_sub_sanitize_name() {
+    local s=$1
+    s=${s%.*}      # 去最后一个扩展名，如 .yaml/.txt
+    s=${s//\//_}   # 路径分隔符 → _
+    s=$(printf '%s' "$s" | tr -d '\000-\037\177')
+    s="${s#"${s%%[![:space:]]*}"}" # 去前导空白
+    s="${s%"${s##*[![:space:]]}"}" # 去尾随空白
+    case $s in -*) s='' ;; esac
+    printf '%s' "$s"
 }
 
 # 基于 base 生成未占用的名称（冲突则追加 -2/-3…）
@@ -220,11 +315,16 @@ _sub_pick() {
     # 即使只有 1 个订阅也进入选择界面：use 会重启内核、del 为破坏性操作，
     # 需用户明确确认，不做隐式自动选择。
 
-    local current i urls=() updateds=()
+    local current i urls=() updateds=() traffics=() expires=()
+    local ui tf ex
     current=$(_sub_current)
     for i in "${!names[@]}"; do
         urls+=("$(_sub_get "${names[$i]}" url)")
         updateds+=("$(_sub_get "${names[$i]}" updated)")
+        ui=$(_sub_get "${names[$i]}" userinfo)
+        IFS=$'\t' read -r tf ex < <(_userinfo_display "$ui")
+        traffics+=("$tf")
+        expires+=("$ex")
     done
 
     local w namew=0
@@ -250,6 +350,8 @@ _sub_pick() {
                     printf '  名称：%s\n' "${names[$i]}"
                     printf '  当前：%s\n' "$now"
                     printf '  更新：%s\n' "${updateds[$i]:-—}"
+                    printf '  流量：%s\n' "${traffics[$i]}"
+                    printf '  到期：%s\n' "${expires[$i]}"
                     printf '  链接：%s\n' "${urls[$i]}"
                 } >"$preview_dir/$((i + 1))"
             done
@@ -313,7 +415,7 @@ _sub_pick() {
 ########################################
 
 sub_add() {
-    local use_after_add=false name='' url=''
+    local use_after_add=false name='' url='' strategy=auto
 
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -331,11 +433,29 @@ sub_add() {
   clashctl sub add -u <url>
   clashctl sub add --use <url>
 
+- 获取策略（默认 auto：原生有效则直用，否则回退转换）
+  clashctl sub add --convert <url>   始终经 subconverter 转换
+  clashctl sub add --raw <url>       仅下载，不转换
+
 EOF
             return 0
             ;;
         -u | --use)
             use_after_add=true
+            ;;
+        --convert)
+            [ "$strategy" = raw ] && {
+                _errorcat "--convert 与 --raw 互斥"
+                return 1
+            }
+            strategy=convert
+            ;;
+        --raw)
+            [ "$strategy" = convert ] && {
+                _errorcat "--raw 与 --convert 互斥"
+                return 1
+            }
+            strategy=raw
             ;;
         -n | --name)
             [ -n "${2-}" ] || {
@@ -390,38 +510,61 @@ EOF
         return 1
     }
 
-    _download_config "$CLASH_CONFIG_TEMP" "$url"
-    _valid_config "$CLASH_CONFIG_TEMP" || {
+    _sub_download "$url" "$strategy" || {
         _errorcat "订阅无效，请检查：
-    原始订阅：${CLASH_CONFIG_TEMP}.raw
-    转换订阅：$CLASH_CONFIG_TEMP
-    转换日志：$BIN_SUBCONVERTER_LOG"
+${_SUB_DL_DEBUG_HINT:-转换日志：$BIN_SUBCONVERTER_LOG}"
         return 1
     }
 
-    [ -z "$name" ] && name=$(_sub_unique_name "$(_sub_default_name "$url")")
+    _with_profiles_lock _sub_add_locked "$name" "$url" "$use_after_add" "$_SUB_DL_FILE" "$FETCH_USERINFO" "$FETCH_FILENAME"
+}
+
+# 临界区：确定唯一名称/路径、落盘、写入元数据（可选立即启用）
+_sub_add_locked() {
+    local name=$1 url=$2 use_after_add=$3 dl_file=$4 userinfo=$5 filename=$6
+
+    # 下载期间可能已有并发操作占用了同名/同链接，锁内再权威校验一次
+    if [ -n "$name" ]; then
+        _sub_has "$name" && {
+            /usr/bin/rm -f "$dl_file"
+            _errorcat "订阅名称已存在：$name"
+            return 1
+        }
+    else
+        # 默认名优先取 content-disposition 文件名（多为机场名），否则回退链接 host
+        local base
+        base=$(_sub_sanitize_name "$filename")
+        [ -z "$base" ] && base=$(_sub_default_name "$url")
+        name=$(_sub_unique_name "$base")
+    fi
+    _sub_url_exists "$url" && {
+        /usr/bin/rm -f "$dl_file"
+        _errorcat "该订阅链接已存在：$url"
+        return 1
+    }
 
     /bin/mkdir -p "$CLASH_PROFILES_DIR"
     local profile_path
     profile_path=$(_sub_filename "$name")
-    /bin/mv "$CLASH_CONFIG_TEMP" "$profile_path"
+    /bin/mv "$dl_file" "$profile_path"
 
     local now
     now=$(date +"%Y-%m-%d %H:%M:%S")
-    PROFILE_NAME=$name PROFILE_PATH=$profile_path PROFILE_URL=$url PROFILE_UPDATED=$now \
+    PROFILE_NAME=$name PROFILE_PATH=$profile_path PROFILE_URL=$url PROFILE_UPDATED=$now PROFILE_USERINFO=$userinfo \
         "$BIN_YQ" -i '
             .profiles = (.profiles // []) +
             [{
               "name": strenv(PROFILE_NAME),
               "path": strenv(PROFILE_PATH),
               "url": strenv(PROFILE_URL),
-              "updated": strenv(PROFILE_UPDATED)
+              "updated": strenv(PROFILE_UPDATED),
+              "userinfo": strenv(PROFILE_USERINFO)
             }]
         ' "$CLASH_PROFILES_META"
 
     _logging_sub "➕ 已添加订阅：[$name] $url"
     _okcat '🎉' "订阅已添加：[$name] $url"
-    [ "$use_after_add" = true ] && _sub_use "$name"
+    [ "$use_after_add" = true ] && _sub_use_locked "$name"
 }
 
 _sub_del() {
@@ -449,6 +592,16 @@ EOF
         return 1
     }
 
+    _with_profiles_lock _sub_del_locked "$name"
+}
+
+_sub_del_locked() {
+    local name=$1
+    _sub_has "$name" || {
+        _errorcat "订阅不存在：$name"
+        return 1
+    }
+
     [ "$(_sub_current)" = "$name" ] && {
         _errorcat "删除失败：订阅 [$name] 正在使用中，请先切换订阅"
         return 1
@@ -464,6 +617,56 @@ EOF
     _okcat '🎉' "订阅已删除：[$name] $url"
 }
 
+# 字节数转人类可读（B/KB/MB/GB/...）
+_fmt_bytes() {
+    awk -v b="${1:-0}" 'BEGIN{
+        if (b <= 0) { print "0B"; exit }
+        split("B KB MB GB TB PB", u, " ");
+        i = 1; while (b >= 1024 && i < 6) { b /= 1024; i++ }
+        if (i == 1) printf "%d%s", b, u[i]; else printf "%.2f%s", b, u[i];
+    }'
+}
+
+# 解析 subscription-userinfo 原始串，输出：used<TAB>total<TAB>expire（bytes / epoch）
+_userinfo_fields() {
+    local s=${1//;/ } kv k v upload=0 download=0 total=0 expire=0
+    for kv in $s; do
+        k=${kv%%=*}
+        v=${kv#*=}
+        [[ $v =~ ^[0-9]+$ ]] || continue
+        case $k in
+        upload) upload=$v ;;
+        download) download=$v ;;
+        total) total=$v ;;
+        expire) expire=$v ;;
+        esac
+    done
+    printf '%s\t%s\t%s' "$((upload + download))" "$total" "$expire"
+}
+
+# 由 userinfo 原始串生成展示用「流量」「到期」两字段（无信息为 —），以 TAB 分隔
+_userinfo_display() {
+    local raw=$1 used total expire traffic exp
+    [ -z "$raw" ] && {
+        printf '%s\t%s' '—' '—'
+        return
+    }
+    IFS=$'\t' read -r used total expire < <(_userinfo_fields "$raw")
+    if [ "${total:-0}" -gt 0 ] 2>/dev/null; then
+        traffic="$(_fmt_bytes "$used")/$(_fmt_bytes "$total")"
+    elif [ "${used:-0}" -gt 0 ] 2>/dev/null; then
+        traffic=$(_fmt_bytes "$used")
+    else
+        traffic='—'
+    fi
+    if [ "${expire:-0}" -gt 0 ] 2>/dev/null; then
+        exp=$(date -d "@$expire" +%Y-%m-%d 2>/dev/null || printf '—')
+    else
+        exp='—'
+    fi
+    printf '%s\t%s' "$traffic" "$exp"
+}
+
 _sub_list() {
     case "${1:-}" in
     -h | --help)
@@ -472,7 +675,7 @@ _sub_list() {
 Usage:
   clashctl sub ls
 
-列出全部订阅：当前(*) / 名称 / 更新时间 / 链接。
+列出全部订阅：当前(*) / 名称 / 更新时间 / 流量 / 到期 / 链接。
 
 EOF
         return 0
@@ -489,28 +692,41 @@ EOF
         return 0
     }
 
-    local current i urls=() updateds=()
+    local current i urls=() updateds=() traffics=() expires=()
+    local ui tf ex
     current=$(_sub_current)
     for i in "${!names[@]}"; do
         urls+=("$(_sub_get "${names[$i]}" url)")
         updateds+=("$(_sub_get "${names[$i]}" updated)")
+        ui=$(_sub_get "${names[$i]}" userinfo)
+        IFS=$'\t' read -r tf ex < <(_userinfo_display "$ui")
+        traffics+=("$tf")
+        expires+=("$ex")
     done
 
-    local NAME_H='名称' UPD_H='更新时间'
-    local namew updw w upd
+    local NAME_H='名称' UPD_H='更新时间' TRAF_H='流量' EXP_H='到期'
+    local namew updw trafw expw w upd
     namew=$(_dispwidth "$NAME_H")
     updw=$(_dispwidth "$UPD_H")
+    trafw=$(_dispwidth "$TRAF_H")
+    expw=$(_dispwidth "$EXP_H")
     for i in "${!names[@]}"; do
         w=$(_dispwidth "${names[$i]}")
         ((w > namew)) && namew=$w
         w=$(_dispwidth "${updateds[$i]:-—}")
         ((w > updw)) && updw=$w
+        w=$(_dispwidth "${traffics[$i]}")
+        ((w > trafw)) && trafw=$w
+        w=$(_dispwidth "${expires[$i]}")
+        ((w > expw)) && expw=$w
     done
 
-    printf '  %s %s  %s  %s\n' \
+    printf '  %s %s  %s  %s  %s  %s\n' \
         ' ' \
         "$(_pad "$NAME_H" "$namew")" \
         "$(_pad "$UPD_H" "$updw")" \
+        "$(_pad "$TRAF_H" "$trafw")" \
+        "$(_pad "$EXP_H" "$expw")" \
         '链接'
 
     local marker
@@ -518,10 +734,12 @@ EOF
         marker=' '
         [ "${names[$i]}" = "$current" ] && marker='*'
         upd=${updateds[$i]:-—}
-        printf '  %s %s  %s  %s\n' \
+        printf '  %s %s  %s  %s  %s  %s\n' \
             "$marker" \
             "$(_pad "${names[$i]}" "$namew")" \
             "$(_pad "$upd" "$updw")" \
+            "$(_pad "${traffics[$i]}" "$trafw")" \
+            "$(_pad "${expires[$i]}" "$expw")" \
             "${urls[$i]}"
     done
     return 0
@@ -557,6 +775,16 @@ EOF
         return 1
     }
 
+    _with_profiles_lock _sub_use_locked "$name"
+}
+
+_sub_use_locked() {
+    local name=$1
+    _sub_has "$name" || {
+        _errorcat "订阅不存在：$name"
+        return 1
+    }
+
     local path url
     path=$(_sub_get "$name" path)
     url=$(_sub_get "$name" url)
@@ -574,35 +802,39 @@ _sub_update() {
         cat <<EOF
 
 Usage:
-  clashctl sub update [name] [--convert] [--auto]
+  clashctl sub update [name] [--all] [--convert | --raw]
 
-更新订阅（重新下载并转换）。省略 name 时更新当前使用的订阅。
+更新订阅（重新下载）。省略 name 时更新当前使用的订阅。
 
 Options:
-  --convert    使用 subconverter 重新转换订阅格式
-  --auto       设置每 2 天自动更新订阅的定时任务
+  --all        更新全部订阅
+  --convert    始终经 subconverter 转换（默认 auto：原生有效则直用，否则回退转换）
+  --raw        仅下载，不转换（校验失败即失败）
 
 EOF
         return 0
         ;;
     esac
 
-    local arg is_convert=false name=''
+    local arg strategy=auto name='' all=false
     for arg in "$@"; do
         case $arg in
-        --auto)
-            command -v crontab >/dev/null || _errorcat "未检测到 crontab 命令，请先安装 cron 服务" || return
-            crontab -l 2>/dev/null | grep -Fqs "$CLASHCTL_CRON_TAG" || {
-                {
-                    crontab -l 2>/dev/null | grep -Fv "$CLASHCTL_CRON_TAG"
-                    printf '0 0 */2 * * %s sub update %s\n' "$(which clashctl)" "$CLASHCTL_CRON_TAG"
-                } | crontab -
-            }
-            _okcat "已设置定时更新订阅"
-            return 0
+        --all)
+            all=true
             ;;
         --convert)
-            is_convert=true
+            [ "$strategy" = raw ] && {
+                _errorcat "--convert 与 --raw 互斥"
+                return 1
+            }
+            strategy=convert
+            ;;
+        --raw)
+            [ "$strategy" = convert ] && {
+                _errorcat "--raw 与 --convert 互斥"
+                return 1
+            }
+            strategy=raw
             ;;
         -*)
             _errorcat "未知选项：$arg"
@@ -614,11 +846,36 @@ EOF
         esac
     done
 
+    [ "$all" = true ] && {
+        [ -n "$name" ] && {
+            _errorcat "--all 不能与订阅名同时指定"
+            return 1
+        }
+        local names=() n rc=0
+        while IFS= read -r n; do
+            [ -n "$n" ] && names+=("$n")
+        done < <(_sub_names)
+        [ ${#names[@]} -eq 0 ] && {
+            _errorcat "当前无可用订阅，请先添加订阅"
+            return 1
+        }
+        for n in "${names[@]}"; do
+            _sub_update_one "$n" "$strategy" || rc=1
+        done
+        return "$rc"
+    }
+
     [ -z "$name" ] && name=$(_sub_current)
     [ -z "$name" ] && {
-        _errorcat "当前无使用中的订阅，请指定订阅名称"
+        _errorcat "当前无使用中的订阅，请指定订阅名称或使用 --all"
         return 1
     }
+    _sub_update_one "$name" "$strategy"
+}
+
+# 更新单个订阅：下载/校验在锁外，提交在锁内（供单个与 --all 复用）
+_sub_update_one() {
+    local name=$1 strategy=$2
     _sub_has "$name" || {
         _errorcat "订阅不存在：$name"
         return 1
@@ -629,32 +886,41 @@ EOF
     path=$(_sub_get "$name" path)
     _okcat "✈️ " "更新订阅：[$name] $url"
 
-    if [ "$is_convert" = true ]; then
-        _download_convert_config "$CLASH_CONFIG_TEMP" "$url"
-    else
-        _download_config "$CLASH_CONFIG_TEMP" "$url"
-    fi
-
-    _valid_config "$CLASH_CONFIG_TEMP" || {
-        _logging_sub "❌ 订阅更新失败：[$name] $url"
+    _sub_download "$url" "$strategy" || {
+        _logging_sub "❌ 订阅更新失败：[$name] $url${_SUB_DL_REASON:+ — ${_SUB_DL_REASON}}"
         _errorcat "订阅无效：请检查：
-    原始订阅：${CLASH_CONFIG_TEMP}.raw
-    转换订阅：$CLASH_CONFIG_TEMP
-    转换日志：$BIN_SUBCONVERTER_LOG"
+${_SUB_DL_DEBUG_HINT:-转换日志：$BIN_SUBCONVERTER_LOG}"
+        return 1
+    }
+
+    _with_profiles_lock _sub_update_locked "$name" "$url" "$path" "$_SUB_DL_FILE" "$FETCH_USERINFO"
+}
+
+_sub_update_locked() {
+    local name=$1 url=$2 path=$3 dl_file=$4 userinfo=$5
+
+    # 下载期间该订阅可能已被并发删除，锁内复检
+    _sub_has "$name" || {
+        /usr/bin/rm -f "$dl_file"
+        _errorcat "订阅不存在（可能已被删除）：$name"
         return 1
     }
 
     _logging_sub "✅ 订阅更新成功：[$name] $url"
-    cat "$CLASH_CONFIG_TEMP" >"$path"
+    /bin/mv -f "$dl_file" "$path"
 
     local now
     now=$(date +"%Y-%m-%d %H:%M:%S")
     PROFILE_NAME=$name PROFILE_UPDATED=$now "$BIN_YQ" -i \
         '(.profiles[] | select(.name == strenv(PROFILE_NAME)) | .updated) = strenv(PROFILE_UPDATED)' \
         "$CLASH_PROFILES_META"
+    # 仅在本次抓到流量信息时更新，避免转换路径的空值覆盖既有数据
+    [ -n "$userinfo" ] && PROFILE_NAME=$name PROFILE_USERINFO=$userinfo "$BIN_YQ" -i \
+        '(.profiles[] | select(.name == strenv(PROFILE_NAME)) | .userinfo) = strenv(PROFILE_USERINFO)' \
+        "$CLASH_PROFILES_META"
 
     [ "$(_sub_current)" = "$name" ] && {
-        _sub_use "$name"
+        _sub_use_locked "$name"
         return
     }
     _okcat '订阅已更新'
@@ -699,6 +965,20 @@ EOF
         return 1
     }
 
+    _with_profiles_lock _sub_rename_locked "$old" "$new"
+}
+
+_sub_rename_locked() {
+    local old=$1 new=$2
+    _sub_has "$old" || {
+        _errorcat "订阅不存在：$old"
+        return 1
+    }
+    _sub_has "$new" && {
+        _errorcat "订阅名称已存在：$new"
+        return 1
+    }
+
     OLD_NAME=$old NEW_NAME=$new "$BIN_YQ" -i \
         '(.profiles[] | select(.name == strenv(OLD_NAME)) | .name) = strenv(NEW_NAME)' \
         "$CLASH_PROFILES_META"
@@ -731,7 +1011,7 @@ Commands:
   ls                    查看订阅列表
   use [name]            使用订阅（省略 name 则交互选择）
   del <name>            删除订阅（省略 name 则交互选择）
-  update [name]         更新订阅（省略 name 则更新当前订阅）
+  update [name]         更新订阅（省略 name 则更新当前订阅，--all 更新全部）
   rename <old> <new>    重命名订阅
   log                   订阅日志
 
