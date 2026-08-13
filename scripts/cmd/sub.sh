@@ -437,6 +437,10 @@ sub_add() {
   clashctl sub add --convert <url>   始终经 subconverter 转换
   clashctl sub add --raw <url>       仅下载，不转换
 
+- 单次命令级下载超时（默认 ${CLASHCTL_SUB_TIMEOUT:-20} 秒，可在 .env 全局配置）
+  clashctl sub add -t 60 <url>
+  clashctl sub add --timeout 60 <url>
+
 EOF
             return 0
             ;;
@@ -467,6 +471,17 @@ EOF
             ;;
         --name=*)
             name="${1#*=}"
+            ;;
+        -t | --timeout)
+            [ -n "${2-}" ] || {
+                _errorcat "选项 $1 需要一个超时参数（秒）"
+                return 1
+            }
+            CLASHCTL_SUB_TIMEOUT=$2
+            shift
+            ;;
+        --timeout=*)
+            CLASHCTL_SUB_TIMEOUT="${1#*=}"
             ;;
         --)
             shift
@@ -802,7 +817,7 @@ _sub_update() {
         cat <<EOF
 
 Usage:
-  clashctl sub update [name] [--all] [--convert | --raw]
+  clashctl sub update [name] [--all] [--convert | --raw] [-t <秒>]
 
 更新订阅（重新下载）。省略 name 时更新当前使用的订阅。
 
@@ -810,15 +825,16 @@ Options:
   --all        更新全部订阅
   --convert    始终经 subconverter 转换（默认 auto：原生有效则直用，否则回退转换）
   --raw        仅下载，不转换（校验失败即失败）
+  -t, --timeout <秒>  单次命令级下载超时（默认 ${CLASHCTL_SUB_TIMEOUT:-20} 秒，可在 .env 全局配置）
 
 EOF
         return 0
         ;;
     esac
 
-    local arg strategy=auto name='' all=false
-    for arg in "$@"; do
-        case $arg in
+    local strategy=auto name='' all=false
+    while [ $# -gt 0 ]; do
+        case "$1" in
         --all)
             all=true
             ;;
@@ -836,14 +852,30 @@ EOF
             }
             strategy=raw
             ;;
+        -t | --timeout)
+            [ -n "${2-}" ] || {
+                _errorcat "选项 $1 需要一个超时参数（秒）"
+                return 1
+            }
+            CLASHCTL_SUB_TIMEOUT=$2
+            shift
+            ;;
+        --timeout=*)
+            CLASHCTL_SUB_TIMEOUT="${1#*=}"
+            ;;
+        --)
+            shift
+            break
+            ;;
         -*)
-            _errorcat "未知选项：$arg"
+            _errorcat "未知选项：$1"
             return 1
             ;;
         *)
-            [ -z "$name" ] && name=$arg
+            [ -z "$name" ] && name=$1
             ;;
         esac
+        shift
     done
 
     [ "$all" = true ] && {
