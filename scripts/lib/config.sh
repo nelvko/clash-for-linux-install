@@ -174,6 +174,7 @@ _merge_config() {
   _valid_config "$CLASH_CONFIG_RUNTIME" || {
     cat "$CLASH_CONFIG_TEMP" >"$CLASH_CONFIG_RUNTIME"
     _errorcat "验证失败：请检查 Mixin 配置"
+    return 1
   }
 }
 tunstatus() {
@@ -191,17 +192,17 @@ _is_tun_enabled() {
   "$BIN_YQ" -e '.tun.enable == true' "$CLASH_CONFIG_RUNTIME" >&/dev/null
 }
 _merge_config_restart() {
-  local was_tun_active tun_enabled
+  local was_tun_active
 
   tunstatus >&/dev/null && was_tun_active=true
-  _merge_config || return
-  _is_tun_enabled && tun_enabled=true
+  # rc=1：合并/校验失败（runtime 已由 _merge_config 回滚为旧配置）
+  _merge_config || return 1
 
   if [ "${was_tun_active}" = true ]; then
     service_sudo_stop >/dev/null
     service_is_active >&/dev/null && {
       _errorcat "请先关闭 Tun 模式"
-      return
+      return 2
     }
   else
     service_stop >&/dev/null
@@ -209,12 +210,15 @@ _merge_config_restart() {
 
   sleep 0.1
 
-  if [ "${tun_enabled}" = true ]; then
+  # rc=2：合并成功（runtime 已是新配置）但服务重启失败
+  if _is_tun_enabled; then
     service_sudo_start >/dev/null
     sleep 1
-    tunstatus >&/dev/null || _errorcat "Tun 模式重启失败，请检查代理内核日志" || return
+    tunstatus >&/dev/null || {
+      _errorcat "Tun 模式重启失败，请检查代理内核日志"
+      return 2
+    }
   else
-    service_start >/dev/null
-
+    service_start >/dev/null || return 2
   fi
 }

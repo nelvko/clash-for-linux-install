@@ -812,7 +812,7 @@ EOF
 }
 
 _sub_use_locked() {
-    local name=$1
+    local name=$1 rc
     _sub_has "$name" || {
         _errorcat "订阅不存在：$name"
         return 1
@@ -822,10 +822,38 @@ _sub_use_locked() {
     path=$(_sub_get "$name" path)
     url=$(_sub_get "$name" url)
 
+    [ -f "$path" ] && [ -s "$path" ] || {
+        _errorcat "订阅配置文件缺失或为空：$path"
+        return 1
+    }
+    _valid_sub_nodes "$path" || return 1
+
+    # 切换前备份 BASE：合并校验失败（rc=1）时连同运行配置一起回滚，避免 BASE 与 runtime 不一致
+    cat "$CLASH_CONFIG_BASE" >"${CLASH_CONFIG_BASE}.bak" || {
+        _errorcat "无法备份当前配置（磁盘已满？），已取消切换"
+        return 1
+    }
     cat "$path" >"$CLASH_CONFIG_BASE"
     _merge_config_restart
+    rc=$?
+    if [ "$rc" -eq 1 ]; then
+        cat "${CLASH_CONFIG_BASE}.bak" >"$CLASH_CONFIG_BASE" || {
+            _errorcat "回滚失败，原配置备份在 ${CLASH_CONFIG_BASE}.bak，请手动恢复"
+            return 1
+        }
+        /usr/bin/rm -f "${CLASH_CONFIG_BASE}.bak"
+        _errorcat "订阅 [$name] 校验未通过（含 Mixin 合并结果），已回滚"
+        return 1
+    fi
+    /usr/bin/rm -f "${CLASH_CONFIG_BASE}.bak"
+
     PROFILE_NAME=$name "$BIN_YQ" -i '.use = strenv(PROFILE_NAME)' "$CLASH_PROFILES_META"
     _logging_sub "🔥 订阅已切换为：[$name] $url"
+    # rc=2：配置本身已切换成功（BASE/runtime 均为新配置），仅服务重启失败
+    if [ "$rc" -eq 2 ]; then
+        _failcat '🍂' "配置已切换，但服务重启失败，请检查代理内核日志"
+        return 1
+    fi
     _okcat '🔥' '订阅已生效'
 }
 
