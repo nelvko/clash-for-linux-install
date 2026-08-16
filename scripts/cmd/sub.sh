@@ -422,27 +422,16 @@ sub_add() {
         -h | --help)
             cat <<EOF
 
-- 添加订阅
-  clashctl sub add <url>
+Usage:
+  clashctl sub add [OPTIONS] <url>   # 省略 url 时交互式输入
 
-- 指定订阅名称
-  clashctl sub add -n <name> <url>
-  clashctl sub add --name <name> <url>
-
-- 添加后立即使用该订阅
-  clashctl sub add -u <url>
-  clashctl sub add --use <url>
-
-- 获取策略（默认 auto：原生有效则直用，否则回退转换）
-  clashctl sub add --convert <url>   始终经 subconverter 转换
-  clashctl sub add --raw <url>       仅下载，不转换
-
-- 单次命令级下载超时（默认 ${CLASHCTL_SUB_TIMEOUT:-20} 秒，可在 .env 全局配置）
-  clashctl sub add -t 60 <url>
-  clashctl sub add --timeout 60 <url>
-
-- 单次命令级下载 UA（默认 ${CLASHCTL_SUB_UA:-clash-verge/v2.4.0}，可在 .env 全局配置）
-  clashctl sub add --ua 'clash-verge/v2.4.0' <url>
+Options:
+  -n, --name <name>   指定订阅名称（省略时自动取机场名/链接 host）
+  -u, --use           添加后立即使用该订阅
+  --convert           始终经 subconverter 转换（默认 auto：原生有效则直用，否则回退转换）
+  --raw               仅下载，不转换（校验失败即失败）
+  -t, --timeout <秒>  单次命令级下载超时（默认 ${CLASHCTL_SUB_TIMEOUT:-20} 秒，可在 .env 全局配置）
+  --ua <UA>           单次命令级下载 UA（默认 ${CLASHCTL_SUB_UA:-clash-verge/v2.4.0}，可在 .env 全局配置）
 
 EOF
             return 0
