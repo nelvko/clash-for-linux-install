@@ -441,6 +441,9 @@ sub_add() {
   clashctl sub add -t 60 <url>
   clashctl sub add --timeout 60 <url>
 
+- 单次命令级下载 UA（默认 ${CLASHCTL_SUB_UA:-clash-verge/v2.4.0}，可在 .env 全局配置）
+  clashctl sub add --ua 'clash-verge/v2.4.0' <url>
+
 EOF
             return 0
             ;;
@@ -482,6 +485,23 @@ EOF
             ;;
         --timeout=*)
             CLASHCTL_SUB_TIMEOUT="${1#*=}"
+            ;;
+        --ua)
+            [ -n "${2-}" ] || {
+                _errorcat "选项 $1 需要一个 UA 参数"
+                return 1
+            }
+            # shellcheck disable=SC2034  # 供 scripts/lib/convert.sh 读取
+            CLASHCTL_SUB_UA=$2
+            shift
+            ;;
+        --ua=*)
+            # shellcheck disable=SC2034  # 供 scripts/lib/convert.sh 读取
+            CLASHCTL_SUB_UA="${1#*=}"
+            [ -n "$CLASHCTL_SUB_UA" ] || {
+                _errorcat "选项 $1 需要一个 UA 参数"
+                return 1
+            }
             ;;
         --)
             shift
@@ -817,7 +837,7 @@ _sub_update() {
         cat <<EOF
 
 Usage:
-  clashctl sub update [name] [--all] [--convert | --raw] [-t <秒>]
+  clashctl sub update [name] [--all] [--convert | --raw] [-t <秒>] [--ua <UA>]
 
 更新订阅（重新下载）。省略 name 时更新当前使用的订阅。
 
@@ -826,6 +846,7 @@ Options:
   --convert    始终经 subconverter 转换（默认 auto：原生有效则直用，否则回退转换）
   --raw        仅下载，不转换（校验失败即失败）
   -t, --timeout <秒>  单次命令级下载超时（默认 ${CLASHCTL_SUB_TIMEOUT:-20} 秒，可在 .env 全局配置）
+  --ua <UA>    单次命令级下载 UA（默认 ${CLASHCTL_SUB_UA:-clash-verge/v2.4.0}，可在 .env 全局配置）
 
 EOF
         return 0
@@ -862,6 +883,23 @@ EOF
             ;;
         --timeout=*)
             CLASHCTL_SUB_TIMEOUT="${1#*=}"
+            ;;
+        --ua)
+            [ -n "${2-}" ] || {
+                _errorcat "选项 $1 需要一个 UA 参数"
+                return 1
+            }
+            # shellcheck disable=SC2034  # 供 scripts/lib/convert.sh 读取
+            CLASHCTL_SUB_UA=$2
+            shift
+            ;;
+        --ua=*)
+            # shellcheck disable=SC2034  # 供 scripts/lib/convert.sh 读取
+            CLASHCTL_SUB_UA="${1#*=}"
+            [ -n "$CLASHCTL_SUB_UA" ] || {
+                _errorcat "选项 $1 需要一个 UA 参数"
+                return 1
+            }
             ;;
         --)
             shift
