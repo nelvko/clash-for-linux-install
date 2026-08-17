@@ -13,6 +13,8 @@ authentication:
 # append   后置追加：追加到原列表末尾，适用于 rules、proxies、proxy-groups
 # override 整体替换：按 name 匹配并替换整个项目，适用于 proxies、proxy-groups
 # inject   节点注入：向指定 proxy-group 的 proxies 列表注入节点，仅适用于 proxy-groups
+# inject-all 全组注入：向所有手动选择组（type: select）注入节点，无需逐个写组名，换订阅零改动
+# inject-all-exclude 注入排除：组名正则，命中的组不参与 inject-all
 
 # 示例：https://github.com/nelvko/clash-for-linux-install/discussions/562
 rules:
@@ -31,6 +33,8 @@ proxy-groups:
   append:
   override:
   inject:
+  inject-all:
+  inject-all-exclude:
 
 # tun 配置
 tun:
