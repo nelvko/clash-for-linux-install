@@ -4,6 +4,12 @@ CLASHCTL_SRC="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 . "$CLASHCTL_SRC/scripts/preflight.sh"
 . "$CLASHCTL_SRC/scripts/cmd/off.sh"
 
+# 从安装目录直接运行且 shell 未导出时，以脚本所在目录为安装路径
+if [ -z "${CLASHCTL_HOME:-}" ]; then
+    CLASHCTL_HOME="$(cd -- "$CLASHCTL_SRC" && pwd -P)"
+    . "$CLASHCTL_SRC/scripts/lib/common.sh"
+fi
+
 ! _is_root && tunstatus >&/dev/null && {
     _errorcat "请先关闭 Tun 模式"
     exit
@@ -19,4 +25,6 @@ command -v crontab >&/dev/null && {
 revoke_rc
 
 _okcat '✨' "已卸载，相关配置已清除"
-[ -n "$http_proxy" ] && _failcat '❗' "当前终端仍残留代理环境变量，重开终端即可清除"
+if [ -n "$http_proxy" ]; then
+    _failcat '❗' "当前终端仍残留代理环境变量，重开终端即可清除"
+fi

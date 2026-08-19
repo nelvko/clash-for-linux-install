@@ -36,8 +36,8 @@ detect_service_manager() {
     service_log_path="/var/log/${CLASHCTL_KERNEL}.log"
     service_pid_path="/run/${CLASHCTL_KERNEL}.pid"
     [ "$service_manager" = "nohup" ] && {
-        service_log_path="${CLASH_RESOURCES_DIR}/${CLASHCTL_KERNEL}.log"
-        service_pid_path="${CLASH_RESOURCES_DIR}/${CLASHCTL_KERNEL}.pid"
+        service_log_path="${CLASH_DATA_DIR}/${CLASHCTL_KERNEL}.log"
+        service_pid_path="${CLASH_DATA_DIR}/${CLASHCTL_KERNEL}.pid"
     }
 }
 
@@ -209,7 +209,29 @@ service_read_log() {
     esac
 }
 
-install_service() {
+# 输出当前 init 系统的服务单元路径；无服务管理器（nohup）时返回 1
+_service_target() {
+    detect_service_manager
+
+    case "$service_manager" in
+    systemd)
+        printf '%s\n' "/etc/systemd/system/${CLASHCTL_KERNEL}.service"
+        ;;
+    sysvinit | openrc)
+        printf '%s\n' "/etc/init.d/${CLASHCTL_KERNEL}"
+        ;;
+    runit)
+        printf '%s\n' "/etc/sv/${CLASHCTL_KERNEL}/run"
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+}
+
+# 将服务单元模板渲染（替换占位符）到 <dst>；无服务管理器时返回 1
+_render_service_unit() {
+    local dst=$1
     detect_service_manager
 
     local template_dir="${CLASHCTL_SRC}/scripts/init"
@@ -217,31 +239,27 @@ install_service() {
     local cmd_path="${BIN_KERNEL}"
     local cmd_arg="-d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME}"
     local cmd_full="${BIN_KERNEL} -d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME}"
-    local service_src service_target
+    local service_src
 
     case "$service_manager" in
     systemd)
         service_src="${template_dir}/systemd.sh"
-        service_target="/etc/systemd/system/${CLASHCTL_KERNEL}.service"
         ;;
     sysvinit)
         service_src="${template_dir}/sysvinit.sh"
-        service_target="/etc/init.d/${CLASHCTL_KERNEL}"
         ;;
     openrc)
         service_src="${template_dir}/openrc.sh"
-        service_target="/etc/init.d/${CLASHCTL_KERNEL}"
         ;;
     runit)
         service_src="${template_dir}/runit.sh"
-        service_target="/etc/sv/${CLASHCTL_KERNEL}/run"
         ;;
-    nohup | *)
-        return 0
+    *)
+        return 1
         ;;
     esac
 
-    /usr/bin/install -D -m +x "$service_src" "$service_target"
+    /usr/bin/install -D -m +x "$service_src" "$dst" || return 1
     sed -i \
         -e "s#placeholder_cmd_path#$cmd_path#g" \
         -e "s#placeholder_cmd_args#$cmd_arg#g" \
@@ -250,7 +268,15 @@ install_service() {
         -e "s#placeholder_pid_path#$service_pid_path#g" \
         -e "s#placeholder_kernel_name#$CLASHCTL_KERNEL#g" \
         -e "s#placeholder_kernel_desc#$kernel_desc#g" \
-        "$service_target"
+        "$dst"
+}
+
+install_service() {
+    detect_service_manager
+
+    local service_target
+    service_target=$(_service_target) || return 0
+    _render_service_unit "$service_target" || return 1
 
     case "$service_manager" in
     systemd)

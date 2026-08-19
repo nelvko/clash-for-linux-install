@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
+# 安装期物化后存在；uninstall.sh 自安装目录运行时亦存在
 . "$CLASHCTL_SRC/.env"
-. "$CLASHCTL_SRC/.env.install"
 
 for lib_file in "$CLASHCTL_SRC"/scripts/lib/*.sh; do
     [ -f "$lib_file" ] || continue
@@ -10,8 +10,12 @@ done
 
 ARCHIVE_BASE_DIR="${CLASHCTL_SRC}/archives"
 ZIP_BASE_DIR="${ARCHIVE_BASE_DIR}"
-
-CLASHCTL_CMD_DIR="${CLASHCTL_HOME}/scripts/cmd"
+# ZIP_UI 允许在 .env 里写相对路径，此处归一化（否则依赖运行时 cwd）
+case "${ZIP_UI:-}" in
+"") ;;
+/*) ;;
+*) ZIP_UI="${CLASHCTL_SRC}/${ZIP_UI}" ;;
+esac
 
 valid_required() {
     local required_cmds=("xz" "pgrep" "pkill" "curl" "tar" 'unzip' 'gzip' 'shuf')
@@ -24,35 +28,6 @@ valid_required() {
     command -v ip >&/dev/null || command -v hostname >&/dev/null || missing+=("ip/hostname")
 
     [ ${#missing[@]} -eq 0 ] || _errorcat "请先安装以下命令：${missing[*]}" || exit
-}
-
-valid_env() {
-    valid_required
-
-    [ -d "$CLASHCTL_HOME" ] && {
-        _errorcat "请先执行卸载脚本,以清除安装路径：$CLASHCTL_HOME"
-        exit
-    }
-
-    local _d="$CLASHCTL_HOME"
-    while [[ ! -d "$_d" ]]; do _d="$(dirname "$_d")"; done
-    [[ -w "$_d" ]] || _errorcat "${CLASHCTL_HOME}：当前路径不可用，请在 .env.install 中更换安装路径。" || exit
-}
-
-parse_args() {
-    for arg in "$@"; do
-        case $arg in
-        mihomo)
-            CLASHCTL_KERNEL=mihomo
-            ;;
-        clash)
-            CLASHCTL_KERNEL=clash
-            ;;
-        http*)
-            CLASHCTL_SUB_URL=$arg
-            ;;
-        esac
-    done
 }
 
 prepare_zip() {
@@ -248,77 +223,25 @@ unzip_zip() {
 _set_envs() {
     _set_env INIT_TYPE "$INIT_TYPE"
     _set_env CLASHCTL_KERNEL "$CLASHCTL_KERNEL"
+    # 无 .git 的安装记录 rev；git 安装以 rev-parse 为准（clashctl update 直接读 git）
+    [ -d "${CLASHCTL_SRC}/.git" ] ||
+        _set_env CLASHCTL_REV "$(_update_source_rev "$CLASHCTL_SRC")"
 }
 
-install_clashctl() {
-    local target_dir=$CLASHCTL_HOME
-    local resource
-
-    /usr/bin/install -d \
-        "$target_dir/bin" \
-        "$target_dir/scripts" \
-        "$target_dir/resources"
-
-    touch "$CLASH_CONFIG_BASE"
-
-    /usr/bin/install -m 644 "$CLASHCTL_SRC/.env" "$target_dir/.env" && _set_envs
-    /usr/bin/install -m 755 "$CLASHCTL_SRC/uninstall.sh" "$target_dir/uninstall.sh"
-
-    /bin/cp -a "$CLASHCTL_SRC/scripts/cmd" "$target_dir/scripts/"
-    /bin/cp -a "$CLASHCTL_SRC/scripts/lib" "$target_dir/scripts/"
-    /bin/cp -a "$CLASHCTL_SRC/scripts/init" "$target_dir/scripts/"
-
-    for resource in "$CLASHCTL_SRC"/resources/*; do
-        /bin/cp -r "$resource" "$target_dir/resources/"
-    done
-    apply_rc
-}
-
-detect_rc() {
-    command -v bash >&/dev/null && {
-        SHELL_RC_BASH="${HOME}/.bashrc"
-    }
-    command -v zsh >&/dev/null && {
-        SHELL_RC_ZSH="${HOME}/.zshrc"
-    }
-    command -v fish >&/dev/null && {
-        SHELL_RC_FISH="${HOME}/.config/fish/conf.d/clashctl.fish"
-    }
-}
 apply_rc() {
     detect_rc
 
-    local source_clashctl=$(
-        cat <<EOF
-export CLASHCTL_HOME=$CLASHCTL_HOME
-. \$CLASHCTL_HOME/scripts/cmd/clashctl.sh
-EOF
-    )
-
     local rc written=()
     for rc in "$SHELL_RC_BASH" "$SHELL_RC_ZSH"; do
-        [ ! -e "$rc" ] && continue
+        [ -f "$rc" ] || continue
 
-        [ "$(tail -c 1 -- "$rc" | wc -l)" -eq 0 ] && {
-            printf '\n' >>"$rc"
-        }
-
-        printf '%s\n' "$source_clashctl" >>"$rc"
-
+        # 已有引导块则跳过（幂等，重复安装不再重复追加）
+        _append_source_block "$rc"
         written+=("$rc")
     done
 
     [ -n "$SHELL_RC_FISH" ] && {
-        mkdir -p -- "$(dirname -- "$SHELL_RC_FISH")"
-        local fish_quoted=${CLASHCTL_HOME//\\/\\\\}
-        fish_quoted=${fish_quoted//\'/\\\'}
-        {
-            printf "# clashctl shell-rc (managed by install.sh, do not edit)\n"
-            printf "set -gx CLASHCTL_HOME '%s'\n\n" "$fish_quoted"
-            cat -- "$CLASHCTL_CMD_DIR/clashctl.fish"
-        } >"$SHELL_RC_FISH"
-        chmod 0644 -- "$SHELL_RC_FISH"
-        written+=("$SHELL_RC_FISH")
+        _write_fish_rc && written+=("$SHELL_RC_FISH")
     }
 
     [ ${#written[@]} -gt 0 ] && _okcat '📄' "已写入 shell 配置：${written[*]}"

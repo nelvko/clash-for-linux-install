@@ -24,16 +24,23 @@
 
 ## 🚀 Installation
 
-在终端中执行以下命令即可完成安装：
+在终端中执行以下命令即可完成安装（无需 git）：
 
 ```bash
-git clone --branch master --depth 1 https://gh-proxy.org/https://github.com/nelvko/clash-for-linux-install.git \
-  && cd clash-for-linux-install \
-  && bash install.sh
+curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | bash
 ```
 
 - 上述命令使用了[加速前缀](https://gh-proxy.org/)，如失效请更换其他[可用链接](https://ghproxy.link/)。
-- 可通过 `.env.install` 文件自定义安装选项。
+- 弱网下若执行后无任何输出（下载失败静默退出），可改用落盘方式重试：
+  `curl -fsSL -o /tmp/install.sh <上述链接> && bash /tmp/install.sh`
+- 定制安装直接带参数/环境变量（无需配置文件）：
+
+```bash
+curl -fsSL <上述链接> | bash -s -- mihomo https://订阅URL   # 指定内核与初始订阅
+curl -fsSL <上述链接> | CLASHCTL_HOME=/opt/clashctl GH_PROXY=https://ghproxy.link bash -s -- --branch dev
+# 可选参数：--home 路径、--branch 分支；环境变量：GH_PROXY、CLASHCTL_DOWNLOAD_TIMEOUT、VERSION_* 依赖钉版等
+```
+
 - 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
 
 ## 🎯 Quick Start
@@ -53,13 +60,31 @@ clashctl node            # 切换节点
 clashctl -h              # 查看全部命令
 ```
 
-## 🧹 Uninstall
+## 🔄 Update
 
-在项目目录下执行以下命令即可干净卸载（清除内核、配置及服务）：
+更新无需卸载重装，订阅、mixin、密钥与内核二进制全部保留：
 
 ```bash
-bash uninstall.sh
+clashctl update                # 增量更新（git fetch，通常只拉几 KB）
+clashctl update --check        # 检查版本（本地 git 比对，不调 GitHub API）
+clashctl update --branch dev   # 切换跟进分支（默认 master）
+clashctl update --rollback     # 回退到上一版本
 ```
+
+- 安装目录 `~/.clashctl` 即 git 仓库：用户配置全部在 `data/`，更新永不触碰；本地修改过跟踪文件时更新会被拒绝并列出清单。
+- 进阶：可直接 `cd ~/.clashctl && git log` 查看版本历史；不建议裸 `git pull`（会跳过服务配置刷新）。
+- 长期跟进某分支、更换镜像或 SSH 源，编辑 `~/.clashctl/.env` 的 `CLASHCTL_UPDATE_BRANCH` / `CLASHCTL_UPDATE_GIT_URL`。
+- 升级代理内核请使用 `clashctl upgrade`，与脚本更新相互独立。
+
+## 🧹 Uninstall
+
+执行以下命令即可干净卸载（清除内核、配置及服务）：
+
+```bash
+bash ~/.clashctl/uninstall.sh
+```
+
+- 自定义过安装路径的用户请相应调整。
 
 ## 📖 Documentation
 
