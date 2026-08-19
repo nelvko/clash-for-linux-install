@@ -1,11 +1,20 @@
 .idea
 .vscode
 
-config.yaml*
+test.sh
+
+# 安装期物化与用户数据（home 内不跟踪）
+data/
+.env
+bin/
+resources/dist/
+*.log
+*.pid
 
 archives/*
 !archives/dist.zip
 
-test.sh
-
 !.gitkeep
+
+# 内核运行时产物（写入 -d 工作目录）
+resources/cache.db

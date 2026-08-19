@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-CLASH_RESOURCES_DIR="${CLASHCTL_HOME}/resources"
-CLASH_CONFIG_BASE="${CLASH_RESOURCES_DIR}/config.yaml"
-CLASH_CONFIG_MIXIN="${CLASH_RESOURCES_DIR}/mixin.yaml"
-CLASH_CONFIG_RUNTIME="${CLASH_RESOURCES_DIR}/runtime.yaml"
-CLASH_CONFIG_TEMP="${CLASH_RESOURCES_DIR}/temp.yaml"
+# 用户态全部在 data/（gitignore 目录），resources/ 只保留跟踪的资源文件
+CLASH_DATA_DIR="${CLASHCTL_HOME}/data"
+CLASH_CONFIG_BASE="${CLASH_DATA_DIR}/config.yaml"
+CLASH_CONFIG_MIXIN="${CLASH_DATA_DIR}/mixin.yaml"
+CLASH_CONFIG_RUNTIME="${CLASH_DATA_DIR}/runtime.yaml"
+CLASH_CONFIG_TEMP="${CLASH_DATA_DIR}/temp.yaml"
 # 订阅下载/校验失败时保留的调试产物（稳定路径，便于排障）
-CLASH_CONFIG_DEBUG="${CLASH_RESOURCES_DIR}/last-failed.yaml"
-CLASH_CONFIG_DEBUG_RAW="${CLASH_RESOURCES_DIR}/last-failed.raw"
+CLASH_CONFIG_DEBUG="${CLASH_DATA_DIR}/last-failed.yaml"
+CLASH_CONFIG_DEBUG_RAW="${CLASH_DATA_DIR}/last-failed.raw"
+
+CLASH_RESOURCES_DIR="${CLASHCTL_HOME}/resources"
 
 BIN_BASE_DIR="${CLASHCTL_HOME}/bin"
 BIN_KERNEL="${BIN_BASE_DIR}/$CLASHCTL_KERNEL"
@@ -18,10 +21,12 @@ BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
 BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
 BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
 
-CLASH_PROFILES_DIR="${CLASH_RESOURCES_DIR}/profiles"
-CLASH_PROFILES_META="${CLASH_RESOURCES_DIR}/profiles.yaml"
-CLASH_PROFILES_LOG="${CLASH_RESOURCES_DIR}/profiles.log"
-CLASH_PROFILES_LOCK="${CLASH_RESOURCES_DIR}/profiles.lock"
+CLASH_PROFILES_DIR="${CLASH_DATA_DIR}/profiles"
+CLASH_PROFILES_META="${CLASH_DATA_DIR}/profiles.yaml"
+CLASH_PROFILES_LOG="${CLASH_DATA_DIR}/profiles.log"
+CLASH_PROFILES_LOCK="${CLASH_DATA_DIR}/profiles.lock"
+
+CLASHCTL_CMD_DIR="${CLASHCTL_HOME}/scripts/cmd"
 
 CLASHCTL_CRON_TAG="# clashctl-auto-update"
 
@@ -160,4 +165,53 @@ _set_env() {
         return $?
     }
     printf '%s=%s\n' "$key" "$value" >>"$env_path"
+}
+
+detect_rc() {
+    command -v bash >&/dev/null && {
+        SHELL_RC_BASH="${HOME}/.bashrc"
+    }
+    command -v zsh >&/dev/null && {
+        SHELL_RC_ZSH="${HOME}/.zshrc"
+    }
+    command -v fish >&/dev/null && {
+        SHELL_RC_FISH="${HOME}/.config/fish/conf.d/clashctl.fish"
+    }
+}
+
+# 幂等写入 bash/zsh 的 clashctl 引导块（已存在则跳过）
+_append_source_block() {
+    local rc=$1
+
+    [ -f "$rc" ] || return 0
+    grep -qs '^export CLASHCTL_HOME=' "$rc" && return 0
+
+    [ "$(tail -c 1 -- "$rc" | wc -l)" -eq 0 ] && {
+        printf '\n' >>"$rc"
+    }
+    printf 'export CLASHCTL_HOME=%s\n' "$CLASHCTL_HOME" >>"$rc"
+    printf '. $CLASHCTL_HOME/scripts/cmd/clashctl.sh\n' >>"$rc"
+}
+
+# 将 clashctl.fish 以内容快照方式写入 fish 配置；内容无变化时不写（返回 1）
+_write_fish_rc() {
+    [ -n "$SHELL_RC_FISH" ] || return 1
+
+    mkdir -p -- "$(dirname -- "$SHELL_RC_FISH")"
+    local fish_quoted=${CLASHCTL_HOME//\\/\\\\}
+    fish_quoted=${fish_quoted//\'/\\\'}
+    local tmp
+    tmp=$(mktemp)
+    {
+        printf "# clashctl shell-rc (managed by install.sh, do not edit)\n"
+        printf "set -gx CLASHCTL_HOME '%s'\n\n" "$fish_quoted"
+        cat -- "$CLASHCTL_CMD_DIR/clashctl.fish"
+    } >"$tmp"
+    if cmp -s -- "$tmp" "$SHELL_RC_FISH"; then
+        /usr/bin/rm -f -- "$tmp"
+        return 1
+    fi
+    /bin/mv -f -- "$tmp" "$SHELL_RC_FISH"
+    chmod 0644 -- "$SHELL_RC_FISH"
+    return 0
 }

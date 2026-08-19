@@ -1,0 +1,254 @@
+# 全局配置 
+mixed-port: 7890
+allow-lan: true
+bind-address: "*"
+ipv6: true
+unified-delay: true
+tcp-concurrent: true
+log-level: warning
+keep-alive-idle: 600
+keep-alive-interval: 15
+profile:
+  store-selected: true
+  store-fake-ip: true
+
+# 为防止使用插件朋友遇到面板问题，我注释掉了此模块。
+#external-controller: 0.0.0.0:9090
+#secret: ""
+#external-ui: ui
+#external-ui-name: zashboard
+#external-ui-url: "https://github.com/Zephyruso/zashboard/archive/refs/heads/gh-pages.zip"
+
+# 嗅探（fakeip下其实可以不用嗅探）
+# sniffer:
+#   enable: true
+#   sniff:
+#     HTTP:
+#       ports: [80, 8080-8880]
+#       override-destination: true
+#     TLS:
+#       ports: [443, 8443]
+#     QUIC:
+#       ports: [443, 8443]
+#   skip-domain:
+#     - "Mijia Cloud"
+#     - "+.push.apple.com"
+
+# 入站
+tun:
+  enable: true
+  # system/gvisor/mixed
+  stack: gvisor
+  dns-hijack: ["any:53", "tcp://any:53"]
+  #使用nikki，混入全部不修改的情况，开启接口指定为nikki
+  #device: nikki
+  #使用仅内核自行修改下面三项为true
+  auto-route: true
+  auto-redirect: false
+  auto-detect-interface: true
+
+# DNS模块
+dns:
+  enable: true
+  cache-algorithm: arc
+  listen: 0.0.0.0:1053
+  ipv6: true
+  respect-rules: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter-mode: blacklist
+  fake-ip-filter:
+    - "rule-set:fakeipfilter_domain"
+  default-nameserver:
+    - system
+    - https://223.5.5.5/dns-query
+  # 专门用来解析代理（proxies)节点服务器域名的 DNS
+  proxy-server-nameserver:
+    - https://dns.alidns.com/dns-query
+    - https://doh.pub/dns-query
+  nameserver:
+    - https://dns.alidns.com/dns-query
+    - https://doh.pub/dns-query
+  nameserver-policy:
+    "rule-set:cn_domain":
+      - system
+    "+.cn":
+      - system
+    "rule-set:geolocation-!cn":
+      - https://dns.alidns.com/dns-query
+      - https://doh.pub/dns-query
+
+# 锚点，用于简化配置
+# for proxy-providers
+pp: &pp { type: http, interval: 86400, proxy: DIRECT, health-check: { enable: true, url: http://www.google.com/generate_204, interval: 300, lazy: true } }
+
+# 代理集合
+proxy-providers:
+  Maruko: { <<: *pp, url: "https://substore.muteki.site/2cXaAfCgfddmGz2yx1wA/download/collection/Maruko" }
+
+  # 落地订阅占位：需要使用时，取消下面注释并把 url 改成真实订阅地址
+  # 落地:
+  #   <<: *pp
+  #   url: "https://example.com/landing-subscription"
+  #   override:
+  #     dialer-proxy: 前置节点
+  
+# 节点信息
+proxies:
+  - { name: 直连, type: direct }
+
+# 锚点,用于简化配置
+# for proxy-providers
+proxy-anchor:
+  pg: &pg { type: select, proxies: [默认代理, 香港自动, 日本自动, 台湾自动, 狮城自动, 美国自动, 自动选择, 香港节点, 日本节点, 台湾节点, 美国节点, 尼日利亚节点, 全部节点, 香港故转, 日本故转, 台湾故转, 狮城故转, 美国故转, 落地节点, 直连], icon: "https://www.svgrepo.com/show/497934/direct-right.svg" }
+
+# 出站策略，根据自己情况调整每个策略里分组排序，增删都可以，比如把美国自动放到第一个，比如删除香港故转，注意别漏掉表情逗号等【Maruko:不带emoji，是因为 Proxy-groups 支持 icon 】。
+# 如果相应分组没有筛选到对应的国家，请根据自己节点名字调整筛选关键字。
+# 没有再使用锚点，是考虑很多新手修改难度，这样新手修改某个分组更容易些【Maruko:但是我还是用了锚点来简化配置，毕竟很多分组的节点是一样的】。
+proxy-groups:
+  - { name: 全球直连, type: select, proxies: [直连, 默认代理], icon: "https://www.clashverge.dev/assets/icons/link.svg" }
+  - { name: 默认代理, type: select, proxies: [日本节点,自动选择, 台湾节点, 美国节点, 尼日利亚节点, 香港故转, 日本故转, 台湾故转, 美国故转, 狮城故转, 香港自动, 日本自动, 台湾自动, 狮城自动, 美国自动, 香港节点, 全部节点, 直连], icon: https://www.clashverge.dev/assets/icons/adjust.svg }
+  - { name: Muteki, type: select, proxies: [直连, 默认代理, 香港故转, 全部节点], icon: "https://raw.githubusercontent.com/cc63/ICON/main/Sub-Store.png" }
+  - { name: ChatGPT, <<: *pg, icon: "https://upload.wikimedia.org/wikipedia/commons/e/ef/ChatGPT-Logo.svg" }
+  - { name: Stripe, type: select, proxies: [ChatGPT, 默认代理, 美国节点, 台湾节点, 香港节点, 全部节点], icon: "https://upload.wikimedia.org/wikipedia/commons/b/ba/Stripe_Logo%2C_revised_2016.svg" }
+  - { name: YouTube, <<: *pg, icon: "https://www.clashverge.dev/assets/icons/youtube.svg" }
+  - { name: Google, <<: *pg, icon: "https://www.clashverge.dev/assets/icons/google.svg" }
+  - { name: 哔哩哔哩, <<: *pg, icon: "https://raw.githubusercontent.com/Marukoyo/icon/refs/heads/main/%E5%93%94%E5%93%A9%E5%93%94%E5%93%A9.svg" }
+  - { name: Chirou, <<: *pg, icon: "https://www.clashverge.dev/assets/icons/adjust.svg" }
+  - { name: Spotify, <<: *pg, icon: "https://upload.wikimedia.org/wikipedia/commons/8/84/Spotify_icon.svg" }
+  - { name: Steam, <<: *pg, icon: "https://upload.wikimedia.org/wikipedia/commons/8/83/Steam_icon_logo.svg" }
+  - { name: GitHub, <<: *pg, icon: "https://www.clashverge.dev/assets/icons/github.svg" }
+  - { name: OneDrive, <<: *pg, icon: "https://www.clashverge.dev/assets/icons/onedrive.svg" }
+  - { name: Microsoft, <<: *pg, icon: "https://www.clashverge.dev/assets/icons/microsoft.svg" }
+  - { name: TikTok, <<: *pg, icon: "https://www.clashverge.dev/assets/icons/tiktok.svg" }
+  - { name: Telegram, <<: *pg, icon: "https://www.clashverge.dev/assets/icons/telegram.svg" }
+  - { name: NETFLIX, <<: *pg, icon: "https://www.clashverge.dev/assets/icons/netflix.svg" }
+  - { name: Speedtest, <<: *pg, icon: "https://www.svgrepo.com/show/504905/speedtest-by-ookla.svg" }
+  - { name: PayPal, <<: *pg, icon: "https://www.svgrepo.com/show/508716/paypal.svg" }
+  - { name: Apple, <<: *pg, icon: "https://www.clashverge.dev/assets/icons/apple.svg" }
+  - { name: WifiCalling, <<: *pg, icon: "https://www.svgrepo.com/show/456715/wifi-call.svg" }
+  - { name: 香港节点, type: select, include-all: true, filter: "(?=.*(港|HK|(?i)Hong))^((?!落地).)*$", icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/flags/hk.svg" }
+  - { name: 日本节点, type: select, include-all: true, filter: "(?=.*(日本|JP|(?i)Japan))^((?!落地).)*$", icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/flags/jp.svg" }
+  - { name: 台湾节点, type: select, include-all: true, filter: "(?=.*(台|TW|(?i)Taiwan))^((?!落地).)*$", icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/flags/tw.svg" }
+  - { name: 美国节点, type: select, include-all: true, filter: "(?=.*(美|US|(?i)States|America))^((?!落地).)*$", icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/flags/us.svg" }
+  - { name: 尼日利亚节点, type: select, include-all: true, filter: "(?=.*(尼日利亚|(?i)Nigeria))^((?!落地).)*$", icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/flags/ng.svg" }
+  - { name: 香港故转, type: fallback, include-all: true, tolerance: 30, interval: 300, max-failed-times: 2, filter: "(?=.*(港|HK|(?i)Hong))^((?!(台|日|韩|新|美|落地)).)*$", icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/flags/hk.svg" }
+  - { name: 日本故转, type: fallback, include-all: true, tolerance: 30, interval: 300, max-failed-times: 2, filter: "(?=.*(日本|JP|(?i)Japan))^((?!(港|台|韩|新|美|落地)).)*$", icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/flags/jp.svg" }
+  - { name: 台湾故转, type: fallback, include-all: true, tolerance: 30, interval: 300, max-failed-times: 2, filter: "(?=.*(台|TW|(?i)Taiwan))^((?!(港|日|韩|新|美|落地)).)*$", icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/flags/tw.svg" }
+  - { name: 狮城故转, type: fallback, include-all: true, tolerance: 30, interval: 300, max-failed-times: 2, filter: "(?=.*(新加坡|坡|狮城|SG|Singapore))^((?!(台|日|韩|深|美)).)*$", icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/flags/sg.svg" }
+  - { name: 美国故转, type: fallback, include-all: true, tolerance: 30, interval: 300, max-failed-times: 2, filter: "(?=.*(美|US|(?i)States|America))^((?!(港|台|日|韩|新|落地)).)*$", icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/flags/us.svg" }
+  - { name: 香港自动, type: url-test, include-all: true, tolerance: 30, interval: 300, max-failed-times: 3, filter: "(?=.*(港|HK|(?i)Hong))^((?!(台|日|韩|新|美|落地)).)*$", icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/flags/hk.svg" }
+  - { name: 日本自动, type: url-test, include-all: true, tolerance: 30, interval: 300, max-failed-times: 3, filter: "(?=.*(日本|JP|(?i)Japan))^((?!(港|台|韩|新|美|落地)).)*$", icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/flags/jp.svg" }
+  - { name: 台湾自动, type: url-test, include-all: true, tolerance: 30, interval: 300, max-failed-times: 3, filter: "(?=.*(台|TW|(?i)Taiwan))^((?!(港|日|韩|新|美|落地)).)*$", icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/flags/tw.svg" }
+  - { name: 狮城自动, type: url-test, include-all: true, tolerance: 30, interval: 300, max-failed-times: 3, filter: "(?=.*(新加坡|坡|狮城|SG|Singapore))^((?!(台|日|韩|深|美|落地)).)*$", icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/flags/sg.svg" }
+  - { name: 美国自动, type: url-test, include-all: true, tolerance: 30, interval: 300, max-failed-times: 3, filter: "(?=.*(美|US|(?i)States|America))^((?!(港|台|日|韩|新|落地)).)*$", icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/flags/us.svg" }
+  - { name: 自动选择, type: url-test, include-all: true, tolerance: 30, interval: 300, max-failed-times: 3, filter: "^((?!(直连)).)*$", icon: "https://www.clashverge.dev/assets/icons/speed.svg" }
+  - { name: 全部节点, type: select, include-all: true, icon: "https://raw.githubusercontent.com/Marukoyo/icon/refs/heads/main/%E6%89%80%E6%9C%89.svg" }
+  - { name: 前置节点, type: select, proxies: [自动选择, 默认代理, 日本节点, 台湾节点, 美国节点, 尼日利亚节点, 香港故转, 日本故转, 台湾故转, 狮城故转, 香港自动, 日本自动, 台湾自动, 狮城自动, 美国自动, 香港节点, 全部节点], icon: "https://www.svgrepo.com/show/462477/right-top-arrow.svg" }
+  - { name: 落地节点, type: select, include-all: true, exclude-filter: "直连", icon: "https://www.svgrepo.com/show/462478/right-top-double-arrow.svg" }
+  - { name: 漏网之鱼, <<: *pg, icon: "https://www.clashverge.dev/assets/icons/fish.svg" }
+
+# 规则集 锚点
+rule-anchor:
+  ip: &ip { type: http, interval: 86400, behavior: ipcidr, format: mrs }
+  domain: &domain { type: http, interval: 86400, behavior: domain, format: mrs }
+  class: &class { type: http, interval: 86400, behavior: classical, format: text }
+
+rule-providers:
+  # Domain
+  # fake-ip 过滤列表：命中的域名不使用 fake-ip，避免部分服务解析异常
+  fakeipfilter_domain: {<<: *domain, url: "https://raw.githubusercontent.com/wwqgtxx/clash-rules/release/fakeip-filter.mrs"}
+  # Global: { <<: *class, format: yaml, url: "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/refs/heads/master/rule/Clash/Global/Global_Classical.yaml"}
+  private_domain: { <<: *domain, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/private.mrs" }
+  proxylite: { <<: *class, url: "https://raw.githubusercontent.com/qichiyuhub/rule/refs/heads/main/proxy.list" }
+  ai: { <<: *domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/category-ai-!cn.mrs" }
+  steam: { <<: *domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/steam.mrs" }
+  youtube_domain: { <<: *domain, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/youtube.mrs" }
+  google_domain: { <<: *domain, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/google.mrs" }
+  github_domain: { <<: *domain, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/github.mrs" }
+  spotify_domain: { <<: *domain, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/spotify.mrs" }
+  telegram_domain: { <<: *domain, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/telegram.mrs" }
+  netflix_domain: { <<: *domain, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/netflix.mrs" }
+  paypal_domain: { <<: *domain, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/paypal.mrs" }
+  onedrive_domain: { <<: *domain, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/onedrive.mrs" }
+  microsoft_domain: { <<: *domain, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/microsoft.mrs" }
+  apple_domain: { <<: *domain, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/apple.mrs" }
+  BiliBili: { <<: *domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/bilibili.mrs" }
+  stripe: { <<: *domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/stripe.mrs" }
+  speedtest_domain: { <<: *domain, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/ookla-speedtest.mrs" }
+  tiktok_domain: { <<: *domain, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/tiktok.mrs" }
+  geolocation-!cn: { <<: *domain, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/geolocation-!cn.mrs" }
+  cn_domain: { <<: *domain, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.mrs" }
+
+  # IP
+  private_ip: { <<: *ip, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/private.mrs" }
+  cn_ip: { <<: *ip, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.mrs" }
+  google_ip: { <<: *ip, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/google.mrs" }
+  telegram_ip: { <<: *ip, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/telegram.mrs" }
+  netflix_ip: { <<: *ip, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/netflix.mrs" }
+
+rules:
+  ##########私有域名和IP（如在本地访问路由器后台）必须放在最上面##########
+  - RULE-SET,private_ip,全球直连,no-resolve
+  - RULE-SET,private_domain,全球直连
+
+
+  ##########私有域名和IP部分结束##########
+
+  ##########需要分流的域名（以下为举例）##########
+  - DOMAIN-SUFFIX,qichiyu.com,默认代理
+  - RULE-SET,proxylite,默认代理
+  - RULE-SET,apple_domain,Apple
+  - RULE-SET,github_domain,GitHub
+  - RULE-SET,youtube_domain,YouTube
+  - RULE-SET,google_domain,Google
+  - RULE-SET,ai,ChatGPT
+  - RULE-SET,onedrive_domain,OneDrive
+  - RULE-SET,microsoft_domain,Microsoft
+  - RULE-SET,tiktok_domain,TikTok
+  - RULE-SET,speedtest_domain,Speedtest
+  - RULE-SET,telegram_domain,Telegram
+  - RULE-SET,netflix_domain,NETFLIX
+  - RULE-SET,paypal_domain,PayPal
+  - RULE-SET,spotify_domain,Spotify
+  - RULE-SET,BiliBili,哔哩哔哩
+  - RULE-SET,stripe,Stripe
+  - RULE-SET,steam,Steam
+
+  ##########需要分流的域名部分结束##########
+
+  ##########IP地址分流规则放在域名分流规则之后（以下为举例）##########
+  - RULE-SET,google_ip,Google,no-resolve
+  - RULE-SET,netflix_ip,NETFLIX,no-resolve
+  - RULE-SET,telegram_ip,Telegram,no-resolve
+  
+
+  ##########IP地址分流规则部分结束##########
+
+  # 苹果地区检测
+  - DOMAIN-SUFFIX, gspe1-ssl.ls.apple.com,WifiCalling
+  - DOMAIN-SUFFIX, gspe1-ssl.ls.apple.com.edgesuite.net,WifiCalling
+  - IP-CIDR,23.32.0.0/11,WifiCalling,no-resolve
+
+  # GIFFGAFF
+  - IP-CIDR,87.194.0.0/16,WifiCalling,no-resolve
+  
+  # Maruko 自定义规则
+  - DOMAIN-SUFFIX,wochirou.com,Chirou
+  - DOMAIN-SUFFIX,muteki.site,Muteki
+  
+  # 国内代理
+  - RULE-SET,geolocation-!cn,默认代理
+  
+  # 全球直连
+  - RULE-SET,cn_domain,全球直连
+  - RULE-SET,cn_ip,全球直连
+
+  # 小兜底代理
+  - GEOSITE,CN,DIRECT
+  - GEOIP,CN,DIRECT
+
+  # - RULE-SET,Global,默认代理,no-resolve
+
+  # 兜底
+  - MATCH,漏网之鱼
