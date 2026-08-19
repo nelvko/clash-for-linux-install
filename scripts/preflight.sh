@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 
-# 安装期物化后存在；uninstall.sh 自安装目录运行时亦存在
-. "$CLASHCTL_SRC/.env"
-
-# 依赖仓库默认值（可在 .env/环境变量覆盖；与 _dependency_default_version 同源演进）
-[ -n "${SUBCONVERTER_REPO:-}" ] || SUBCONVERTER_REPO=asdlokj1qpi233/subconverter
+# 已安装时存在；install.sh 首跑物化前（依赖下载阶段）暂缺
+[ -f "$CLASHCTL_SRC/.env" ] && . "$CLASHCTL_SRC/.env"
 
 for lib_file in "$CLASHCTL_SRC"/scripts/lib/*.sh; do
     [ -f "$lib_file" ] || continue
@@ -81,17 +78,6 @@ _fetch_latest_tag() {
     [ -n "$tag" ] && printf '%s\n' "$tag"
 }
 
-# 依赖默认钉版（唯一事实源，随代码演进；可用 .env 或环境变量覆盖同名键）
-_dependency_default_version() {
-    case "$1" in
-    VERSION_MIHOMO) printf 'v1.19.27\n' ;;
-    VERSION_YQ) printf 'v4.53.3\n' ;;
-    VERSION_SUBCONVERTER) printf 'v0.9.9\n' ;;
-    VERSION_UI) printf 'v3.20.0\n' ;;
-    *) return 1 ;;
-    esac
-}
-
 _resolve_version() {
     local varname=$1 repo=$2
     local local_version="${!varname}"
@@ -110,8 +96,15 @@ _resolve_version() {
         ;;
     esac
 
-    # 版本来源优先级：最新版本查询 > 用户指定（.env/环境变量）> 代码内置钉版
-    [ -z "$local_version" ] && local_version=$(_dependency_default_version "$varname")
+    # 版本来源优先级：最新版本查询 > 用户指定（.env/环境变量）> 文件顶部的内置钉版
+    [ -z "$local_version" ] && {
+        case "$varname" in
+        VERSION_MIHOMO) local_version=$DEFAULT_VERSION_MIHOMO ;;
+        VERSION_YQ) local_version=$DEFAULT_VERSION_YQ ;;
+        VERSION_SUBCONVERTER) local_version=$DEFAULT_VERSION_SUBCONVERTER ;;
+        VERSION_UI) local_version=$DEFAULT_VERSION_UI ;;
+        esac
+    }
     if [ -n "$local_version" ]; then
         if [ "$latest_failed" -ne 0 ] && [ "${CLASHCTL_LATEST_VERSION_FALLBACK_WARNED:-0}" -eq 0 ]; then
             _errorcat '⚠️ ' "依赖最新版本查询失败，已回退到钉版 $local_version" || true
