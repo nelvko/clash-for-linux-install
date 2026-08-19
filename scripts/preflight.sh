@@ -10,12 +10,6 @@ done
 
 ARCHIVE_BASE_DIR="${CLASHCTL_SRC}/archives"
 ZIP_BASE_DIR="${ARCHIVE_BASE_DIR}"
-# ZIP_UI 允许在 .env 里写相对路径，此处归一化（否则依赖运行时 cwd）
-case "${ZIP_UI:-}" in
-"") ;;
-/*) ;;
-*) ZIP_UI="${CLASHCTL_SRC}/${ZIP_UI}" ;;
-esac
 
 valid_required() {
     local required_cmds=("xz" "pgrep" "pkill" "curl" "tar" 'unzip' 'gzip' 'shuf')
@@ -43,6 +37,7 @@ prepare_zip() {
     esac
     [ ! -f "$ZIP_YQ" ] && required_zips+=("yq")
     [ ! -f "$ZIP_SUBCONVERTER" ] && required_zips+=("subconverter")
+    [ ! -f "$ZIP_UI" ] && required_zips+=("ui")
 
     download_zip "${required_zips[@]}"
 
@@ -68,6 +63,8 @@ load_zip() {
     ZIP_YQ="${matches[0]:-}"
     matches=("${ZIP_BASE_DIR}"/subconverter*)
     ZIP_SUBCONVERTER="${matches[0]:-}"
+    matches=("${ZIP_BASE_DIR}"/dist*)
+    ZIP_UI="${matches[0]:-}"
     shopt -u nullglob
 }
 _fetch_latest_tag() {
@@ -132,6 +129,7 @@ download_zip() {
         mihomo) _resolve_version VERSION_MIHOMO MetaCubeX/mihomo || exit ;;
         yq) _resolve_version VERSION_YQ mikefarah/yq || exit ;;
         subconverter) _resolve_version VERSION_SUBCONVERTER "$SUBCONVERTER_REPO" || exit ;;
+        ui) _resolve_version VERSION_UI Zephyruso/zashboard || exit ;;
         esac
     done
 
@@ -171,11 +169,15 @@ download_zip() {
         ;;
     esac
 
+    # UI 为纯静态资源，与架构无关
+    local url_ui="https://github.com/Zephyruso/zashboard/releases/download/${VERSION_UI}/dist.zip"
+
     local -A urls=(
         [clash]="$url_clash"
         [mihomo]="$url_mihomo"
         [yq]="$url_yq"
         [subconverter]="$url_subconverter"
+        [ui]="$url_ui"
     )
 
     local item target_zips=() level=
