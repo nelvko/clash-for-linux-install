@@ -3,6 +3,9 @@
 # 安装期物化后存在；uninstall.sh 自安装目录运行时亦存在
 . "$CLASHCTL_SRC/.env"
 
+# 依赖仓库默认值（可在 .env/环境变量覆盖；与 _dependency_default_version 同源演进）
+[ -n "${SUBCONVERTER_REPO:-}" ] || SUBCONVERTER_REPO=asdlokj1qpi233/subconverter
+
 for lib_file in "$CLASHCTL_SRC"/scripts/lib/*.sh; do
     [ -f "$lib_file" ] || continue
     . "$lib_file"
@@ -78,6 +81,17 @@ _fetch_latest_tag() {
     [ -n "$tag" ] && printf '%s\n' "$tag"
 }
 
+# 依赖默认钉版（唯一事实源，随代码演进；可用 .env 或环境变量覆盖同名键）
+_dependency_default_version() {
+    case "$1" in
+    VERSION_MIHOMO) printf 'v1.19.27\n' ;;
+    VERSION_YQ) printf 'v4.53.3\n' ;;
+    VERSION_SUBCONVERTER) printf 'v0.9.9\n' ;;
+    VERSION_UI) printf 'v3.20.0\n' ;;
+    *) return 1 ;;
+    esac
+}
+
 _resolve_version() {
     local varname=$1 repo=$2
     local local_version="${!varname}"
@@ -96,21 +110,19 @@ _resolve_version() {
         ;;
     esac
 
-    [ -n "$local_version" ] && {
+    # 版本来源优先级：最新版本查询 > 用户指定（.env/环境变量）> 代码内置钉版
+    [ -z "$local_version" ] && local_version=$(_dependency_default_version "$varname")
+    if [ -n "$local_version" ]; then
         if [ "$latest_failed" -ne 0 ] && [ "${CLASHCTL_LATEST_VERSION_FALLBACK_WARNED:-0}" -eq 0 ]; then
-            _errorcat '⚠️ ' "依赖最新版本查询失败，已回退到指定版本" || true
+            _errorcat '⚠️ ' "依赖最新版本查询失败，已回退到钉版 $local_version" || true
             CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=1
         fi
         printf -v "$varname" '%s' "$local_version"
-        _okcat '🏷️ ' "${repo} → $local_version（指定版本）"
+        _okcat '🏷️ ' "${repo} → $local_version（钉版）"
         return 0
-    }
-
-    if [ "$latest_failed" -ne 0 ]; then
-        _errorcat "${repo} 最新版本查询失败，且未在 .env.install 指定 $varname"
-    else
-        _errorcat "${repo} 未指定版本，请在 .env.install 手动指定 $varname"
     fi
+
+    _errorcat "${repo} 版本解析失败（无内置钉版，且最新版本查询不可用）"
     return 1
 }
 
