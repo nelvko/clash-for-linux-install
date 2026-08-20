@@ -48,8 +48,11 @@ _get_random_port() {
 }
 
 _get_local_ip() {
-    local local_ip
-    local_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
+    local local_ip iface
+    # 取主路由表默认出口网卡的地址：不探测公网 IP（Tun 下 ip route get
+    # 会命中策略路由返回 fake-ip 段地址），主表 default 不受 Tun 影响。
+    iface=$(ip -4 route show default 2>/dev/null | awk 'NR==1{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}')
+    [ -n "$iface" ] && local_ip=$(ip -4 addr show dev "$iface" 2>/dev/null | awk '/inet /{print $2; exit}' | cut -d/ -f1)
     [ -z "$local_ip" ] && local_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
     printf '%s\n' "$local_ip"
 }

@@ -44,8 +44,6 @@ tun:
     - any:53
     - tcp://any:53
   strict-route: true
-  route-exclude-address:
-    - 1.1.1.1/32 # 用于 clashui 获取真实内网 IP
   exclude-src-port: # 排除源端口，避免无法访问容器内服务 https://github.com/nelvko/clash-for-linux-install/issues/100#issuecomment-2995667368
     # - 80
 
