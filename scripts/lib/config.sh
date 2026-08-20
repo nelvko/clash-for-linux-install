@@ -116,6 +116,19 @@ _merge_config() {
       $runtime |
 
       ########################################
+      #        Tun DNS fallback              #
+      ########################################
+      # DNS 默认不接管，仅在 Tun 开启且无任何 dns 配置时补
+      # 最小骨架，避免 dns-hijack 劫持的查询收到 SERVFAIL。
+      (((.tun.enable // false) == true)) as $tunOn |
+      (select($tunOn and ((.dns // {}) | keys | length) == 0) | .dns = {
+        "enable": true,
+        "listen": "0.0.0.0:1053",
+        "enhanced-mode": "fake-ip",
+        "nameserver": ["114.114.114.114", "8.8.8.8"]
+      }) // . |
+
+      ########################################
       #               Rules                  #
       ########################################
       .rules = (
