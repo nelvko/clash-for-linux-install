@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# 安装期物化后存在；uninstall.sh 自安装目录运行时亦存在
-. "$CLASHCTL_SRC/.env"
+# 已安装时存在；install.sh 首跑物化前（依赖下载阶段）暂缺
+[ -f "$CLASHCTL_SRC/.env" ] && . "$CLASHCTL_SRC/.env"
 
 for lib_file in "$CLASHCTL_SRC"/scripts/lib/*.sh; do
     [ -f "$lib_file" ] || continue
@@ -10,12 +10,6 @@ done
 
 ARCHIVE_BASE_DIR="${CLASHCTL_SRC}/archives"
 ZIP_BASE_DIR="${ARCHIVE_BASE_DIR}"
-# ZIP_UI 允许在 .env 里写相对路径，此处归一化（否则依赖运行时 cwd）
-case "${ZIP_UI:-}" in
-"") ;;
-/*) ;;
-*) ZIP_UI="${CLASHCTL_SRC}/${ZIP_UI}" ;;
-esac
 
 valid_required() {
     local required_cmds=("xz" "pgrep" "pkill" "curl" "tar" 'unzip' 'gzip' 'shuf')
@@ -43,6 +37,7 @@ prepare_zip() {
     esac
     [ ! -f "$ZIP_YQ" ] && required_zips+=("yq")
     [ ! -f "$ZIP_SUBCONVERTER" ] && required_zips+=("subconverter")
+    [ ! -f "$ZIP_UI" ] && required_zips+=("ui")
 
     download_zip "${required_zips[@]}"
 
@@ -68,6 +63,8 @@ load_zip() {
     ZIP_YQ="${matches[0]:-}"
     matches=("${ZIP_BASE_DIR}"/subconverter*)
     ZIP_SUBCONVERTER="${matches[0]:-}"
+    matches=("${ZIP_BASE_DIR}"/dist*)
+    ZIP_UI="${matches[0]:-}"
     shopt -u nullglob
 }
 _fetch_latest_tag() {
@@ -99,26 +96,35 @@ _resolve_version() {
         ;;
     esac
 
-    [ -n "$local_version" ] && {
+    # 版本来源优先级：最新版本查询 > 用户指定（.env/环境变量）> 文件顶部的内置钉版
+    [ -z "$local_version" ] && {
+        case "$varname" in
+        VERSION_MIHOMO) local_version=$DEFAULT_VERSION_MIHOMO ;;
+        VERSION_YQ) local_version=$DEFAULT_VERSION_YQ ;;
+        VERSION_SUBCONVERTER) local_version=$DEFAULT_VERSION_SUBCONVERTER ;;
+        VERSION_UI) local_version=$DEFAULT_VERSION_UI ;;
+        esac
+    }
+    if [ -n "$local_version" ]; then
         if [ "$latest_failed" -ne 0 ] && [ "${CLASHCTL_LATEST_VERSION_FALLBACK_WARNED:-0}" -eq 0 ]; then
-            _errorcat '⚠️ ' "依赖最新版本查询失败，已回退到指定版本" || true
+            _errorcat '⚠️ ' "依赖最新版本查询失败，已回退到钉版 $local_version" || true
             CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=1
         fi
         printf -v "$varname" '%s' "$local_version"
-        _okcat '🏷️ ' "${repo} → $local_version（指定版本）"
+        _okcat '🏷️ ' "${repo} → $local_version（钉版）"
         return 0
-    }
-
-    if [ "$latest_failed" -ne 0 ]; then
-        _errorcat "${repo} 最新版本查询失败，且未在 .env.install 指定 $varname"
-    else
-        _errorcat "${repo} 未指定版本，请在 .env.install 手动指定 $varname"
     fi
+
+    _errorcat "${repo} 版本解析失败（无内置钉版，且最新版本查询不可用）"
     return 1
 }
 
 download_zip() {
     (($#)) || return 0
+    /usr/bin/install -d "$ZIP_BASE_DIR" || {
+        _errorcat "无法创建依赖缓存目录：$ZIP_BASE_DIR"
+        exit 1
+    }
     local url_clash url_mihomo url_yq url_subconverter
     local arch=$(uname -m)
 
@@ -132,6 +138,7 @@ download_zip() {
         mihomo) _resolve_version VERSION_MIHOMO MetaCubeX/mihomo || exit ;;
         yq) _resolve_version VERSION_YQ mikefarah/yq || exit ;;
         subconverter) _resolve_version VERSION_SUBCONVERTER "$SUBCONVERTER_REPO" || exit ;;
+        ui) _resolve_version VERSION_UI Zephyruso/zashboard || exit ;;
         esac
     done
 
@@ -171,11 +178,15 @@ download_zip() {
         ;;
     esac
 
+    # UI 为纯静态资源，与架构无关
+    local url_ui="https://github.com/Zephyruso/zashboard/releases/download/${VERSION_UI}/dist.zip"
+
     local -A urls=(
         [clash]="$url_clash"
         [mihomo]="$url_mihomo"
         [yq]="$url_yq"
         [subconverter]="$url_subconverter"
+        [ui]="$url_ui"
     )
 
     local item target_zips=() level=

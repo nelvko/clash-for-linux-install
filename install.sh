@@ -90,34 +90,35 @@ main() {
         return 1
     fi
 
-    # 1) 物化 .env：模板 + 参数/环境变量覆盖烤入文件，此后以 .env 为准
+    # 1) 用户态骨架与依赖下载、服务注册（.env 尚未物化：失败即止不留安装态，
+    #    可直接重跑安装；依赖版本键此刻取自环境变量或内置钉版）
     export CLASHCTL_HOME="$home"
-    cp "${CLASHCTL_SRC}/.env.example" "${CLASHCTL_SRC}/.env" || return 1
     . "${CLASHCTL_SRC}/scripts/lib/common.sh"
+    export CLASHCTL_KERNEL="$kernel" CLASHCTL_SUB_URL="$sub_url" CLASHCTL_UPDATE_BRANCH="$branch"
+    . "${CLASHCTL_SRC}/scripts/preflight.sh"
+    valid_required
+
+    /usr/bin/install -d "${CLASH_DATA_DIR}/profiles"
+    [ -f "${CLASH_CONFIG_MIXIN}" ] || cp "${CLASH_RESOURCES_DIR}/mixin.yaml.example" "${CLASH_CONFIG_MIXIN}"
+    touch "$CLASH_CONFIG_BASE"
+
+    echo "😼 安装内核：$kernel"
+    echo "📦 安装路径：$CLASHCTL_HOME"
+
+    prepare_zip
+    install_service
+
+    # 2) 安装成功，物化 .env：模板 + 参数/环境变量覆盖烤入文件（此后以 .env 为准）
+    cp "${CLASHCTL_SRC}/.env.example" "${CLASHCTL_SRC}/.env" || return 1
     _set_env CLASHCTL_KERNEL "$kernel"
     [ -n "$sub_url" ] && _set_env CLASHCTL_SUB_URL "$sub_url"
     [ -n "$branch" ] && _set_env CLASHCTL_UPDATE_BRANCH "$branch"
     [ "${GH_PROXY+x}" = x ] && _set_env GH_PROXY "$GH_PROXY"
     [ "${CLASHCTL_DOWNLOAD_TIMEOUT+x}" = x ] && _set_env CLASHCTL_DOWNLOAD_TIMEOUT "$CLASHCTL_DOWNLOAD_TIMEOUT"
-
-    . "${CLASHCTL_SRC}/scripts/preflight.sh"
-    valid_required
-
-    # 2) 用户态骨架：data/（mixin 从模板物化，已存在则保留——重装/修复场景）
-    /usr/bin/install -d "${CLASH_DATA_DIR}/profiles"
-    [ -f "${CLASH_CONFIG_MIXIN}" ] || cp "${CLASH_RESOURCES_DIR}/mixin.yaml.example" "${CLASH_CONFIG_MIXIN}"
-    touch "$CLASH_CONFIG_BASE"
-
-    echo "😼 安装内核：$CLASHCTL_KERNEL"
-    echo "📦 安装路径：$CLASHCTL_HOME"
-
-    # 3) 依赖下载 + 服务注册 + 身份键落盘 + rc
-    prepare_zip
-    install_service
     _set_envs
     apply_rc
 
-    # 4) 初始配置与订阅
+    # 3) 初始配置与订阅
     _merge_config
     _detect_proxy_port
     clashui
@@ -133,8 +134,14 @@ main() {
 
 _require_empty_home() {
     local home=$1
-    if [ -e "$home" ]; then
+    if [ -f "$home/.env" ]; then
         echo "📢 检测到已安装：$home。更新请使用 clashctl update；确需重装请先执行卸载脚本。" >&2
+        return 1
+    fi
+    if [ -e "$home" ]; then
+        # 半安装态（上次安装中途失败，.env 未物化）：允许续装
+        [ -f "$home/install.sh" ] && [ -d "$home/scripts" ] && return 0
+        echo "📢 目标目录已存在且非 clashctl 安装：$home" >&2
         return 1
     fi
     local _d=$home
@@ -148,6 +155,9 @@ _require_empty_home() {
 # 克隆/解压源码直接落到安装目录（无 .git 时为纯目录安装）
 _fetch_into() {
     local home=$1 branch=$2 proxy=$3 url
+
+    # 半安装态续装：源码树已在位则跳过取源
+    [ -f "$home/install.sh" ] && [ -d "$home/scripts" ] && return 0
 
     /usr/bin/install -d "$home" || return 1
     if command -v git >/dev/null 2>&1; then
@@ -187,7 +197,7 @@ Options:
   -h, --help         显示帮助信息
 
 安装期定制也可用环境变量：GH_PROXY、CLASHCTL_DOWNLOAD_TIMEOUT、
-CLASHCTL_CHECK_LATEST_VERSION、VERSION_MIHOMO/YQ/SUBCONVERTER、SUBCONVERTER_REPO。
+CLASHCTL_CHECK_LATEST_VERSION、VERSION_MIHOMO/YQ/SUBCONVERTER/UI、SUBCONVERTER_REPO。
 EOF
 }
 

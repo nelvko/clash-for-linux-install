@@ -11,8 +11,8 @@ resources/dist/
 *.log
 *.pid
 
+# 依赖包缓存（安装期按需下载，不入库）
 archives/*
-!archives/dist.zip
 
 !.gitkeep
 
