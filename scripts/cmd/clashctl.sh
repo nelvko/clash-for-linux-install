@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 
+if [ -n "${ZSH_VERSION:-}" ] && [ -z "${BASH_VERSION:-}" ]; then
+    # shellcheck source=/dev/null
+    . "$CLASHCTL_HOME/scripts/cmd/clashctl.zsh"
+    return
+fi
+
 . "$CLASHCTL_HOME"/.env
 
 for lib_file in "$CLASHCTL_HOME"/scripts/lib/*.sh; do

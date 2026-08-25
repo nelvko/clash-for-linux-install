@@ -19,6 +19,11 @@ end
 
 function clashon --description 'start clash service and/or enable proxy env'
     set -l capture 1
+    if not set -q argv[1]
+        if set -q CLASHCTL_MANAGE_SHELL_PROXY; and test "$CLASHCTL_MANAGE_SHELL_PROXY" = 0
+            set capture 0
+        end
+    end
     if set -q argv[1]
         switch $argv[1]
             case -s --service-only -h --help
@@ -49,6 +54,11 @@ end
 
 function clashoff --description 'stop clash service and/or disable proxy env'
     set -l drop_env 1
+    if not set -q argv[1]
+        if set -q CLASHCTL_MANAGE_SHELL_PROXY; and test "$CLASHCTL_MANAGE_SHELL_PROXY" = 0
+            set drop_env 0
+        end
+    end
     if set -q argv[1]
         switch $argv[1]
             case -s --service-only -h --help
