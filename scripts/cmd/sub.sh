@@ -442,6 +442,19 @@ _sub_pick() {
 #            子命令
 ########################################
 
+# 为交互输入启用当前 Shell 自带的行编辑器；非 TTY/非交互场景保持普通 read。
+_sub_read_input() {
+    local target=$1
+
+    if [ -n "${ZSH_VERSION:-}" ] && [[ $- == *i* ]] && [ -t 0 ] && [ -t 1 ]; then
+        vared "$target"
+    elif [ -n "${BASH_VERSION:-}" ] && [ -t 0 ] && [ -t 1 ]; then
+        IFS= read -e -r "${target?}"
+    else
+        IFS= read -r "${target?}"
+    fi
+}
+
 sub_add() {
     local use_after_add=false name='' url='' strategy=auto
 
@@ -542,7 +555,10 @@ EOF
     [ -z "$url" ] && [ $# -gt 0 ] && url=$1
     [ -z "$url" ] && {
         printf '%s' "$(_okcat '✈️ ' '请输入要添加的订阅链接：')"
-        read -r url
+        _sub_read_input url
+        # 非行编辑回退路径也不能把 bracketed-paste 边界当成 URL 内容。
+        url=${url#$'\033[200~'}
+        url=${url%$'\033[201~'}
         [ -z "$url" ] && {
             _errorcat "订阅链接不能为空"
             return 1
