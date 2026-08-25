@@ -47,11 +47,12 @@ _update_git_url() {
     printf '%s\n' "$url"
 }
 
-# fetch 指定分支；成功输出 FETCH_HEAD sha
+# fetch 指定分支；成功输出 FETCH_HEAD sha（lowSpeed 防镜像通道停滞挂死）
 _update_fetch() {
     local branch=$1
     git -C "$CLASHCTL_HOME" remote set-url origin "$(_update_git_url)" || return 1
-    git -C "$CLASHCTL_HOME" -c gc.auto=0 fetch -q origin "$branch" --depth 50 || return 1
+    git -C "$CLASHCTL_HOME" -c gc.auto=0 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 \
+        fetch -q origin "$branch" --depth 50 || return 1
     git -C "$CLASHCTL_HOME" rev-parse FETCH_HEAD
 }
 
@@ -116,9 +117,7 @@ _update_source_rev() {
 
 _update_capture_state() {
     _UPDATE_WAS_ACTIVE=false
-    _UPDATE_WAS_TUN=false
     service_is_active >/dev/null 2>&1 && _UPDATE_WAS_ACTIVE=true
-    tunstatus >/dev/null 2>&1 && _UPDATE_WAS_TUN=true
     return 0
 }
 

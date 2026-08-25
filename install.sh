@@ -6,14 +6,6 @@
     exit 1
 }
 
-# 管道执行（curl | bash / bash -c "$(curl)"）时 stdin 被脚本字节占用，重绑终端保证交互 read 可用
-# 先在子 shell 里试开 /dev/tty（exec 失败只退出子 shell；内建重定向失败会退出整个脚本）
-if [ ! -t 0 ] && (exec 0</dev/tty) 2>/dev/null; then
-    {
-        exec 0</dev/tty
-    } 2>/dev/null || true
-fi
-
 CLASHCTL_SRC="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 _REPO=nelvko/clash-for-linux-install
 _BRANCH_DEFAULT=master
@@ -61,7 +53,7 @@ main() {
 
     # ── 自举：本地没有源码树时，克隆/解压目标即安装目录（无中间暂存）──
     if [ ! -f "${CLASHCTL_SRC}/scripts/preflight.sh" ]; then
-        _require_empty_home "$home"
+        _require_empty_home "$home" || return 1
         _fetch_into "$home" "$branch" "$proxy" || return 1
         # 转入安装目录继续首跑物化；参数原样透传
         exec bash "${home}/install.sh" \
@@ -71,7 +63,7 @@ main() {
 
     # ── dev 克隆安装：源码树存在但不是目标目录 → 以本地路径为 remote 克隆（携带未推送提交）──
     if [ "${CLASHCTL_SRC}" != "$home" ]; then
-        _require_empty_home "$home"
+        _require_empty_home "$home" || return 1
         if command -v git >/dev/null 2>&1 && [ -d "${CLASHCTL_SRC}/.git" ]; then
             echo "⏳ 正在克隆：${CLASHCTL_SRC}（${branch:-默认分支}）"
             git clone -q "$CLASHCTL_SRC" "$home" || return 1
@@ -129,7 +121,7 @@ main() {
         CLASHCTL_SUB_URL="file://$CLASH_CONFIG_BASE"
     }
     clashsub add --use "$CLASHCTL_SUB_URL"
-    _okcat '🎉' "请执行 source ~/.bashrc 为当前 SHELL 加载 clashctl 命令"
+    _okcat '🎉' "请执行 exec bash（或新开终端）为当前 SHELL 加载 clashctl 命令"
 }
 
 _require_empty_home() {
@@ -167,7 +159,9 @@ _fetch_into() {
             [ -n "$proxy" ] && url="${proxy%/}/${url}"
         }
         echo "⏳ 正在克隆：$url（${branch}）"
-        git clone -q --depth 50 --single-branch --branch "$branch" "$url" "$home" && {
+        # lowSpeed：镜像 git 通道停滞时 60s 自动断开，回落归档下载；--progress：管道下也显示进度
+        git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone -q --progress \
+            --depth 50 --single-branch --branch "$branch" "$url" "$home" && {
             git -C "$home" config gc.auto 0
             return 0
         }
@@ -201,5 +195,13 @@ CLASHCTL_CHECK_LATEST_VERSION、VERSION_MIHOMO/YQ/SUBCONVERTER/UI、SUBCONVERTER
 EOF
 }
 
-main "$@"
+# 管道执行时脚本本体必须继续从 stdin 消费（bash 边读边执行，脚本未读完前
+# 不可动 fd0，否则后半段会被饿死在管道里静默挂起）；交互 read 改由 fd3 供给
+if [ ! -t 0 ] && (exec 3</dev/tty) 2>/dev/null; then
+    exec 3</dev/tty
+    main "$@" <&3
+    exec 3<&-
+else
+    main "$@"
+fi
 # this ensures the entire script is downloaded #

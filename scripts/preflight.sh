@@ -8,8 +8,7 @@ for lib_file in "$CLASHCTL_SRC"/scripts/lib/*.sh; do
     . "$lib_file"
 done
 
-ARCHIVE_BASE_DIR="${CLASHCTL_SRC}/archives"
-ZIP_BASE_DIR="${ARCHIVE_BASE_DIR}"
+ZIP_BASE_DIR="${CLASHCTL_SRC}/archives"
 
 valid_required() {
     local required_cmds=("xz" "pgrep" "pkill" "curl" "tar" 'unzip' 'gzip' 'shuf')
@@ -189,8 +188,8 @@ download_zip() {
         [ui]="$url_ui"
     )
 
-    local item target_zips=() level=
-    _okcat '🖥️ ' "系统架构：$arch $level"
+    local item target_zips=()
+    _okcat '🖥️ ' "系统架构：$arch"
     for item in "$@"; do
         local url="${urls[$item]}"
         local proxy_url="${GH_PROXY:+${GH_PROXY%/}/}${url}"

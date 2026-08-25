@@ -140,7 +140,7 @@ clashupdate_git() {
 
     # 重载当前 shell 的函数与 .env（其余已开终端不受影响）
     . "${CLASHCTL_HOME}/scripts/cmd/clashctl.sh"
-    _okcat '😸' '更新完成。建议新开终端，或执行 source ~/.bashrc 加载新函数'
+    _okcat '😸' '更新完成。建议执行 exec bash 或新开终端加载新函数'
 }
 
 # 回退到上一版本（git 安装：checkout HEAD@{1}；归档安装：恢复最近一份 .bak）
@@ -274,7 +274,7 @@ clashupdate_archive() {
     ) || return 1
 
     . "${CLASHCTL_HOME}/scripts/cmd/clashctl.sh"
-    _okcat '😸' '更新完成。建议新开终端，或执行 source ~/.bashrc 加载新函数'
+    _okcat '😸' '更新完成。建议执行 exec bash 或新开终端加载新函数'
 }
 
 update_help() {

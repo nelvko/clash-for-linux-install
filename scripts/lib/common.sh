@@ -190,7 +190,8 @@ _append_source_block() {
         printf '\n' >>"$rc"
     }
     printf 'export CLASHCTL_HOME=%s\n' "$CLASHCTL_HOME" >>"$rc"
-    printf '. $CLASHCTL_HOME/scripts/cmd/clashctl.sh\n' >>"$rc"
+    # 守卫式加载：安装目录被删/挪后开 shell 不报错（nvm 同款自愈模式）
+    printf '[ -s "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" ] && . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh"\n' >>"$rc"
 }
 
 # 将 clashctl.fish 以内容快照方式写入 fish 配置；内容无变化时不写（返回 1）
