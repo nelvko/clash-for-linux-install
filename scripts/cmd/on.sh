@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 
 clashon() {
-    case "$1" in
+    if [ "${CLASHCTL_MANAGE_SHELL_PROXY:-1}" = 0 ] && [ "$#" -eq 0 ]; then
+        on_service_only
+        return
+    fi
+
+    case "${1:-}" in
     -e | --env-only)
         on_env_only
         ;;
@@ -90,5 +95,14 @@ _dump_proxy_env_fish() {
         val=${val//\\/\\\\}
         val=${val//\'/\\\'}
         printf "set -gx %s '%s'\n" "$v" "$val"
+    done
+}
+
+_dump_proxy_env_zsh() {
+    local v val
+    for v in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY; do
+        val=${!v}
+        [ -z "$val" ] && continue
+        printf 'export %s=%q\n' "$v" "$val"
     done
 }

@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 
 clashoff() {
-    case "$1" in
+    if [ "${CLASHCTL_MANAGE_SHELL_PROXY:-1}" = 0 ] && [ "$#" -eq 0 ]; then
+        off_service_only
+        return
+    fi
+
+    case "${1:-}" in
     -e | --env-only)
         off_env_only
         ;;
