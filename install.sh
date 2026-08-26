@@ -51,6 +51,13 @@ main() {
     done
     [ -n "$home" ] || home="${HOME}/.clashctl"
 
+    # 影响面预检（nvm check_global_modules 范式：预警+给命令，不替用户做决定）
+    # exec 续装阶段不重复扫
+    if [ "${CLASHCTL_IMPACT_SCANNED:-}" != 1 ]; then
+        _install_impact_scan "$home" "$kernel" || return 1
+        export CLASHCTL_IMPACT_SCANNED=1
+    fi
+
     # ── 自举：本地没有源码树时，克隆/解压目标即安装目录（无中间暂存）──
     if [ ! -f "${CLASHCTL_SRC}/scripts/preflight.sh" ]; then
         _require_empty_home "$home" || return 1
@@ -78,7 +85,12 @@ main() {
 
     # ── 首跑物化：install.sh 已位于安装目录内 ──
     if [ -f "${CLASHCTL_SRC}/.env" ]; then
-        echo "📢 检测到已安装：${CLASHCTL_SRC}。更新请使用 clashctl update；确需重装请先执行卸载脚本。" >&2
+        if [ ! -f "${CLASHCTL_SRC}/scripts/cmd/update.sh" ]; then
+            echo "📢 检测到旧版（master）安装：${CLASHCTL_SRC}，无 clashctl update 能力。" >&2
+            echo "   卸载会连订阅数据一起删除，请先备份 resources/{config,mixin,profiles}.yaml 与 profiles/，再执行 bash ${CLASHCTL_SRC}/uninstall.sh" >&2
+        else
+            echo "📢 检测到已安装：${CLASHCTL_SRC}。更新请使用 clashctl update；确需重装请先执行卸载脚本。" >&2
+        fi
         return 1
     fi
 
@@ -124,10 +136,71 @@ main() {
     _okcat '🎉' "请执行 exec bash（或新开终端）为当前 SHELL 加载 clashctl 命令"
 }
 
+# 安装影响面预检：环境残留 / 旧版数据 / 同名服务（只预警并给出命令，不阻塞）
+_install_impact_scan() {
+    local home=$1 kernel=$2 legacy="${HOME}/clashctl" unit exec_start bin_path
+
+    # shell 环境里残留的 CLASHCTL_HOME 会静默改写安装目标（存量用户死锁源）
+    if [ -n "${CLASHCTL_HOME:-}" ] && [ "$CLASHCTL_HOME" != "${HOME}/.clashctl" ]; then
+        echo "⚠️  环境变量 CLASHCTL_HOME=${CLASHCTL_HOME}（疑似旧版 shell 残留）" >&2
+        echo "    本次将安装到该路径而非默认 ${HOME}/.clashctl；如非本意请 unset CLASHCTL_HOME 后重试" >&2
+    fi
+
+    # master 旧版布局：用户数据在 ~/clashctl/resources/，新版不会自动继承
+    if [ -d "$legacy" ] && [ "$legacy" != "$home" ]; then
+        echo "⚠️  检测到旧版安装目录：$legacy（订阅等数据不会自动继承）" >&2
+        echo "    装后如需迁移：cp $legacy/resources/{config,mixin,profiles}.yaml $home/data/ 且 cp -a $legacy/resources/profiles/. $home/data/profiles/" >&2
+    fi
+
+    # 同名 systemd 单元指向其他安装：覆盖属破坏性操作，交由用户决定
+    unit="/etc/systemd/system/${kernel}.service"
+    if [ -f "$unit" ]; then
+        exec_start=$(grep -m1 '^ExecStart=' "$unit" 2>/dev/null)
+        case "$exec_start" in
+        "${home}/bin"* | '') ;;
+        *)
+            bin_path=${exec_start#ExecStart=}
+            bin_path=${bin_path#[-@+!]}
+            bin_path=${bin_path%% *}
+            echo "⚠️  已存在同名服务 ${kernel}.service --> ${bin_path:-未知}" >&2
+            echo "    ├─ 继续安装将接管并覆盖该服务" >&2
+            echo "    └─ 原文件留档 ${unit}.clashctl-bak" >&2
+            echo >&2
+            if [ "${CLASHCTL_ALLOW_UNIT_OVERWRITE:-}" = 1 ]; then
+                echo "    已按 CLASHCTL_ALLOW_UNIT_OVERWRITE=1 跳过确认" >&2
+            elif [ -t 0 ]; then
+                local answer=
+                printf '覆盖并继续安装？[y/N] ' >&2
+                read -r answer
+                case "$answer" in
+                y | Y | yes) ;;
+                *)
+                    echo "📢 已中止，未做任何更改。" >&2
+                    echo "    该服务可能来自旧安装或其他软件；可先 systemctl cat ${kernel} 查看来源后再决定。" >&2
+                    return 1
+                    ;;
+                esac
+            else
+                echo "📢 非交互环境默认不覆盖既有服务，已中止。" >&2
+                echo "    确认接管可设 CLASHCTL_ALLOW_UNIT_OVERWRITE=1 后重试。" >&2
+                return 1
+            fi
+            cp -a "$unit" "${unit}.clashctl-bak" ||
+                echo "    ⚠️  旧单元留档失败，继续前请自行备份" >&2
+            ;;
+        esac
+    fi
+}
+
 _require_empty_home() {
     local home=$1
     if [ -f "$home/.env" ]; then
-        echo "📢 检测到已安装：$home。更新请使用 clashctl update；确需重装请先执行卸载脚本。" >&2
+        if [ ! -f "$home/scripts/cmd/update.sh" ]; then
+            echo "📢 检测到旧版（master）安装：$home，无 clashctl update 能力。" >&2
+            echo "   卸载会连订阅数据一起删除，请先备份 resources/{config,mixin,profiles}.yaml 与 profiles/，再执行 bash $home/uninstall.sh" >&2
+        else
+            echo "📢 检测到已安装：$home。更新请使用 clashctl update；确需重装请先执行卸载脚本。" >&2
+        fi
         return 1
     fi
     if [ -e "$home" ]; then
@@ -191,7 +264,8 @@ Options:
   -h, --help         显示帮助信息
 
 安装期定制也可用环境变量：GH_PROXY、CLASHCTL_DOWNLOAD_TIMEOUT、
-CLASHCTL_CHECK_LATEST_VERSION、VERSION_MIHOMO/YQ/SUBCONVERTER/UI、SUBCONVERTER_REPO。
+CLASHCTL_CHECK_LATEST_VERSION、VERSION_MIHOMO/YQ/SUBCONVERTER/UI、SUBCONVERTER_REPO、
+CLASHCTL_ALLOW_UNIT_OVERWRITE=1（非交互环境允许覆盖指向其他安装的同名服务）。
 EOF
 }
 
