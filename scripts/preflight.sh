@@ -211,6 +211,8 @@ download_zip() {
         url="$proxy_url"
         _okcat '⏳' "正在下载：${item}：$url"
         local target="${ZIP_BASE_DIR}/$(basename "$url")"
+        local temp_target="${ZIP_BASE_DIR}/.$(basename "$url").part"
+        rm -f -- "$temp_target"
         curl \
             --progress-bar \
             --show-error \
@@ -219,8 +221,12 @@ download_zip() {
             --location \
             --max-time "$CLASHCTL_DOWNLOAD_TIMEOUT" \
             --retry 1 \
-            --output "$target" \
-            "$url"
+            --output "$temp_target" \
+            "$url" || {
+            rm -f -- "$temp_target"
+            exit 1
+        }
+        /bin/mv -f -- "$temp_target" "$target"
         target_zips+=("$target")
     done
     valid_zip "${target_zips[@]}"
