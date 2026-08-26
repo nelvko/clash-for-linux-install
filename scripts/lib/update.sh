@@ -6,10 +6,11 @@
 _UPDATE_REPO=nelvko/clash-for-linux-install
 
 _update_require_install() {
-    [ -d "$CLASHCTL_HOME" ] && [ -f "${CLASHCTL_HOME}/.env" ] || {
+    if [ ! -d "$CLASHCTL_HOME" ] || [ ! -f "${CLASHCTL_HOME}/.env" ]; then
         _errorcat "未检测到已安装的 clashctl（${CLASHCTL_HOME}），请先运行 install.sh 安装"
         return 1
-    }
+    fi
+    return 0
 }
 
 _update_check_env() {
@@ -26,9 +27,12 @@ _update_check_env() {
     fi
 
     detect_service_manager
+    # shellcheck disable=SC2154  # Set by detect_service_manager.
     if [ "$service_manager" != nohup ] && ! _is_root; then
-        _failcat '⚠️ ' "当前非 root，服务相关步骤可能失败（与安装时一致，建议 root 执行）"
+        _errorcat "当前使用 ${service_manager} 系统服务，更新需要 root 权限；请以 root 用户重新执行"
+        return 1
     fi
+    return 0
 }
 
 _update_is_git_home() {
@@ -52,24 +56,29 @@ _update_fetch() {
     local branch=$1
     git -C "$CLASHCTL_HOME" remote set-url origin "$(_update_git_url)" || return 1
     git -C "$CLASHCTL_HOME" -c gc.auto=0 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 \
-        fetch -q origin "$branch" --depth 50 || return 1
+        fetch -q --depth 50 origin -- "$branch" || return 1
     git -C "$CLASHCTL_HOME" rev-parse FETCH_HEAD
 }
 
 # 本地祖先关系判定，输出：identical / behind N / ahead N / diverged
 _update_status() {
-    local fetch_head=$1 head base n
-    head=$(git -C "$CLASHCTL_HOME" rev-parse HEAD)
+    local fetch_head=$1 head base n merge_rc
+    head=$(git -C "$CLASHCTL_HOME" rev-parse HEAD) || return 1
     if [ "$head" = "$fetch_head" ]; then
         printf 'identical'
         return 0
     fi
-    base=$(git -C "$CLASHCTL_HOME" merge-base "$head" "$fetch_head" 2>/dev/null)
+    if base=$(git -C "$CLASHCTL_HOME" merge-base "$head" "$fetch_head" 2>/dev/null); then
+        merge_rc=0
+    else
+        merge_rc=$?
+    fi
+    [ "$merge_rc" -le 1 ] || return 1
     if [ "$base" = "$head" ]; then
-        n=$(git -C "$CLASHCTL_HOME" rev-list --count "$head..$fetch_head")
+        n=$(git -C "$CLASHCTL_HOME" rev-list --count "$head..$fetch_head") || return 1
         printf 'behind %s' "$n"
     elif [ "$base" = "$fetch_head" ]; then
-        n=$(git -C "$CLASHCTL_HOME" rev-list --count "$fetch_head..$head")
+        n=$(git -C "$CLASHCTL_HOME" rev-list --count "$fetch_head..$head") || return 1
         printf 'ahead %s' "$n"
     else
         # 含无共同祖先（换了远端仓库/历史重写），按分叉处理
@@ -81,7 +90,7 @@ _update_status() {
 # 有改动时输出清单并返回 0（调用方据此拒绝更新）
 _update_dirty() {
     local out
-    out=$(git -C "$CLASHCTL_HOME" diff --name-status HEAD 2>/dev/null)
+    out=$(git -C "$CLASHCTL_HOME" diff --name-status HEAD 2>/dev/null) || return 2
     [ -n "$out" ] || return 1
     printf '%s\n' "$out"
     return 0
@@ -115,6 +124,42 @@ _update_source_rev() {
 
 # ── 副作用引擎（checkout 后刷新安装态）───────────────────────
 
+_update_validate_tree() {
+    local root=$1 loader="$1/scripts/cmd/clashctl.sh" file valid=true
+    local had_nullglob=false had_globstar=false files=()
+
+    [ -r "$loader" ] || {
+        _errorcat '更新后的命令入口缺失或不可读'
+        return 1
+    }
+
+    shopt -q nullglob && had_nullglob=true
+    shopt -q globstar && had_globstar=true
+    shopt -s nullglob globstar
+    files=("$root"/scripts/**/*.sh)
+    [ ! -f "$root/install.sh" ] || files+=("$root/install.sh")
+    [ ! -f "$root/uninstall.sh" ] || files+=("$root/uninstall.sh")
+    for file in "${files[@]}"; do
+        bash -n "$file" || {
+            valid=false
+            break
+        }
+    done
+    [ "$had_nullglob" = true ] || shopt -u nullglob
+    [ "$had_globstar" = true ] || shopt -u globstar
+
+    [ "$valid" = true ] || {
+        _errorcat "更新脚本语法校验失败：$file"
+        return 1
+    }
+    # shellcheck disable=SC1090  # Candidate loader path is determined at runtime.
+    if ! (set -e; . "$loader"); then
+        _errorcat '更新后的命令模块无法完整加载'
+        return 1
+    fi
+    return 0
+}
+
 _update_capture_state() {
     _UPDATE_WAS_ACTIVE=false
     service_is_active >/dev/null 2>&1 && _UPDATE_WAS_ACTIVE=true
@@ -129,10 +174,14 @@ _update_unit_refresh() {
     detect_service_manager
     target=$(_service_target) || return 0
 
-    candidate=$(mktemp)
+    candidate=$(mktemp) || {
+        _errorcat '无法创建服务配置校验文件'
+        return 1
+    }
     CLASHCTL_SRC="$CLASHCTL_HOME" _render_service_unit "$candidate" || {
         /usr/bin/rm -f -- "$candidate"
-        return 0
+        _errorcat "无法生成 ${service_manager} 服务配置"
+        return 1
     }
     if cmp -s -- "$candidate" "$target" 2>/dev/null; then
         /usr/bin/rm -f -- "$candidate"
@@ -140,9 +189,10 @@ _update_unit_refresh() {
     fi
     /usr/bin/rm -f -- "$candidate"
     if (CLASHCTL_SRC="$CLASHCTL_HOME" install_service) >/dev/null 2>&1; then
-        _okcat '🧩' "服务配置已更新：$target"
+        _ui_ok_out "服务配置已更新：$target"
     else
-        _failcat '🍂' "服务配置更新失败：$target（可稍后以 root 重新执行更新）"
+        _errorcat "服务配置更新失败：$target"
+        return 1
     fi
     return 0
 }
@@ -161,7 +211,7 @@ _env_add_missing() {
         key=${line%%=*}
         grep -qE "^${key}=" "$dst" && continue
         printf '%s\n' "$line" >>"$dst" || return 1
-        _okcat '➕' "新增配置项：$key"
+        _ui_ok_out "新增配置项：$key"
     done <"$src"
     return 0
 }
@@ -179,8 +229,8 @@ _update_data_refresh() {
         name=${name%.example}
         target="${CLASH_DATA_DIR}/${name}"
         [ -e "$target" ] && continue
-        cp "$tpl" "$target"
-        _okcat '➕' "新增配置模板：data/${name}"
+        cp "$tpl" "$target" || return 1
+        _ui_ok_out "新增配置模板：data/${name}"
     done
     return 0
 }
@@ -192,11 +242,15 @@ _update_runtime_refresh() {
     local snapshot="${CLASH_CONFIG_RUNTIME}.preupdate" rc
 
     if [ ! -f "$CLASH_CONFIG_RUNTIME" ]; then
-        _merge_config >/dev/null 2>&1 || _failcat '🍂' "无运行配置基线，已跳过服务重启（可执行 clashctl on 启动）"
-        return 0
+        _merge_config >/dev/null 2>&1 && return 0
+        _errorcat '无法生成运行配置，更新后置步骤未完成'
+        return 1
     fi
 
-    cat "$CLASH_CONFIG_RUNTIME" >"$snapshot" || return 1
+    cat "$CLASH_CONFIG_RUNTIME" >"$snapshot" || {
+        _errorcat '无法创建运行配置快照'
+        return 1
+    }
     # 校验失败时 _merge_config 已用 TEMP 将 runtime 回滚为旧配置
     _merge_config || {
         /usr/bin/rm -f -- "$snapshot"
@@ -204,6 +258,12 @@ _update_runtime_refresh() {
     }
     if cmp -s -- "$CLASH_CONFIG_RUNTIME" "$snapshot"; then
         /usr/bin/rm -f -- "$snapshot"
+        if [ "$was_active" = true ] && ! service_is_active >/dev/null 2>&1; then
+            service_start >/dev/null 2>&1 || {
+                _errorcat '代理服务未能恢复运行，请检查代理内核日志'
+                return 1
+            }
+        fi
         return 0
     fi
     /usr/bin/rm -f -- "$snapshot"
@@ -212,29 +272,56 @@ _update_runtime_refresh() {
     _merge_config_restart
     rc=$?
     [ "$rc" -eq 1 ] && return 1
-    [ "$rc" -eq 2 ] && _failcat '🍂' "配置已生效，但服务重启失败，请检查代理内核日志"
+    if [ "$rc" -eq 2 ]; then
+        _errorcat '配置已生成，但服务重启失败，请检查代理内核日志'
+        return 1
+    fi
     return 0
 }
 
 # fish 快照内容有变才重写；bash/zsh 引导块缺失才补
 _update_rc_refresh() {
-    local rc
+    local rc refresh_rc
 
     detect_rc
     for rc in "$SHELL_RC_BASH" "$SHELL_RC_ZSH"; do
-        [ -n "$rc" ] && [ -f "$rc" ] || continue
-        _append_source_block "$rc"
+        if [ -z "$rc" ] || [ ! -f "$rc" ]; then
+            continue
+        fi
+        if _append_source_block "$rc"; then
+            continue
+        else
+            refresh_rc=$?
+        fi
+        if [ "$refresh_rc" -eq 2 ]; then
+            _errorcat "Shell 启动文件中的 clashctl 托管标记不完整：$rc"
+        else
+            _errorcat "无法更新 Shell 启动文件：$rc"
+        fi
+        return 1
     done
-    [ -n "$SHELL_RC_FISH" ] && _write_fish_rc
+    if [ -n "$SHELL_RC_FISH" ]; then
+        _write_fish_rc || {
+            _errorcat "无法更新 Fish 启动文件：$SHELL_RC_FISH"
+            return 1
+        }
+    fi
     return 0
 }
 
 _update_side_effects() {
-    _update_env_refresh
-    _update_data_refresh
-    _update_unit_refresh
+    _update_validate_tree "$CLASHCTL_HOME" || return 1
+    _update_env_refresh || {
+        _errorcat '无法补充新版本所需的环境配置项'
+        return 1
+    }
+    _update_data_refresh || {
+        _errorcat '无法安装新版本所需的配置模板'
+        return 1
+    }
+    _update_unit_refresh || return 1
     _update_runtime_refresh "$_UPDATE_WAS_ACTIVE" || return 1
-    _update_rc_refresh
+    _update_rc_refresh || return 1
     return 0
 }
 
@@ -242,7 +329,7 @@ _update_side_effects() {
 
 _update_acquire_lock() {
     command -v flock >/dev/null 2>&1 || {
-        _failcat '⚠️ ' "系统无 flock，已降级为无锁更新（请避免并发执行订阅/更新操作）"
+        _ui_warn_fail '系统无 flock，已降级为无锁更新（请避免并发执行订阅/更新操作）'
         return 0
     }
     exec 9>>"$CLASH_PROFILES_LOCK" || return 1
@@ -321,7 +408,7 @@ _update_fetch_archive() {
     /usr/bin/install -d "$dst" || return 1
     url="https://codeload.github.com/${_UPDATE_REPO}/tar.gz/refs/heads/${branch}"
     url="${GH_PROXY:+${GH_PROXY%/}/}${url}"
-    _okcat '⏳' "正在下载：$url"
+    _ui_step '下载更新归档'
     curl -sSL --fail --max-time "${CLASHCTL_DOWNLOAD_TIMEOUT:-60}" --retry 1 "$url" |
         tar -xzf - --strip-components=1 -C "$dst"
 }

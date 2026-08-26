@@ -7,7 +7,7 @@ clashoff() {
         ;;
     -s | --service-only)
         off_service_only || return
-        [ -n "$http_proxy" ] && _failcat "警告：当前终端代理未关闭"
+        [ -n "$http_proxy" ] && _ui_warn_fail "当前终端代理未关闭"
         ;;
     -h | --help)
         off_help
@@ -21,7 +21,7 @@ clashoff() {
 
 off_env_only() {
     unset_system_proxy
-    _okcat "终端代理已关闭"
+    _ui_ok_out "终端代理已关闭"
 }
 off_service_only() {
     service_is_active >&/dev/null && {
@@ -30,11 +30,11 @@ off_service_only() {
             service_sudo_stop || _errorcat "请先关闭 Tun 模式" || return
         }
         service_is_active >&/dev/null && {
-            _failcat "$CLASHCTL_KERNEL 停止失败"
+            _ui_fail "$CLASHCTL_KERNEL 停止失败"
             return 1
         }
     }
-    _okcat "$CLASHCTL_KERNEL 已停止"
+    _ui_ok_out "$CLASHCTL_KERNEL 已停止"
 }
 
 unset_system_proxy() {

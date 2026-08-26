@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# shellcheck disable=SC2034  # 默认值由 preflight.sh 与 version.sh 读取
 # ── 依赖钉版（本文件为唯一事实源，升级依赖时随同一提交更新）──────
 # ── 用户可用 .env/环境变量覆盖 VERSION_* 同名键；CLASHCTL_CHECK_ ──
 # ── LATEST_VERSION=1（默认）时最新版查询成功则优先最新，钉版仅为──

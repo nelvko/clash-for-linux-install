@@ -29,9 +29,9 @@ EOF
     kernel=$(timeout 5 "$BIN_KERNEL" -v 2>/dev/null | grep -oE 'v[0-9][0-9A-Za-z.-]*' | head -1)
     kernel=${kernel:-unknown}
 
-    _okcat "clashctl：${rev:-unknown}"
-    _okcat "分支：$branch"
-    _okcat "内核（已装）：$kernel"
-    _okcat "依赖钉版：mihomo ${DEFAULT_VERSION_MIHOMO} / yq ${DEFAULT_VERSION_YQ} / subconverter ${DEFAULT_VERSION_SUBCONVERTER} / UI ${DEFAULT_VERSION_UI}"
-    _okcat "更新策略：${CLASHCTL_CHECK_LATEST_VERSION:-1} =1 优先最新版（钉版为查询失败兜底），=0 固定钉版"
+    _ui_info_out "clashctl：${rev:-unknown}"
+    _ui_info_out "分支：$branch"
+    _ui_info_out "内核（已装）：$kernel"
+    _ui_info_out "依赖钉版：mihomo ${DEFAULT_VERSION_MIHOMO} / yq ${DEFAULT_VERSION_YQ} / subconverter ${DEFAULT_VERSION_SUBCONVERTER} / UI ${DEFAULT_VERSION_UI}"
+    _ui_info_out "更新策略：${CLASHCTL_CHECK_LATEST_VERSION:-1} =1 优先最新版（钉版为查询失败兜底），=0 固定钉版"
 }

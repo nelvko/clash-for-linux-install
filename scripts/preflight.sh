@@ -5,14 +5,16 @@
 
 for lib_file in "$CLASHCTL_SRC"/scripts/lib/*.sh; do
     [ -f "$lib_file" ] || continue
+    # shellcheck disable=SC1090
     . "$lib_file"
 done
 
 ZIP_BASE_DIR="${CLASHCTL_SRC}/archives"
 
 valid_required() {
-    local required_cmds=("xz" "pgrep" "pkill" "curl" "tar" 'unzip' 'gzip' 'shuf')
+    local required_cmds=(curl tar unzip gzip shuf od)
     local missing=()
+
     for cmd in "${required_cmds[@]}"; do
         command -v "$cmd" >&/dev/null || missing+=("$cmd")
     done
@@ -20,25 +22,28 @@ valid_required() {
     command -v ss >&/dev/null || command -v netstat >&/dev/null || missing+=("ss/netstat")
     command -v ip >&/dev/null || command -v hostname >&/dev/null || missing+=("ip/hostname")
 
-    [ ${#missing[@]} -eq 0 ] || _errorcat "请先安装以下命令：${missing[*]}" || exit
+    if [ ${#missing[@]} -gt 0 ]; then
+        _ui_error "缺少安装所需的系统命令"
+        _ui_detail "缺少" "${missing[*]}"
+        _ui_detail "处理" "安装上述命令后重新运行安装脚本"
+        return 1
+    fi
+    return 0
 }
 
 prepare_zip() {
-    load_zip >&/dev/null
-    local required_zips=()
+    local required_zips=(yq subconverter ui)
+
     case "${CLASHCTL_KERNEL}" in
     clash)
-        [ ! -f "$ZIP_CLASH" ] && required_zips+=("clash")
+        required_zips=(clash "${required_zips[@]}")
         ;;
     mihomo | *)
-        [ ! -f "$ZIP_MIHOMO" ] && required_zips+=("mihomo")
+        required_zips=(mihomo "${required_zips[@]}")
         ;;
     esac
-    [ ! -f "$ZIP_YQ" ] && required_zips+=("yq")
-    [ ! -f "$ZIP_SUBCONVERTER" ] && required_zips+=("subconverter")
-    [ ! -f "$ZIP_UI" ] && required_zips+=("ui")
 
-    download_zip "${required_zips[@]}"
+    download_zip "${required_zips[@]}" || return 1
 
     case "${CLASHCTL_KERNEL}" in
     clash)
@@ -49,23 +54,9 @@ prepare_zip() {
         ;;
     esac
     BIN_KERNEL="${BIN_BASE_DIR}/$CLASHCTL_KERNEL"
-    unzip_zip
+    unzip_zip || return 1
 }
-load_zip() {
-    local matches=()
-    shopt -s nullglob
-    matches=("${ZIP_BASE_DIR}"/clash*)
-    ZIP_CLASH="${matches[0]:-}"
-    matches=("${ZIP_BASE_DIR}"/mihomo*)
-    ZIP_MIHOMO="${matches[0]:-}"
-    matches=("${ZIP_BASE_DIR}"/yq*)
-    ZIP_YQ="${matches[0]:-}"
-    matches=("${ZIP_BASE_DIR}"/subconverter*)
-    ZIP_SUBCONVERTER="${matches[0]:-}"
-    matches=("${ZIP_BASE_DIR}"/dist*)
-    ZIP_UI="${matches[0]:-}"
-    shopt -u nullglob
-}
+
 _fetch_latest_tag() {
     local repo=$1
     local body
@@ -81,14 +72,14 @@ _resolve_version() {
     local varname=$1 repo=$2
     local local_version="${!varname}"
     local check_latest="${CLASHCTL_CHECK_LATEST_VERSION:-1}"
-    local latest_failed=0
+    local latest_failed=0 version_source=配置版本
 
     case "$check_latest" in
     1)
         local tag
         tag=$(_fetch_latest_tag "$repo") && {
             printf -v "$varname" '%s' "$tag"
-            _okcat '🏷️ ' "${repo} → $tag（最新版本）"
+            _ui_detail "$repo" "$tag（最新版本）"
             return 0
         }
         latest_failed=1
@@ -96,61 +87,156 @@ _resolve_version() {
     esac
 
     # 版本来源优先级：最新版本查询 > 用户指定（.env/环境变量）> 文件顶部的内置钉版
-    [ -z "$local_version" ] && {
+    if [ -z "$local_version" ]; then
+        version_source=内置钉版
         case "$varname" in
         VERSION_MIHOMO) local_version=$DEFAULT_VERSION_MIHOMO ;;
         VERSION_YQ) local_version=$DEFAULT_VERSION_YQ ;;
         VERSION_SUBCONVERTER) local_version=$DEFAULT_VERSION_SUBCONVERTER ;;
         VERSION_UI) local_version=$DEFAULT_VERSION_UI ;;
         esac
-    }
+    fi
     if [ -n "$local_version" ]; then
         if [ "$latest_failed" -ne 0 ] && [ "${CLASHCTL_LATEST_VERSION_FALLBACK_WARNED:-0}" -eq 0 ]; then
-            _errorcat '⚠️ ' "依赖最新版本查询失败，已回退到钉版 $local_version" || true
+            _ui_warn "无法查询部分依赖的最新版本，使用配置版本或内置钉版"
             CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=1
         fi
         printf -v "$varname" '%s' "$local_version"
-        _okcat '🏷️ ' "${repo} → $local_version（钉版）"
+        _ui_detail "$repo" "$local_version（$version_source）"
         return 0
     fi
 
-    _errorcat "${repo} 版本解析失败（无内置钉版，且最新版本查询不可用）"
+    _ui_error "无法解析依赖版本：$repo"
+    _ui_detail "原因" "未配置版本、无内置钉版，且最新版本查询不可用"
     return 1
+}
+
+_archive_is_valid() {
+    local archive=$1
+    local expected=${archive%.part}
+
+    [ -f "$archive" ] && [ -s "$archive" ] || return 1
+    case $expected in
+    *.zip) unzip -tqq "$archive" >/dev/null 2>&1 ;;
+    *.tar.gz | *.tgz) tar -tzf "$archive" >/dev/null 2>&1 ;;
+    *.gz) gzip -tq "$archive" >/dev/null 2>&1 ;;
+    *) gzip -tq "$archive" >/dev/null 2>&1 || unzip -tqq "$archive" >/dev/null 2>&1 ;;
+    esac
+}
+
+_cache_token() {
+    local value=$1
+    value=${value//\//_}
+    value=${value// /_}
+    printf '%s' "$value"
+}
+
+_download_archive() {
+    local label=$1 url=$2 target=$3
+    local download_url="${GH_PROXY:+${GH_PROXY%/}/}${url}"
+    local part="${target}.part"
+    local -a curl_args=(
+        --show-error
+        --fail
+        --location
+        --max-time "$CLASHCTL_DOWNLOAD_TIMEOUT"
+        --retry 1
+    )
+
+    if _archive_is_valid "$target"; then
+        _ui_ok "$label（缓存命中）"
+        _ui_detail "缓存" "$target"
+        return 0
+    fi
+
+    if [ -e "$target" ]; then
+        _ui_warn "忽略损坏的依赖缓存：$label"
+        _ui_detail "文件" "$target"
+        /usr/bin/rm -f -- "$target" || {
+            _ui_error "无法移除损坏的依赖缓存：$label"
+            return 1
+        }
+    fi
+    /usr/bin/rm -f -- "$part" || {
+        _ui_error "无法清理上次下载的残片：$label"
+        _ui_detail "残片" "$part"
+        return 1
+    }
+
+    if [ -t 2 ] && [ "${CLASHCTL_VERBOSE:-}" = 1 ]; then
+        curl_args+=(--progress-bar)
+    else
+        curl_args+=(--silent)
+    fi
+
+    _ui_info "下载 $label"
+    _ui_detail "上游" "$url"
+    if ! curl "${curl_args[@]}" --output "$part" --url "$download_url"; then
+        /usr/bin/rm -f -- "$part"
+        _ui_error "下载失败：$label"
+        _ui_detail "目标" "$target"
+        _ui_detail "重试" "检查网络或 GH_PROXY 后重新运行安装脚本"
+        return 1
+    fi
+    if ! _archive_is_valid "$part"; then
+        /usr/bin/rm -f -- "$part"
+        _ui_error "下载文件校验失败：$label"
+        _ui_detail "上游" "$url"
+        return 1
+    fi
+    if ! /bin/mv -f -- "$part" "$target"; then
+        /usr/bin/rm -f -- "$part"
+        _ui_error "无法写入依赖缓存：$label"
+        _ui_detail "目标" "$target"
+        return 1
+    fi
+
+    _ui_ok "$label 已下载并通过校验"
+    return 0
 }
 
 download_zip() {
     (($#)) || return 0
     /usr/bin/install -d "$ZIP_BASE_DIR" || {
-        _errorcat "无法创建依赖缓存目录：$ZIP_BASE_DIR"
-        exit 1
+        _ui_error "无法创建依赖缓存目录"
+        _ui_detail "目录" "$ZIP_BASE_DIR"
+        return 1
     }
     local url_clash url_mihomo url_yq url_subconverter
-    local arch=$(uname -m)
+    local arch flags level
+    arch=$(uname -m) || {
+        _ui_error "无法检测系统架构"
+        return 1
+    }
 
     CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=0
     case "${CLASHCTL_CHECK_LATEST_VERSION:-1}" in
-    1) _okcat '🔎' "查询依赖最新版本..." ;;
+    1) _ui_info "查询依赖版本" ;;
     esac
     local item
     for item in "$@"; do
         case $item in
-        mihomo) _resolve_version VERSION_MIHOMO MetaCubeX/mihomo || exit ;;
-        yq) _resolve_version VERSION_YQ mikefarah/yq || exit ;;
-        subconverter) _resolve_version VERSION_SUBCONVERTER "$SUBCONVERTER_REPO" || exit ;;
-        ui) _resolve_version VERSION_UI Zephyruso/zashboard || exit ;;
+        clash) ;;
+        mihomo) _resolve_version VERSION_MIHOMO MetaCubeX/mihomo || return 1 ;;
+        yq) _resolve_version VERSION_YQ mikefarah/yq || return 1 ;;
+        subconverter) _resolve_version VERSION_SUBCONVERTER "$SUBCONVERTER_REPO" || return 1 ;;
+        ui) _resolve_version VERSION_UI Zephyruso/zashboard || return 1 ;;
+        *)
+            _ui_error "未知依赖组件：$item"
+            return 1
+            ;;
         esac
     done
 
     case "$arch" in
     x86_64)
-        local flags=$(grep -m1 '^flags' /proc/cpuinfo)
-        local level=v1
+        flags=$(grep -m1 '^flags' /proc/cpuinfo)
+        level=v1
         grep -qw sse4_2 <<<"$flags" && grep -qw popcnt <<<"$flags" && level=v2
         grep -qw avx2 <<<"$flags" && grep -qw fma <<<"$flags" && level=v3
-        VERSION_MIHOMO=${level}-$VERSION_MIHOMO
 
         url_clash=https://github.com/nelvko/clash-for-linux-install/releases/download/clash/clash-linux-amd64-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-amd64-${VERSION_MIHOMO}.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-amd64-${level}-${VERSION_MIHOMO##*-}.gz
         url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_amd64.tar.gz
         url_subconverter=https://github.com/${SUBCONVERTER_REPO}/releases/download/${VERSION_SUBCONVERTER}/subconverter_linux64.tar.gz
         ;;
@@ -173,98 +259,205 @@ download_zip() {
         url_subconverter=https://github.com/${SUBCONVERTER_REPO}/releases/download/${VERSION_SUBCONVERTER}/subconverter_aarch64.tar.gz
         ;;
     *)
-        _errorcat "未知的架构版本：$arch，请自行下载对应版本至 ${ZIP_BASE_DIR} 目录" || exit
+        _ui_error "不支持的系统架构：$arch"
+        _ui_detail "缓存目录" "$ZIP_BASE_DIR"
+        return 1
         ;;
     esac
 
     # UI 为纯静态资源，与架构无关
     local url_ui="https://github.com/Zephyruso/zashboard/releases/download/${VERSION_UI}/dist.zip"
+    local url target label version_token
 
-    local -A urls=(
-        [clash]="$url_clash"
-        [mihomo]="$url_mihomo"
-        [yq]="$url_yq"
-        [subconverter]="$url_subconverter"
-        [ui]="$url_ui"
-    )
-
-    local item target_zips=()
-    _okcat '🖥️ ' "系统架构：$arch"
+    _ui_info "系统架构：$arch"
     for item in "$@"; do
-        local url="${urls[$item]}"
-        local proxy_url="${GH_PROXY:+${GH_PROXY%/}/}${url}"
-        url="$proxy_url"
-        _okcat '⏳' "正在下载：${item}：$url"
-        local target="${ZIP_BASE_DIR}/$(basename "$url")"
-        curl \
-            --progress-bar \
-            --show-error \
-            --fail \
-            --insecure \
-            --location \
-            --max-time "$CLASHCTL_DOWNLOAD_TIMEOUT" \
-            --retry 1 \
-            --output "$target" \
-            "$url"
-        target_zips+=("$target")
+        case $item in
+        clash)
+            url=$url_clash
+            target="${ZIP_BASE_DIR}/$(basename -- "$url")"
+            label='clash 2023.08.17'
+            ;;
+        mihomo)
+            url=$url_mihomo
+            target="${ZIP_BASE_DIR}/$(basename -- "$url")"
+            label="mihomo ${VERSION_MIHOMO}"
+            ;;
+        yq)
+            url=$url_yq
+            version_token=$(_cache_token "$VERSION_YQ")
+            target="${ZIP_BASE_DIR}/yq-${version_token}-${arch}.tar.gz"
+            label="yq ${VERSION_YQ}"
+            ;;
+        subconverter)
+            url=$url_subconverter
+            version_token=$(_cache_token "$VERSION_SUBCONVERTER")
+            target="${ZIP_BASE_DIR}/subconverter-${version_token}-${arch}.tar.gz"
+            label="subconverter ${VERSION_SUBCONVERTER}"
+            ;;
+        ui)
+            url=$url_ui
+            version_token=$(_cache_token "$VERSION_UI")
+            target="${ZIP_BASE_DIR}/dist-${version_token}.zip"
+            label="zashboard ${VERSION_UI}"
+            ;;
+        esac
+
+        _download_archive "$label" "$url" "$target" || return 1
+        case $item in
+        clash) ZIP_CLASH=$target ;;
+        mihomo) ZIP_MIHOMO=$target ;;
+        yq) ZIP_YQ=$target ;;
+        subconverter) ZIP_SUBCONVERTER=$target ;;
+        ui) ZIP_UI=$target ;;
+        esac
     done
-    valid_zip "${target_zips[@]}"
-    load_zip >&/dev/null
+    return 0
 }
+
 valid_zip() {
-    (($#)) || return 1
-    local zip fail_zips=()
-    for zip in "$@"; do
-        gzip -tq "$zip" || unzip -tqq "$zip" || fail_zips+=("$zip")
+    if (($# == 0)); then
+        _ui_error "没有可验证的依赖归档"
+        return 1
+    fi
+
+    local archive
+    local invalid=()
+    for archive in "$@"; do
+        _archive_is_valid "$archive" || invalid+=("$archive")
     done
 
-    [ ${#fail_zips[@]} -eq 0 ] || _errorcat "文件验证失败：${fail_zips[*]} 请删除后重试，或自行下载对应版本至 ${ZIP_BASE_DIR} 目录" || exit
+    if [ ${#invalid[@]} -gt 0 ]; then
+        _ui_error "依赖归档校验失败"
+        for archive in "${invalid[@]}"; do
+            _ui_detail "文件" "$archive"
+        done
+        return 1
+    fi
+    return 0
 }
+
 unzip_zip() {
-    valid_zip "$ZIP_KERNEL" "$ZIP_YQ" "$ZIP_SUBCONVERTER" "$ZIP_UI"
-    /usr/bin/install -D <(gzip -dc "$ZIP_KERNEL") "$BIN_KERNEL"
-    tar -xf "$ZIP_YQ" -C "${BIN_BASE_DIR}"
-    /bin/mv -f "${BIN_BASE_DIR}"/yq_* "${BIN_BASE_DIR}/yq"
-    tar -xf "$ZIP_SUBCONVERTER" -C "$BIN_BASE_DIR"
-    /bin/cp "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG"
-    unzip -oqq "$ZIP_UI" -d "$CLASH_RESOURCES_DIR" 2>/dev/null || tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR"
+    valid_zip "$ZIP_KERNEL" "$ZIP_YQ" "$ZIP_SUBCONVERTER" "$ZIP_UI" || return 1
+    /usr/bin/install -d "$BIN_BASE_DIR" "$CLASH_RESOURCES_DIR" || {
+        _ui_error "无法创建组件安装目录"
+        return 1
+    }
+
+    _ui_info "安装运行组件"
+    /usr/bin/install -D <(gzip -dc "$ZIP_KERNEL") "$BIN_KERNEL" || {
+        _ui_error "安装内核失败：$CLASHCTL_KERNEL"
+        return 1
+    }
+    tar -xf "$ZIP_YQ" -C "${BIN_BASE_DIR}" || {
+        _ui_error "解压 yq 失败"
+        return 1
+    }
+    /bin/mv -f "${BIN_BASE_DIR}"/yq_* "${BIN_BASE_DIR}/yq" || {
+        _ui_error "安装 yq 失败"
+        return 1
+    }
+    tar -xf "$ZIP_SUBCONVERTER" -C "$BIN_BASE_DIR" || {
+        _ui_error "解压 subconverter 失败"
+        return 1
+    }
+    /bin/cp "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG" || {
+        _ui_error "初始化 subconverter 配置失败"
+        return 1
+    }
+    unzip -oqq "$ZIP_UI" -d "$CLASH_RESOURCES_DIR" 2>/dev/null ||
+        tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR" || {
+        _ui_error "解压 Web UI 失败"
+        return 1
+    }
+    _ui_ok "运行组件已安装"
 }
 
 _set_envs() {
-    _set_env INIT_TYPE "$INIT_TYPE"
-    _set_env CLASHCTL_KERNEL "$CLASHCTL_KERNEL"
+    local rev
+    _set_env INIT_TYPE "$INIT_TYPE" || return 1
+    _set_env CLASHCTL_KERNEL "$CLASHCTL_KERNEL" || return 1
     # 无 .git 的安装记录 rev；git 安装以 rev-parse 为准（clashctl update 直接读 git）
-    [ -d "${CLASHCTL_SRC}/.git" ] ||
-        _set_env CLASHCTL_REV "$(_update_source_rev "$CLASHCTL_SRC")"
+    if [ ! -d "${CLASHCTL_SRC}/.git" ]; then
+        rev=$(_update_source_rev "$CLASHCTL_SRC") || return 1
+        _set_env CLASHCTL_REV "$rev" || return 1
+    fi
 }
 
 apply_rc() {
     detect_rc
 
-    local rc written=()
+    local rc rc_status configured=()
     for rc in "$SHELL_RC_BASH" "$SHELL_RC_ZSH"; do
         [ -f "$rc" ] || continue
 
-        # 已有引导块则跳过（幂等，重复安装不再重复追加）
-        _append_source_block "$rc"
-        written+=("$rc")
+        rc_status=0
+        _append_source_block "$rc" || rc_status=$?
+        if [ "$rc_status" -eq 2 ]; then
+            _ui_error "Shell 配置中的 clashctl 托管标记不完整，已保留原文件"
+            _ui_detail "文件" "$rc"
+            return 1
+        elif [ "$rc_status" -ne 0 ]; then
+            _ui_error "无法更新 Shell 配置"
+            _ui_detail "文件" "$rc"
+            return 1
+        fi
+        configured+=("$rc")
     done
 
-    [ -n "$SHELL_RC_FISH" ] && {
-        _write_fish_rc && written+=("$SHELL_RC_FISH")
-    }
+    if [ -n "$SHELL_RC_FISH" ]; then
+        rc_status=0
+        _write_fish_rc || rc_status=$?
+        if [ "$rc_status" -eq 3 ]; then
+            _ui_error "Fish 配置不是 clashctl 托管文件，已保留原文件"
+            _ui_detail "文件" "$SHELL_RC_FISH"
+            return 1
+        elif [ "$rc_status" -ne 0 ]; then
+            _ui_error "无法更新 Shell 配置"
+            _ui_detail "文件" "$SHELL_RC_FISH"
+            return 1
+        fi
+        configured+=("$SHELL_RC_FISH")
+    fi
 
-    [ ${#written[@]} -gt 0 ] && _okcat '📄' "已写入 shell 配置：${written[*]}"
-    . "$CLASHCTL_CMD_DIR"/clashctl.sh
+    if [ ${#configured[@]} -gt 0 ]; then
+        _ui_ok "Shell 集成已就绪"
+        for rc in "${configured[@]}"; do
+            _ui_detail "配置" "$rc"
+        done
+    fi
+
+    . "$CLASHCTL_CMD_DIR/clashctl.sh" || {
+        _ui_error "加载 clashctl 命令失败"
+        return 1
+    }
+    [ ${#configured[@]} -gt 0 ] && return 0
+    return 2
 }
 revoke_rc() {
     detect_rc
 
-    local rc
+    local rc failures=0
     for rc in "$SHELL_RC_BASH" "$SHELL_RC_ZSH"; do
-        [ ! -f "$rc" ] && continue
-        sed -i.bak --follow-symlinks '/CLASHCTL_HOME/d' "$rc" 2>/dev/null
+        [ -n "$rc" ] || continue
+        _remove_source_block "$rc" || {
+            _ui_error "无法清理 Shell 配置"
+            _ui_detail "文件" "$rc"
+            failures=1
+        }
     done
 
-    [ -n "$SHELL_RC_FISH" ] && rm -f -- "$SHELL_RC_FISH" 2>/dev/null
+    if [ -n "$SHELL_RC_FISH" ] && [ -e "$SHELL_RC_FISH" ]; then
+        if head -n 1 -- "$SHELL_RC_FISH" 2>/dev/null |
+            grep -Fqx '# clashctl shell-rc (managed by install.sh, do not edit)'; then
+            /usr/bin/rm -f -- "$SHELL_RC_FISH" || {
+                _ui_error "无法清理 Fish 配置"
+                _ui_detail "文件" "$SHELL_RC_FISH"
+                failures=1
+            }
+        else
+            _ui_warn "Fish 配置不再由 clashctl 管理，已保留"
+            _ui_detail "文件" "$SHELL_RC_FISH"
+        fi
+    fi
+    return "$failures"
 }

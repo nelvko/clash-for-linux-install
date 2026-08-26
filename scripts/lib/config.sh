@@ -43,7 +43,7 @@ _detect_proxy_port() {
     [ -n "$port" ] && _is_port_used "$port" && [ "$service_active" != "true" ] && {
       new_port=$(_get_random_port) || return
       count=$((count + 1))
-      _failcat '🎯' "端口冲突：[$yaml_key] $port 🎲 随机分配 $new_port"
+      _ui_warn_fail "端口冲突：[$yaml_key] $port；已随机分配 $new_port"
       "$BIN_YQ" -i ".${yaml_key} = $new_port" "$CLASH_CONFIG_MIXIN"
     }
   done
@@ -58,8 +58,10 @@ _detect_ext_addr() {
   local ext_ip=${ext_addr%%:*}
   local ext_port=${ext_addr##*:}
 
+  # shellcheck disable=SC2034  # 由 scripts/cmd/ui.sh 读取
   EXT_IP=$ext_ip
   EXT_PORT=$ext_port
+  # shellcheck disable=SC2034  # 由 scripts/cmd/ui.sh 读取
   [ "$ext_ip" = '0.0.0.0' ] && EXT_IP=$(_get_local_ip)
 
   local service_active=false
@@ -68,7 +70,7 @@ _detect_ext_addr() {
   _is_port_used "$EXT_PORT" && [ "$service_active" != "true" ] && {
     local new_port
     new_port=$(_get_random_port) || return
-    _failcat '🎯' "端口冲突：[external-controller] ${EXT_PORT} 🎲 随机分配 $new_port"
+    _ui_warn_fail "端口冲突：[external-controller] ${EXT_PORT}；已随机分配 $new_port"
     EXT_PORT=$new_port
     EXT_ADDR="$ext_ip:$new_port" "$BIN_YQ" -i '.external-controller = env(EXT_ADDR)' "$CLASH_CONFIG_MIXIN"
     _merge_config
@@ -195,10 +197,10 @@ tunstatus() {
   device=$("$BIN_YQ" '.tun.device // ""' "$CLASH_CONFIG_RUNTIME")
   [ -z "$device" ] && device="Meta"
   ip link show | grep -qs "$device" && {
-    _okcat 'Tun 状态：启用'
+    _ui_ok_out 'Tun 状态：启用'
     return 0
   }
-  _failcat 'Tun 状态：关闭'
+  _ui_info_out 'Tun 状态：关闭'
   return 1
 }
 _is_tun_enabled() {

@@ -63,16 +63,174 @@ _get_local_ip() {
 }
 
 _get_random_val() {
-    tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 6
+    local value
+    value=$(od -An -N24 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n') || return 1
+    [ ${#value} -eq 48 ] || return 1
+    printf '%s\n' "$value"
+}
+
+# UI 颜色策略：NO_COLOR 优先；always/never 显式覆盖自动检测。
+# auto 仅在非 CI、终端能力正常且目标 fd 为 TTY 时启用颜色。
+_ui_color_enabled() {
+    local fd=${1:-2}
+
+    [ "${NO_COLOR+x}" != x ] || return 1
+    case ${CLASHCTL_COLOR:-auto} in
+    always) return 0 ;;
+    never) return 1 ;;
+    esac
+    [ "${CI+x}" != x ] || return 1
+    [ "${TERM:-dumb}" != dumb ] || return 1
+    [ -t "$fd" ]
+}
+
+# 结构化 UI 默认写 stderr；兼容旧命令时可显式选择 stdout。
+_ui_emit_fd() {
+    local fd=${1:-2} level
+    [ $# -gt 0 ] && shift
+    level=${1:-info}
+    [ $# -gt 0 ] && shift
+    local msg="$*" prefix color
+
+    case $level in
+    step)
+        prefix='[STEP]'
+        color=36
+        ;;
+    ok)
+        prefix='[ OK ]'
+        color=32
+        ;;
+    warn)
+        prefix='[WARN]'
+        color=33
+        ;;
+    error)
+        prefix='[ERROR]'
+        color=31
+        ;;
+    question)
+        prefix='[ ? ]'
+        color=35
+        ;;
+    header)
+        prefix='[INFO]'
+        color='1;36'
+        ;;
+    info | *)
+        prefix='[INFO]'
+        color=36
+        ;;
+    esac
+
+    if _ui_color_enabled "$fd"; then
+        printf '\033[%sm%s\033[0m %s\n' "$color" "$prefix" "$msg" >&"$fd"
+    else
+        printf '%s %s\n' "$prefix" "$msg" >&"$fd"
+    fi
+    return 0
+}
+
+_ui_emit() {
+    _ui_emit_fd 2 "$@"
+}
+
+_ui_step() {
+    _ui_emit step "$*"
+}
+
+_ui_info() {
+    _ui_emit info "$*"
+}
+
+_ui_ok() {
+    _ui_emit ok "$*"
+}
+
+_ui_warn() {
+    _ui_emit warn "$*"
+}
+
+_ui_error() {
+    _ui_emit error "$*"
+}
+
+_ui_header() {
+    _ui_emit header "$*"
+}
+
+_ui_info_out() {
+    _ui_emit_fd 1 info "$*"
+}
+
+_ui_ok_out() {
+    _ui_emit_fd 1 ok "$*"
+}
+
+_ui_fail() {
+    _ui_emit_fd 2 error "$*"
+    return 1
+}
+
+_ui_warn_fail() {
+    _ui_emit_fd 2 warn "$*"
+    return 1
+}
+
+_ui_prompt() {
+    local prompt=${1:-}
+
+    if _ui_color_enabled 2; then
+        printf '\033[35m[ ? ]\033[0m %s ' "$prompt" >&2
+    else
+        printf '[ ? ] %s ' "$prompt" >&2
+    fi
+    return 0
+}
+
+_ui_detail() {
+    local label=${1:-}
+    [ $# -gt 0 ] && shift
+
+    if [ $# -gt 0 ]; then
+        printf '        %s: %s\n' "$label" "$*" >&2
+    else
+        printf '        %s\n' "$label" >&2
+    fi
+    return 0
+}
+
+_ui_blank() {
+    printf '\n' >&2
+    return 0
+}
+
+# 返回 0=yes、1=no/读取失败、2=非交互环境；调用方决定后续业务状态。
+_ui_confirm() {
+    local prompt=${1:-} answer
+
+    [ "${CI+x}" != x ] && [ -t 0 ] && [ -t 2 ] || return 2
+    if _ui_color_enabled 2; then
+        printf '\033[35m[ ? ]\033[0m %s [y/N] ' "$prompt" >&2
+    else
+        printf '[ ? ] %s [y/N] ' "$prompt" >&2
+    fi
+    IFS= read -r answer || {
+        printf '\n' >&2
+        return 1
+    }
+    case $answer in
+    y | Y | yes | YES | Yes) return 0 ;;
+    *) return 1 ;;
+    esac
 }
 
 _color_log() {
     local color="$1"
     local msg="$2"
 
-    # 输出目标非终端（cron / 管道 / 重定向）时不加颜色码，避免污染日志与 cron 邮件。
-    # fd1 已随调用方的 >&2 重定向，故此判断对 _okcat 与 _failcat/_errorcat 均成立。
-    [ -t 1 ] || {
+    # fd1 会随调用方重定向，因此仍按实际输出目标判定颜色。
+    _ui_color_enabled 1 || {
         printf '%s\n' "$msg"
         return
     }
@@ -88,31 +246,10 @@ _color_log() {
     printf "%b%s%b\n" "$color_code" "$msg" "$reset_code"
 }
 
-_okcat() {
-    local color=#c8d6e5
-    local emoji=😼
-    [ $# -gt 1 ] && emoji=$1 && shift
-    local msg="${emoji} $1"
-    _color_log "$color" "$msg"
-    return 0
-}
-
-_failcat() {
-    local color=#fd79a8
-    local emoji=😾
-    [ $# -gt 1 ] && emoji=$1 && shift
-    local msg="${emoji} $1"
-    _color_log "$color" "$msg" >&2
-    return 1
-}
-
 _errorcat() {
     [ $# -gt 0 ] && {
-        local color=#f92f60
-        local emoji=📢
-        [ $# -gt 1 ] && emoji=$1 && shift
-        local msg="${emoji} $1"
-        _color_log "$color" "$msg" >&2
+        [ $# -gt 1 ] && shift
+        _ui_fail "$*"
     }
     return 1
 }
@@ -155,19 +292,48 @@ _pad() {
 _set_env() {
     local key=$1
     local value=$2
-    local env_path="${CLASHCTL_HOME}/.env"
+    local env_path="${CLASHCTL_ENV_PATH:-${CLASHCTL_HOME}/.env}"
+    local quoted tmp line found=0
 
-    grep -qE "^${key}=" "$env_path" && {
-        value=${value//\\/\\\\}
-        value=${value//&/\\&}
-        value=${value//|/\\|}
-        sed -i "s|^${key}=.*|${key}=${value}|" "$env_path"
-        return $?
+    [[ $key =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
+    printf -v quoted '%q' "$value"
+    tmp=$(mktemp "${env_path}.tmp.XXXXXX") || return 1
+    chmod 0600 "$tmp" || {
+        /usr/bin/rm -f -- "$tmp"
+        return 1
     }
-    printf '%s=%s\n' "$key" "$value" >>"$env_path"
+    if [ -f "$env_path" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            case $line in
+            "$key="*)
+                printf '%s=%s\n' "$key" "$quoted" >>"$tmp" || {
+                    /usr/bin/rm -f -- "$tmp"
+                    return 1
+                }
+                found=1
+                ;;
+            *)
+                printf '%s\n' "$line" >>"$tmp" || {
+                    /usr/bin/rm -f -- "$tmp"
+                    return 1
+                }
+                ;;
+            esac
+        done <"$env_path"
+    fi
+    if [ "$found" -eq 0 ]; then
+        printf '%s=%s\n' "$key" "$quoted" >>"$tmp" || {
+            /usr/bin/rm -f -- "$tmp"
+            return 1
+        }
+    fi
+    /bin/mv -f -- "$tmp" "$env_path"
 }
 
 detect_rc() {
+    SHELL_RC_BASH=
+    SHELL_RC_ZSH=
+    SHELL_RC_FISH=
     command -v bash >&/dev/null && {
         SHELL_RC_BASH="${HOME}/.bashrc"
     }
@@ -179,40 +345,135 @@ detect_rc() {
     }
 }
 
-# 幂等写入 bash/zsh 的 clashctl 引导块（已存在则跳过）
+# 幂等写入 bash/zsh 的 clashctl 引导块。返回 2 表示现有托管标记不完整，
+# 调用方必须保留原文件并提示人工处理。
 _append_source_block() {
     local rc=$1
+    local tmp quoted mode
 
     [ -f "$rc" ] || return 0
-    grep -qs '^export CLASHCTL_HOME=' "$rc" && return 0
-
-    [ "$(tail -c 1 -- "$rc" | wc -l)" -eq 0 ] && {
-        printf '\n' >>"$rc"
+    rc=$(readlink -f -- "$rc" 2>/dev/null) || return 1
+    awk '
+        $0 == "# >>> clashctl >>>" {
+            if (managed) exit 1
+            managed = 1
+            next
+        }
+        $0 == "# <<< clashctl <<<" {
+            if (!managed) exit 1
+            managed = 0
+        }
+        END { if (managed) exit 1 }
+    ' "$rc" >/dev/null || return 2
+    tmp=$(mktemp "${rc}.clashctl.XXXXXX") || return 1
+    mode=$(stat -c %a -- "$rc" 2>/dev/null) || mode=0600
+    awk '
+        /^# >>> clashctl >>>$/ { managed=1; next }
+        /^# <<< clashctl <<<$/{ managed=0; next }
+        managed { next }
+        /^export CLASHCTL_HOME=/ { next }
+        /^\[ -s "\$CLASHCTL_HOME\/scripts\/cmd\/clashctl\.sh" \]/ { next }
+        { print }
+    ' "$rc" >"$tmp" || {
+        /usr/bin/rm -f -- "$tmp"
+        return 1
     }
-    printf 'export CLASHCTL_HOME=%s\n' "$CLASHCTL_HOME" >>"$rc"
-    # 守卫式加载：安装目录被删/挪后开 shell 不报错（nvm 同款自愈模式）
-    printf '[ -s "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" ] && . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh"\n' >>"$rc"
+    if [ -s "$tmp" ] && [ "$(tail -c 1 -- "$tmp" | wc -l)" -eq 0 ]; then
+        printf '\n' >>"$tmp" || {
+            /usr/bin/rm -f -- "$tmp"
+            return 1
+        }
+    fi
+    printf -v quoted '%q' "$CLASHCTL_HOME"
+    {
+        printf '%s\n' '# >>> clashctl >>>'
+        printf 'export CLASHCTL_HOME=%s\n' "$quoted"
+        # shellcheck disable=SC2016 # 变量应在新 shell 加载 rc 时展开
+        printf '%s\n' '[ -s "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" ] && . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh"'
+        printf '%s\n' '# <<< clashctl <<<'
+    } >>"$tmp" || {
+        /usr/bin/rm -f -- "$tmp"
+        return 1
+    }
+    chmod "$mode" "$tmp" && /bin/mv -f -- "$tmp" "$rc"
 }
 
-# 将 clashctl.fish 以内容快照方式写入 fish 配置；内容无变化时不写（返回 1）
-_write_fish_rc() {
-    [ -n "$SHELL_RC_FISH" ] || return 1
+# 只移除 clashctl 写入的完整托管块；同时兼容旧版安装器写入的两行引导。
+_remove_source_block() {
+    local rc=$1 tmp mode legacy_export
 
-    mkdir -p -- "$(dirname -- "$SHELL_RC_FISH")"
+    [ -f "$rc" ] || return 0
+    rc=$(readlink -f -- "$rc" 2>/dev/null) || return 1
+    tmp=$(mktemp "${rc}.clashctl.XXXXXX") || return 1
+    mode=$(stat -c %a -- "$rc" 2>/dev/null) || mode=0600
+    legacy_export="export CLASHCTL_HOME=${CLASHCTL_HOME}"
+
+    awk -v legacy_export="$legacy_export" '
+        BEGIN {
+            managed = 0
+            buffered = ""
+            legacy_guard = "[ -s \"$CLASHCTL_HOME/scripts/cmd/clashctl.sh\" ] && . \"$CLASHCTL_HOME/scripts/cmd/clashctl.sh\""
+        }
+        !managed && $0 == "# >>> clashctl >>>" {
+            managed = 1
+            buffered = $0 ORS
+            next
+        }
+        managed {
+            buffered = buffered $0 ORS
+            if ($0 == "# <<< clashctl <<<") {
+                managed = 0
+                buffered = ""
+            }
+            next
+        }
+        $0 == legacy_export || $0 == legacy_guard { next }
+        { print }
+        END {
+            # 不完整的标记块可能是用户内容，原样保留。
+            if (managed) printf "%s", buffered
+        }
+    ' "$rc" >"$tmp" || {
+        /usr/bin/rm -f -- "$tmp"
+        return 1
+    }
+    if ! chmod "$mode" "$tmp" || ! /bin/mv -f -- "$tmp" "$rc"; then
+        /usr/bin/rm -f -- "$tmp"
+        return 1
+    fi
+}
+
+# 将 clashctl.fish 以内容快照方式写入 fish 配置；内容无变化时也视为成功。
+_write_fish_rc() {
+    [ -n "$SHELL_RC_FISH" ] || return 2
+
+    if [ -e "$SHELL_RC_FISH" ] || [ -L "$SHELL_RC_FISH" ]; then
+        [ ! -L "$SHELL_RC_FISH" ] &&
+            head -n 1 -- "$SHELL_RC_FISH" 2>/dev/null |
+            grep -Fqx '# clashctl shell-rc (managed by install.sh, do not edit)' || return 3
+    fi
+
+    local fish_dir
+    fish_dir=$(dirname -- "$SHELL_RC_FISH")
+    mkdir -p -- "$fish_dir" || return 1
     local fish_quoted=${CLASHCTL_HOME//\\/\\\\}
     fish_quoted=${fish_quoted//\'/\\\'}
     local tmp
-    tmp=$(mktemp)
+    tmp=$(mktemp "${fish_dir}/.clashctl.fish.XXXXXX") || return 1
     {
         printf "# clashctl shell-rc (managed by install.sh, do not edit)\n"
         printf "set -gx CLASHCTL_HOME '%s'\n\n" "$fish_quoted"
         cat -- "$CLASHCTL_CMD_DIR/clashctl.fish"
-    } >"$tmp"
+    } >"$tmp" || {
+        /usr/bin/rm -f -- "$tmp"
+        return 1
+    }
     if cmp -s -- "$tmp" "$SHELL_RC_FISH"; then
+        /usr/bin/rm -f -- "$tmp"
+        return 0
+    fi
+    if ! chmod 0644 -- "$tmp" || ! /bin/mv -f -- "$tmp" "$SHELL_RC_FISH"; then
         /usr/bin/rm -f -- "$tmp"
         return 1
     fi
-    /bin/mv -f -- "$tmp" "$SHELL_RC_FISH"
-    chmod 0644 -- "$SHELL_RC_FISH"
-    return 0
 }

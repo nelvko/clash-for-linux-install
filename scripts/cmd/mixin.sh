@@ -8,7 +8,7 @@ clashmixin() {
         ;;
     -e)
         "${EDITOR:-vim}" "$CLASH_CONFIG_MIXIN" && {
-            _merge_config_restart && _okcat "配置更新成功，已重启生效"
+            _merge_config_restart && _ui_ok_out "配置更新成功，已重启生效"
         }
         ;;
     -r)

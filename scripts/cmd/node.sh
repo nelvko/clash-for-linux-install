@@ -16,7 +16,7 @@ clashnode() {
     esac
 
     service_is_active >&/dev/null || {
-        _failcat "$CLASHCTL_KERNEL 未运行，请先执行 clashctl on"
+        _ui_fail "$CLASHCTL_KERNEL 未运行，请先执行 clashctl on"
         return 1
     }
 
@@ -54,18 +54,43 @@ _node_api_base() {
     printf 'http://127.0.0.1:%s' "$EXT_PORT"
 }
 
-# 统一 curl 封装：--noproxy '*' 避免走系统代理；secret 非空时带 Bearer
+# 统一 curl 封装：--noproxy '*' 避免走系统代理；Bearer 仅通过私有临时文件传递。
 # 用法：_node_curl <METHOD> <PATH> [额外 curl 参数...]
-_node_curl() {
+_node_curl() (
+    umask 077
     local method=$1 path=$2
     shift 2
-    local secret base auth=()
+    local secret base header_file='' cleaned
+
+    # shellcheck disable=SC2317  # 由 EXIT trap 调用
+    _node_curl_finish() {
+        local rc=$1
+        trap - EXIT
+        if [ -n "${header_file:-}" ] && ! /usr/bin/rm -f -- "$header_file"; then
+            rc=1
+        fi
+        exit "$rc"
+    }
+    trap '_node_curl_finish "$?"' EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+
     base=$(_node_api_base)
-    secret=$(_get_secret)
-    [ -n "$secret" ] && auth=(-H "Authorization: Bearer $secret")
-    curl -s --noproxy '*' --max-time "${CLASHCTL_API_TIMEOUT:-10}" \
+    secret=$(_get_secret) || return 1
+    if [ -n "$secret" ]; then
+        cleaned=$(printf '%s' "$secret" | LC_ALL=C tr -d '\001-\037\177')
+        [ "$cleaned" = "$secret" ] || return 1
+        header_file=$(mktemp "${CLASH_DATA_DIR}/.api-header.XXXXXX") || return 1
+        chmod 0600 "$header_file" || return 1
+        printf 'Authorization: Bearer %s\n' "$secret" >"$header_file" || return 1
+    fi
+
+    local -a auth=()
+    [ -z "$header_file" ] || auth=(--header "@$header_file")
+    curl --disable --silent --noproxy '*' --max-time "${CLASHCTL_API_TIMEOUT:-10}" \
         -X "$method" "${auth[@]}" "${base}${path}" "$@"
-}
+)
 
 # 路径段 URL 编码（组/节点名常含空格、中文、emoji）；LC_ALL=C 按字节百分号编码
 _node_urlencode() {
@@ -190,10 +215,10 @@ _node_apply() {
         -H 'Content-Type: application/json' --data-raw "$body" \
         -o /dev/null -w '%{http_code}')
     case $code in
-    204) _okcat "已切换 [$group] → $member" ;;
-    400) _failcat "切换失败：节点 [$member] 不在策略组 [$group] 内，或该组不可手动切换" ;;
-    404) _failcat "切换失败：策略组 [$group] 不存在" ;;
-    *) _failcat "切换失败：控制器返回 $code（检查内核是否运行 / secret 是否正确）" ;;
+    204) _ui_ok_out "已切换 [$group] → $member" ;;
+    400) _ui_fail "切换失败：节点 [$member] 不在策略组 [$group] 内，或该组不可手动切换" ;;
+    404) _ui_fail "切换失败：策略组 [$group] 不存在" ;;
+    *) _ui_fail "切换失败：控制器返回 $code（检查内核是否运行 / secret 是否正确）" ;;
     esac
 }
 
@@ -331,7 +356,7 @@ EOF
     done < <(_node_groups)
 
     [ ${#names[@]} -eq 0 ] && {
-        _failcat "未获取到策略组（内核是否运行？）"
+        _ui_fail "未获取到策略组（内核是否运行？）"
         return 1
     }
 
@@ -356,7 +381,7 @@ EOF
 _node_list_members() {
     local group=$1
     [ "$(_node_classify "$group")" = group ] || {
-        _failcat "策略组 [$group] 不存在"
+        _ui_fail "策略组 [$group] 不存在"
         return 1
     }
 
@@ -367,7 +392,7 @@ _node_list_members() {
     done < <(_node_members "$group")
 
     [ ${#members[@]} -eq 0 ] && {
-        _failcat "策略组 [$group] 无可用节点"
+        _ui_fail "策略组 [$group] 无可用节点"
         return 1
     }
 
@@ -409,7 +434,7 @@ _node_hint_fzf() {
     command -v fzf >&/dev/null && return 0
 
     _NODE_FZF_HINT_SHOWN=true
-    _okcat '💡' '未检测到 fzf，已使用编号选择；安装 fzf 可启用搜索式选择界面。' >&2
+    _ui_warn '未检测到 fzf，已使用编号选择；安装 fzf 可启用搜索式选择界面。'
 }
 
 _node_fzf_preview_dir() {
@@ -530,7 +555,7 @@ _node_pick_group() {
             "${types[$i]}" >&2
     done
     local choice
-    printf '%s' "$(_okcat '✈️ ' "$prompt")" >&2
+    _ui_prompt "$prompt"
     read -r choice
     [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#names[@]} ] && {
         printf '%s\n' "${names[$((choice - 1))]}"
@@ -609,7 +634,7 @@ _node_pick_proxy() {
     done
 
     local choice
-    printf '%s' "$(_okcat '✈️ ' "$prompt")" >&2
+    _ui_prompt "$prompt"
     read -r choice
     [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#names[@]} ] && {
         printf '%s\n' "${names[$((choice - 1))]}"
@@ -640,7 +665,7 @@ _node_pick_member() {
 
     declare -A delays=()
     if [ "$with_delay" = true ]; then
-        _okcat "正在测速 [$group]（可能需要数秒）..." >&2
+        _ui_step "正在测速 [$group]（可能需要数秒）..."
         [ -n "$url" ] || url=$(_node_default_delay_url)
         [ -n "$timeout" ] || timeout=$(_node_default_delay_timeout)
         while IFS=$'\t' read -r name delay; do
@@ -747,7 +772,7 @@ _node_pick_member() {
         fi
     done
     local choice
-    printf '%s' "$(_okcat '✈️ ' "请选择要切换到的节点（* 为当前）：")" >&2
+    _ui_prompt "请选择要切换到的节点（* 为当前）："
     read -r choice
     [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#members[@]} ] && {
         printf '%s\n' "${members[$((choice - 1))]}"
@@ -921,7 +946,7 @@ _node_delay_fallback() {
     done < <(_node_members "$group")
 
     [ ${#members[@]} -eq 0 ] && {
-        _failcat "策略组 [$group] 无节点或不存在"
+        _ui_fail "策略组 [$group] 无节点或不存在"
         return 1
     }
 
@@ -934,7 +959,7 @@ _node_delay_group() {
     enc=$(_node_urlencode "$group")
     qs="timeout=${timeout}&url=$(_node_urlencode "$url")"
 
-    _okcat "正在测速策略组 [$group]（可能需要数秒）..."
+    _ui_step "正在测速策略组 [$group]（可能需要数秒）..."
     resp=$(_node_curl GET "/group/$enc/delay?$qs" -w $'\n%{http_code}')
     code=${resp##*$'\n'}
     body=${resp%$'\n'*}
@@ -947,7 +972,7 @@ _node_delay_group() {
 
 _node_delay_proxy() {
     local proxy=$1 url=$2 timeout=$3
-    _okcat "正在测速节点 [$proxy]..."
+    _ui_step "正在测速节点 [$proxy]..."
     _node_delay_member_rows "$url" "$timeout" "$proxy" | _node_print_delays
 }
 
@@ -1056,7 +1081,7 @@ EOF
         if [ -z "$target" ]; then
             target=$(_node_pick_proxy "请选择要测速的节点：") || return 1
         elif [ "$(_node_classify "$target")" != proxy ]; then
-            _failcat "节点 [$target] 不存在"
+            _ui_fail "节点 [$target] 不存在"
             return 1
         fi
         _node_delay_proxy "$target" "$url" "$timeout"

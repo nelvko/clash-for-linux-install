@@ -25,10 +25,10 @@ tunoff() {
         "$BIN_YQ" -i '.tun.enable = false' "$CLASH_CONFIG_MIXIN"
         _merge_config
         service_start
-        tunstatus >&/dev/null || _okcat "Tun 模式已关闭"
+        tunstatus >&/dev/null || _ui_ok_out "Tun 模式已关闭"
         return 0
     }
-    tunstatus >/dev/null && _failcat "Tun 模式关闭失败"
+    tunstatus >/dev/null && _ui_fail "Tun 模式关闭失败"
 }
 
 tunon() {
@@ -46,10 +46,10 @@ tunon() {
             service_sudo_start
             sleep 1
             tunstatus >&/dev/null || _errorcat 'Tun 模式开启失败, 请检查代理内核日志' || return
-            _okcat "Tun 模式已开启" && return 0
+            _ui_ok_out "Tun 模式已开启" && return 0
         }
     }
-    _okcat "Tun 模式已开启"
+    _ui_ok_out "Tun 模式已开启"
 }
 
 tun_help() {

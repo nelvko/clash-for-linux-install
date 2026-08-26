@@ -20,25 +20,25 @@ clashon() {
 
 on_env_only() {
     service_is_active >&/dev/null || {
-        _failcat "$CLASHCTL_KERNEL 未运行，请使用 clashctl on 开启代理环境"
+        _ui_fail "$CLASHCTL_KERNEL 未运行，请使用 clashctl on 开启代理环境"
         return 1
     }
     set_system_proxy
-    _okcat "终端代理已启用"
+    _ui_ok_out "终端代理已启用"
 }
 
 on_service_only() {
     service_is_active >&/dev/null && {
-        _okcat "$CLASHCTL_KERNEL 已运行"
+        _ui_ok_out "$CLASHCTL_KERNEL 已运行"
         return 0
     }
     _detect_proxy_port
     service_start
     service_is_active >&/dev/null || {
-        _failcat "$CLASHCTL_KERNEL 启动失败"
+        _ui_fail "$CLASHCTL_KERNEL 启动失败"
         return 1
     }
-    _okcat "$CLASHCTL_KERNEL 已启动"
+    _ui_ok_out "$CLASHCTL_KERNEL 已启动"
 }
 
 on_help() {

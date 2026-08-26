@@ -23,9 +23,8 @@ clashupgrade() {
         esac
     done
 
-    _detect_ext_addr
     service_is_active >&/dev/null || service_start >/dev/null
-    _okcat '⏳' "请求内核升级..."
+    _ui_step "请求内核升级..."
 
     local follow_pid=
     [ "$log_flag" = true ] && {
@@ -35,25 +34,20 @@ clashupgrade() {
 
     local res
     res=$(
-        curl -X POST \
-            --silent \
-            --noproxy "*" \
-            --location \
-            -H "Authorization: Bearer $(_get_secret)" \
-            "http://${EXT_IP}:${EXT_PORT}/upgrade?channel=$channel"
+        _node_curl POST "/upgrade?channel=$channel" --location
     )
 
     [ -n "$follow_pid" ] && kill "$follow_pid" >/dev/null 2>&1
 
     grep '"status":"ok"' <<<"$res" && {
-        _okcat "内核升级成功"
+        _ui_ok_out "内核升级成功"
         return 0
     }
     grep 'already using latest version' <<<"$res" && {
-        _okcat "已是最新版本"
+        _ui_ok_out "已是最新版本"
         return 0
     }
-    _failcat "内核升级失败，请检查网络或稍后重试"
+    _ui_fail "内核升级失败，请检查网络或稍后重试"
 }
 
 upgrade_help() {

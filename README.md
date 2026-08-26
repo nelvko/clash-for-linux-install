@@ -24,22 +24,41 @@
 
 ## 🚀 Installation
 
-在终端中执行以下命令即可完成安装（无需 git）：
+安装脚本会先完整下载到安全的临时文件，确认非空后再交给 Bash 执行：
 
 ```bash
-curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | bash
+(
+  installer=$(mktemp) || exit 1
+  trap 'rm -f "$installer"' EXIT
+
+  curl -fsSL -o "$installer" \
+    https://gh-proxy.org/https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh || exit 1
+  [ -s "$installer" ] || {
+    printf '%s\n' '安装脚本为空，已中止' >&2
+    exit 1
+  }
+
+  bash "$installer"
+)
 ```
 
-- 上述命令使用了[加速前缀](https://gh-proxy.org/)，如失效请更换其他[可用链接](https://ghproxy.link/)。
-- 弱网下若执行后无任何输出（下载失败静默退出），可改用落盘方式重试：
-  `curl -fsSL -o /tmp/install.sh <上述链接> && bash /tmp/install.sh`
-- 定制安装直接带参数/环境变量（无需配置文件）：
+默认安装会交互询问可选的初始订阅，并在发现同名服务时要求确认。用于自动化时，将上面最后一行替换为所需命令：
 
 ```bash
-curl -fsSL <上述链接> | bash -s -- mihomo https://订阅URL   # 指定内核与初始订阅
-curl -fsSL <上述链接> | CLASHCTL_HOME=/opt/clashctl GH_PROXY=https://ghproxy.link bash -s -- --branch dev
-# 可选参数：--home 路径、--branch 分支；环境变量：GH_PROXY、CLASHCTL_DOWNLOAD_TIMEOUT、VERSION_* 依赖钉版等
+bash "$installer" --home /opt/clashctl --branch dev mihomo
+bash "$installer" --non-interactive
+bash "$installer" --non-interactive --subscription-file /run/secrets/clash-subscription
+bash "$installer" --non-interactive --take-over-service
 ```
+
+- `--non-interactive` 禁用交互并在未提供订阅时跳过订阅；它不会授权覆盖已有服务。
+- `--subscription-file` 从当前用户所有、权限为 `0400` 或 `0600` 的单行普通文件读取初始订阅 URL；文件路径可进入命令行，URL 本身不会进入安装器参数、输出或子进程环境。
+- `--take-over-service` 明确授权备份并接管同名服务，建议仅在确认冲突服务可被替换后使用。
+- 安装目录会写入权限为 `0600` 的 `.clashctl-installation` 身份标记；非空目录缺少有效标记时，安装器不会执行其中脚本。
+- 迁移可信的旧版目录需显式添加 `--allow-legacy-layout`；目录归属、权限或脚本结构校验失败时仍会拒绝接管。
+- 接管同名服务时会保存定义、运行状态及各服务管理器的精确自启链接；恢复时若发现管理员在安装后修改过相关链接，会停止并保留快照与备份。
+- 可追加 `mihomo|clash` 选择内核；交互安装会隐藏读取初始订阅，自动化安装应使用 `--subscription-file`，避免 URL 留在 Shell 历史中。完整选项可将最后一行改为 `bash "$installer" --help` 查看。
+- 上述下载地址使用了[加速前缀](https://gh-proxy.org/)，如失效请更换其他[可用链接](https://ghproxy.link/)；依赖下载源可通过 `GH_PROXY` 配置。
 
 - 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
 
@@ -78,13 +97,16 @@ clashctl update --rollback     # 回退到上一版本
 
 ## 🧹 Uninstall
 
-执行以下命令即可干净卸载（清除内核、配置及服务）：
+执行以下命令会先展示删除范围并要求确认；如安装时接管过同名服务，卸载会恢复其定义、自启和运行状态：
 
 ```bash
 bash ~/.clashctl/uninstall.sh
 ```
 
 - 自定义过安装路径的用户请相应调整。
+- 自动化卸载需显式确认：`bash ~/.clashctl/uninstall.sh --yes`。
+- 无身份标记的可信旧版目录需追加 `--allow-legacy-layout`，新安装不需要该选项。
+- 服务恢复失败时卸载会停止，安装目录与恢复备份会保留，不会报告成功。
 
 ## 📖 Documentation
 

@@ -10,28 +10,28 @@ clashsecret() {
 
     case $# in
     0)
-        _okcat "Web 访问密钥：$(_get_secret)"
+        _ui_info_out "Web 访问密钥：$(_get_secret)"
         ;;
     1)
         SECRET=$1 "$BIN_YQ" -i '.secret = env(SECRET)' "$CLASH_CONFIG_MIXIN" || {
-            _failcat "密钥更新失败，请重新输入"
+            _ui_fail "密钥更新失败，请重新输入"
             return 1
         }
         _merge_config_restart
         case $? in
         1)
-            _failcat "密钥已写入 Mixin，但配置验证未通过，暂未生效"
+            _ui_fail "密钥已写入 Mixin，但配置验证未通过，暂未生效"
             return 1
             ;;
         2)
-            _failcat "密钥已写入 Mixin 与运行配置，但服务重启失败，请检查代理内核日志"
+            _ui_fail "密钥已写入 Mixin 与运行配置，但服务重启失败，请检查代理内核日志"
             return 1
             ;;
         esac
-        _okcat "密钥更新成功，已重启生效"
+        _ui_ok_out "密钥更新成功，已重启生效"
         ;;
     *)
-        _failcat "参数错误，请使用 -h 查看帮助"
+        _ui_fail "参数错误，请使用 -h 查看帮助"
         ;;
     esac
 }
