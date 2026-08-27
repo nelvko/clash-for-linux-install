@@ -124,14 +124,9 @@ _update_source_rev() {
 
 # ── 副作用引擎（checkout 后刷新安装态）───────────────────────
 
-_update_validate_tree() {
-    local root=$1 loader="$1/scripts/cmd/clashctl.sh" file valid=true
+_update_validate_shell_syntax() {
+    local root=$1 file valid=true
     local had_nullglob=false had_globstar=false files=()
-
-    [ -r "$loader" ] || {
-        _errorcat '更新后的命令入口缺失或不可读'
-        return 1
-    }
 
     shopt -q nullglob && had_nullglob=true
     shopt -q globstar && had_globstar=true
@@ -152,6 +147,18 @@ _update_validate_tree() {
         _errorcat "更新脚本语法校验失败：$file"
         return 1
     }
+    return 0
+}
+
+_update_validate_tree() {
+    local root=$1 loader="$1/scripts/cmd/clashctl.sh"
+
+    [ -r "$loader" ] || {
+        _errorcat '更新后的命令入口缺失或不可读'
+        return 1
+    }
+    _update_validate_shell_syntax "$root" || return 1
+
     # shellcheck disable=SC1090  # Candidate loader path is determined at runtime.
     if ! (set -e; . "$loader"); then
         _errorcat '更新后的命令模块无法完整加载'
@@ -362,6 +369,45 @@ _UPDATE_ARCHIVE_PATHS=(
     resources/mixin.yaml.example
 )
 
+_UPDATE_ARCHIVE_REQUIRED_FILES=(
+    scripts/preflight.sh
+    scripts/cmd/clashctl.fish
+    scripts/cmd/clashctl.sh
+    scripts/cmd/help.sh
+    scripts/cmd/log.sh
+    scripts/cmd/mixin.sh
+    scripts/cmd/node.sh
+    scripts/cmd/off.sh
+    scripts/cmd/on.sh
+    scripts/cmd/secret.sh
+    scripts/cmd/status.sh
+    scripts/cmd/sub.sh
+    scripts/cmd/tun.sh
+    scripts/cmd/ui.sh
+    scripts/cmd/update.sh
+    scripts/cmd/upgrade.sh
+    scripts/cmd/version.sh
+    scripts/init/openrc.sh
+    scripts/init/runit.sh
+    scripts/init/systemd.sh
+    scripts/init/sysvinit.sh
+    scripts/lib/common.sh
+    scripts/lib/config.sh
+    scripts/lib/convert.sh
+    scripts/lib/operation-lock.sh
+    scripts/lib/service-enablement.sh
+    scripts/lib/service-process.sh
+    scripts/lib/service.sh
+    scripts/lib/update.sh
+    scripts/lib/versions.sh
+    install.sh
+    uninstall.sh
+    .env.example
+    resources/Country.mmdb
+    resources/geosite.dat
+    resources/mixin.yaml.example
+)
+
 _update_archive_backup() {
     local ts bak item items=()
 
@@ -411,4 +457,16 @@ _update_fetch_archive() {
     _ui_step '下载更新归档'
     curl -sSL --fail --max-time "${CLASHCTL_DOWNLOAD_TIMEOUT:-60}" --retry 1 "$url" |
         tar -xzf - --strip-components=1 -C "$dst"
+}
+
+_update_validate_archive_tree() {
+    local root=$1 path
+
+    for path in "${_UPDATE_ARCHIVE_REQUIRED_FILES[@]}"; do
+        if [ ! -f "$root/$path" ] || [ ! -s "$root/$path" ] || [ -L "$root/$path" ]; then
+            _errorcat "更新归档必需文件缺失、为空或类型无效: $path"
+            return 1
+        fi
+    done
+    _update_validate_shell_syntax "$root"
 }

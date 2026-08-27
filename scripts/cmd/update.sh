@@ -335,13 +335,6 @@ clashupdate_archive() {
         _update_capture_state
         local item deploy_rc=0 restore_rc=0 code_restore_rc=0 revision_changed=false
 
-        _ui_step '创建更新前备份'
-        backup=$(_update_archive_backup) || {
-            _update_release_lock
-            _errorcat "备份失败，已中止（未改动任何文件）"
-            exit 1
-        }
-
         tmp=$(mktemp -d) || {
             _update_release_lock
             exit 1
@@ -352,6 +345,20 @@ clashupdate_archive() {
             _errorcat "下载失败：请检查网络，或在 .env 设置 GH_PROXY=<加速前缀> 后重试"
             exit 1
         fi
+        if ! _update_validate_archive_tree "$tmp"; then
+            /usr/bin/rm -rf -- "$tmp"
+            _update_release_lock
+            _errorcat '更新归档不完整，已中止（尚未部署任何文件）'
+            exit 1
+        fi
+
+        _ui_step '创建更新前备份'
+        backup=$(_update_archive_backup) || {
+            /usr/bin/rm -rf -- "$tmp"
+            _update_release_lock
+            _errorcat "备份失败，已中止（未改动任何文件）"
+            exit 1
+        }
 
         # 替换代码面（data/、.env、bin/、dist/ 不在清单内）
         _ui_step '部署更新文件'

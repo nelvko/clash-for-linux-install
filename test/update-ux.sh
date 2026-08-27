@@ -138,6 +138,70 @@ CLASHCTL_HOME=$saved_home
 assert_eq 1 "$RUN_RC" 'unloadable update tree exit code'
 assert_contains "$RUN_STDERR" '命令模块无法完整加载' 'unloadable update tree diagnosis'
 
+make_archive_tree() {
+    local root=$1 path
+
+    for path in "${_UPDATE_ARCHIVE_REQUIRED_FILES[@]}"; do
+        mkdir -p -- "$(dirname -- "$root/$path")"
+        printf '# archive fixture: %s\n' "$path" >"$root/$path"
+    done
+    printf 'clashctl() { :; }\n' >"$root/scripts/cmd/clashctl.sh"
+}
+
+valid_archive_tree="$WORK_DIR/archive-valid"
+make_archive_tree "$valid_archive_tree"
+run_cmd archive_valid _update_validate_archive_tree "$valid_archive_tree"
+assert_eq 0 "$RUN_RC" 'complete archive tree exit code'
+
+missing_loader_tree="$WORK_DIR/archive-missing-loader"
+make_archive_tree "$missing_loader_tree"
+/usr/bin/rm -f -- "$missing_loader_tree/scripts/cmd/clashctl.sh"
+run_cmd archive_missing_loader_tree _update_validate_archive_tree "$missing_loader_tree"
+assert_eq 1 "$RUN_RC" 'archive without loader exit code'
+assert_contains "$RUN_STDERR" 'scripts/cmd/clashctl.sh' \
+    'archive without loader diagnosis'
+
+empty_loader_tree="$WORK_DIR/archive-empty-loader"
+make_archive_tree "$empty_loader_tree"
+: >"$empty_loader_tree/scripts/cmd/clashctl.sh"
+run_cmd archive_empty_loader_tree _update_validate_archive_tree "$empty_loader_tree"
+assert_eq 1 "$RUN_RC" 'archive with empty loader exit code'
+assert_contains "$RUN_STDERR" '为空' 'archive with empty loader diagnosis'
+
+directory_resource_tree="$WORK_DIR/archive-directory-resource"
+make_archive_tree "$directory_resource_tree"
+/usr/bin/rm -f -- "$directory_resource_tree/resources/Country.mmdb"
+mkdir -- "$directory_resource_tree/resources/Country.mmdb"
+run_cmd archive_directory_resource_tree \
+    _update_validate_archive_tree "$directory_resource_tree"
+assert_eq 1 "$RUN_RC" 'archive with a directory in place of a resource exit code'
+assert_contains "$RUN_STDERR" '类型无效' 'archive directory resource diagnosis'
+
+missing_update_lib_tree="$WORK_DIR/archive-missing-update-lib"
+make_archive_tree "$missing_update_lib_tree"
+/usr/bin/rm -f -- "$missing_update_lib_tree/scripts/lib/update.sh"
+run_cmd archive_missing_update_lib_tree _update_validate_archive_tree "$missing_update_lib_tree"
+assert_eq 1 "$RUN_RC" 'archive without update library exit code'
+assert_contains "$RUN_STDERR" 'scripts/lib/update.sh' \
+    'archive without update library diagnosis'
+
+missing_operation_lock_tree="$WORK_DIR/archive-missing-operation-lock"
+make_archive_tree "$missing_operation_lock_tree"
+/usr/bin/rm -f -- "$missing_operation_lock_tree/scripts/lib/operation-lock.sh"
+run_cmd archive_missing_operation_lock_tree \
+    _update_validate_archive_tree "$missing_operation_lock_tree"
+assert_eq 1 "$RUN_RC" 'archive without operation lock exit code'
+assert_contains "$RUN_STDERR" 'scripts/lib/operation-lock.sh' \
+    'archive without operation lock diagnosis'
+
+invalid_archive_tree="$WORK_DIR/archive-invalid-syntax"
+make_archive_tree "$invalid_archive_tree"
+printf 'broken() {\n' >"$invalid_archive_tree/scripts/lib/common.sh"
+run_cmd archive_invalid_syntax _update_validate_archive_tree "$invalid_archive_tree"
+assert_eq 1 "$RUN_RC" 'archive with invalid shell syntax exit code'
+assert_contains "$RUN_STDERR" '更新脚本语法校验失败' \
+    'archive with invalid shell syntax diagnosis'
+
 failure_stage=''
 side_effect_calls=''
 _UPDATE_WAS_ACTIVE=false
@@ -255,6 +319,52 @@ assert_eq "$NEW_SHA" "$(git -C "$git_reload_repo" rev-parse HEAD)" 'reload failu
 assert_contains "$RUN_STDERR" '已写入磁盘，但当前 Shell 重新加载失败' 'reload failure diagnosis'
 assert_not_contains "$RUN_STDOUT" '更新完成' 'reload failure has no completion output'
 
+archive_incomplete_home="$WORK_DIR/archive-incomplete-home"
+mkdir -p -- "$archive_incomplete_home/scripts/cmd"
+old_archive_rev=1111111111111111111111111111111111111111
+new_archive_rev=2222222222222222222222222222222222222222
+printf 'CLASHCTL_REV=%s\n' "$old_archive_rev" >"$archive_incomplete_home/.env"
+printf 'old-loader\n' >"$archive_incomplete_home/scripts/cmd/clashctl.sh"
+printf 'old-install\n' >"$archive_incomplete_home/install.sh"
+printf 'old-uninstall\n' >"$archive_incomplete_home/uninstall.sh"
+printf 'old-script\n' >"$archive_incomplete_home/scripts/sentinel.sh"
+CLASHCTL_HOME=$archive_incomplete_home
+_update_remote_sha() { printf '%s\n' "$new_archive_rev"; }
+_update_check_env() { return 0; }
+_update_acquire_lock() { return 0; }
+_update_release_lock() { return 0; }
+_update_capture_state() { _UPDATE_WAS_ACTIVE=false; }
+_update_fetch_archive() {
+    local _branch=$1 destination=$2
+    mkdir -p -- "$destination/scripts"
+    printf 'new-install\n' >"$destination/install.sh"
+    printf 'new-uninstall\n' >"$destination/uninstall.sh"
+    printf 'new-script\n' >"$destination/scripts/sentinel.sh"
+}
+archive_backup_marker="$WORK_DIR/archive-incomplete-backup-called"
+archive_side_effect_marker="$WORK_DIR/archive-incomplete-side-effect-called"
+_update_archive_backup() {
+    : >"$archive_backup_marker"
+    printf '%s\n' "$WORK_DIR/archive-incomplete-backup.tar.gz"
+}
+_update_side_effects() {
+    : >"$archive_side_effect_marker"
+    return 0
+}
+run_cmd archive_incomplete clashupdate_archive false true master
+assert_eq 1 "$RUN_RC" 'incomplete archive exit code'
+assert_eq old-loader "$(<"$archive_incomplete_home/scripts/cmd/clashctl.sh")" \
+    'incomplete archive preserves installed loader'
+assert_eq old-install "$(<"$archive_incomplete_home/install.sh")" \
+    'incomplete archive preserves installed install script'
+assert_eq old-script "$(<"$archive_incomplete_home/scripts/sentinel.sh")" \
+    'incomplete archive preserves installed scripts'
+assert_eq "CLASHCTL_REV=$old_archive_rev" "$(<"$archive_incomplete_home/.env")" \
+    'incomplete archive preserves installed revision'
+[ ! -e "$archive_backup_marker" ] || fail 'incomplete archive created a backup before validation'
+[ ! -e "$archive_side_effect_marker" ] || fail 'incomplete archive ran update side effects'
+assert_contains "$RUN_STDERR" '更新归档不完整' 'incomplete archive diagnosis'
+
 archive_home="$WORK_DIR/archive-home"
 mkdir -p -- "$archive_home"
 old_rev=1111111111111111111111111111111111111111
@@ -269,6 +379,7 @@ _update_release_lock() { return 0; }
 _update_capture_state() { _UPDATE_WAS_ACTIVE=false; }
 _update_archive_backup() { printf '%s\n' "$WORK_DIR/archive-backup.tar.gz"; }
 _update_fetch_archive() { return 0; }
+_update_validate_archive_tree() { return 0; }
 _update_archive_restore() { return 0; }
 _update_prune_backups() { return 0; }
 side_effect_run=0
