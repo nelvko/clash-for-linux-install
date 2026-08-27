@@ -73,6 +73,8 @@ FAKE_ACTIVE=0
 FAKE_ENABLED=0
 FAKE_FAIL_ENABLE=0
 FAKE_FAIL_RELOAD=0
+FAKE_FAIL_RELOAD_AT=0
+FAKE_RELOAD_CALLS=0
 FAKE_FRAGMENT=
 FAKE_EXECSTART=
 FAKE_MAINPID=0
@@ -193,7 +195,9 @@ systemctl() {
         FAKE_ENABLED=1
         ;;
     daemon-reload)
+        FAKE_RELOAD_CALLS=$((FAKE_RELOAD_CALLS + 1))
         [ "$FAKE_FAIL_RELOAD" -eq 0 ] || return 1
+        [ "$FAKE_FAIL_RELOAD_AT" -ne "$FAKE_RELOAD_CALLS" ] || return 1
         [ "$FAKE_ENABLEMENT_FROM_LINKS" -eq 0 ] || _test_systemd_refresh_enabled
         return 0
         ;;
@@ -236,6 +240,8 @@ setup_case() {
     FAKE_ENABLED=1
     FAKE_FAIL_ENABLE=0
     FAKE_FAIL_RELOAD=0
+    FAKE_FAIL_RELOAD_AT=0
+    FAKE_RELOAD_CALLS=0
     FAKE_FRAGMENT=$TEST_TARGET
     FAKE_EXECSTART="{ path=$BIN_KERNEL ; argv[]=$BIN_KERNEL -d $CLASH_RESOURCES_DIR -f $CLASH_CONFIG_RUNTIME ; }"
     FAKE_MAINPID=0
@@ -333,6 +339,48 @@ setup_replaced_service_legacy() {
     chmod 0710 "$CLASHCTL_REPLACED_SERVICE_BACKUP"
     FAKE_ENABLEMENT_FROM_LINKS=0
     FAKE_ENABLED=1
+}
+
+setup_owned_service_enablement_snapshots() {
+    local original_state original_links installed_state installed_links
+    CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL="$CLASHCTL_HOME/.service-enablement.original"
+    CLASHCTL_SERVICE_ENABLEMENT_INSTALLED="$CLASHCTL_HOME/.service-enablement.installed"
+    FAKE_ENABLEMENT_FROM_LINKS=1
+    FAKE_ACTIVE=0
+    FAKE_FRAGMENT=
+
+    service_enablement_capture systemd mihomo "$CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL" ||
+        fail "cannot capture clean original enablement fixture: $SERVICE_ENABLEMENT_ERROR"
+    original_state=$SERVICE_ENABLEMENT_STATE
+    original_links=$SERVICE_ENABLEMENT_LINKS
+    write_installed_target
+    mkdir -p -- "$(dirname -- "$TEST_SYSTEMD_INSTALLED_LINK")"
+    ln -s -- "$TEST_TARGET" "$TEST_SYSTEMD_INSTALLED_LINK"
+    service_enablement_capture systemd mihomo "$CLASHCTL_SERVICE_ENABLEMENT_INSTALLED" ||
+        fail "cannot capture clean installed enablement fixture: $SERVICE_ENABLEMENT_ERROR"
+    installed_state=$SERVICE_ENABLEMENT_STATE
+    installed_links=$SERVICE_ENABLEMENT_LINKS
+
+    CLASHCTL_REPLACED_SERVICE_MANAGER=systemd
+    CLASHCTL_REPLACED_SERVICE_SOURCE=
+    CLASHCTL_REPLACED_SERVICE_TARGET=$TEST_TARGET
+    CLASHCTL_REPLACED_SERVICE_BACKUP=
+    CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE=0
+    CLASHCTL_REPLACED_SERVICE_WAS_ENABLED=0
+    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT=clashctl-service-enablement-v1
+    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE=$original_state
+    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS=$original_links
+    CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE=$installed_state
+    CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS=$installed_links
+    export CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL CLASHCTL_SERVICE_ENABLEMENT_INSTALLED
+    export CLASHCTL_REPLACED_SERVICE_MANAGER CLASHCTL_REPLACED_SERVICE_SOURCE
+    export CLASHCTL_REPLACED_SERVICE_TARGET CLASHCTL_REPLACED_SERVICE_BACKUP
+    export CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE CLASHCTL_REPLACED_SERVICE_WAS_ENABLED
+    export CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT
+    export CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS
+    export CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE
+    export CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS
+    _test_systemd_refresh_enabled
 }
 
 test_missing_backup_has_no_side_effects() {
@@ -455,6 +503,123 @@ test_normal_uninstall_removes_owned_service() {
     assert_eq disabled "$(service_enablement_systemd_state)" 'owned service is disabled'
 }
 
+test_missing_inactive_target_removes_owned_enablement_link() {
+    setup_case missing-inactive-owned-link
+    setup_owned_service_enablement_snapshots
+    /usr/bin/rm -f -- "$TEST_TARGET"
+
+    uninstall_service >"$CASE_DIR/stdout" 2>"$CASE_DIR/stderr"
+    assert_absent "$TEST_SYSTEMD_INSTALLED_LINK" \
+        'owned dangling enablement link is removed when the unit is already missing'
+    assert_not_contains "$SYSTEMCTL_LOG" 'disable --quiet mihomo' \
+        'snapshot-owned missing unit cleanup does not use broad systemctl disable'
+    assert_contains "$SYSTEMCTL_LOG" 'daemon-reload' \
+        'systemd is reloaded after removing the dangling enablement link'
+    assert_contains "$CASE_DIR/stderr" '已注销 systemd 服务' \
+        'clean install reports service removal instead of original-service restoration'
+    assert_not_contains "$CASE_DIR/stderr" '已恢复安装前的同名服务' \
+        'clean install does not claim that an original service was restored'
+}
+
+test_missing_active_target_with_clean_snapshot_refuses_unknown_service() {
+    local rc=0
+    setup_case missing-active-clean-snapshot
+    setup_owned_service_enablement_snapshots
+    /usr/bin/rm -f -- "$TEST_TARGET"
+    FAKE_ACTIVE=1
+    FAKE_FRAGMENT=
+
+    uninstall_service >"$CASE_DIR/stdout" 2>"$CASE_DIR/stderr" || rc=$?
+    assert_eq 1 "$rc" 'clean snapshot does not prove an unknown active service belongs to clashctl'
+    assert_link "$TEST_SYSTEMD_INSTALLED_LINK" "$TEST_TARGET" \
+        'unknown active service is rejected before its enablement link is changed'
+    assert_not_contains "$SYSTEMCTL_LOG" 'stop mihomo' \
+        'unknown active service is not stopped'
+    assert_not_contains "$SYSTEMCTL_LOG" 'daemon-reload' \
+        'unknown active service is rejected before systemd reload'
+    assert_contains "$CASE_DIR/stderr" '无法确认进程归属' \
+        'unknown active service refusal explains the ownership failure'
+}
+
+test_missing_inactive_target_without_snapshot_refuses_enablement_link() {
+    local rc=0
+    setup_case missing-inactive-no-snapshot
+    FAKE_ACTIVE=0
+    FAKE_FRAGMENT=
+    FAKE_ENABLEMENT_FROM_LINKS=1
+    mkdir -p -- "$(dirname -- "$TEST_SYSTEMD_INSTALLED_LINK")"
+    ln -s -- "$TEST_TARGET" "$TEST_SYSTEMD_INSTALLED_LINK"
+
+    uninstall_service >"$CASE_DIR/stdout" 2>"$CASE_DIR/stderr" || rc=$?
+    assert_eq 1 "$rc" 'dangling enablement link without a snapshot blocks uninstall'
+    assert_link "$TEST_SYSTEMD_INSTALLED_LINK" "$TEST_TARGET" \
+        'dangling enablement link without a snapshot is preserved'
+    assert_not_contains "$SYSTEMCTL_LOG" 'daemon-reload' \
+        'unproven dangling link is rejected before systemd changes'
+    assert_contains "$CASE_DIR/stderr" '无法确认' \
+        'missing snapshot refusal explains the ownership boundary'
+}
+
+test_missing_inactive_target_preserves_multiple_enablement_links() {
+    local runtime_link
+    setup_case missing-inactive-multiple-links
+    FAKE_ACTIVE=0
+    FAKE_FRAGMENT=
+    FAKE_ENABLEMENT_FROM_LINKS=1
+    runtime_link="$TEST_SYSTEMD_RUN_ROOT/rescue.target.requires/mihomo.service"
+    mkdir -p -- "$(dirname -- "$TEST_SYSTEMD_INSTALLED_LINK")" "$(dirname -- "$runtime_link")"
+    ln -s -- "$TEST_TARGET" "$TEST_SYSTEMD_INSTALLED_LINK"
+    ln -s -- "$TEST_TARGET" "$runtime_link"
+    local rc=0
+
+    uninstall_service >"$CASE_DIR/stdout" 2>"$CASE_DIR/stderr" || rc=$?
+    assert_eq 1 "$rc" 'multiple dangling enablement links block uninstall'
+    assert_link "$TEST_SYSTEMD_INSTALLED_LINK" "$TEST_TARGET" \
+        'canonical dangling link is preserved when another link is present'
+    assert_link "$runtime_link" "$TEST_TARGET" \
+        'additional runtime link is preserved'
+    assert_not_contains "$SYSTEMCTL_LOG" 'daemon-reload' \
+        'multiple dangling links are rejected before systemd changes'
+}
+
+test_missing_active_owned_target_without_snapshot_refuses_enablement_link() {
+    local rc=0
+    setup_case missing-active-owned-no-snapshot
+    FAKE_ACTIVE=1
+    FAKE_ENABLED=0
+    FAKE_FRAGMENT=$TEST_TARGET
+    mkdir -p -- "$(dirname -- "$TEST_SYSTEMD_INSTALLED_LINK")"
+    ln -s -- "$TEST_TARGET" "$TEST_SYSTEMD_INSTALLED_LINK"
+
+    (
+        # shellcheck disable=SC2317  # Called indirectly by uninstall_service.
+        _service_systemd_loaded_unit_is_owned() { return 0; }
+        uninstall_service
+    ) >"$CASE_DIR/stdout" 2>"$CASE_DIR/stderr" || rc=$?
+    assert_eq 1 "$rc" 'old install with an unowned dangling link is rejected before stopping'
+    assert_link "$TEST_SYSTEMD_INSTALLED_LINK" "$TEST_TARGET" \
+        'old install residual link is preserved for explicit ownership review'
+    assert_not_contains "$SYSTEMCTL_LOG" 'stop mihomo' \
+        'old install residual link is checked before stopping the loaded service'
+    assert_contains "$CASE_DIR/stderr" '无法确认归属' \
+        'old install residual link refusal explains the ownership boundary'
+}
+
+test_missing_inactive_target_reload_failure_restores_link() {
+    setup_case missing-inactive-reload-failure
+    setup_owned_service_enablement_snapshots
+    /usr/bin/rm -f -- "$TEST_TARGET"
+    FAKE_FAIL_RELOAD_AT=2
+    local rc=0
+
+    uninstall_service >"$CASE_DIR/stdout" 2>"$CASE_DIR/stderr" || rc=$?
+    assert_eq 1 "$rc" 'reload failure aborts dangling link cleanup'
+    assert_link "$TEST_SYSTEMD_INSTALLED_LINK" "$TEST_TARGET" \
+        'reload failure restores the removed dangling link'
+    assert_contains "$CASE_DIR/stderr" '已恢复' \
+        'reload failure reports that the dangling link was restored'
+}
+
 test_binary_path_in_comment_does_not_prove_ownership() {
     setup_case foreign-comment
     printf '# old path: %s\n[Service]\nExecStart=/opt/foreign/mihomo\n' \
@@ -507,6 +672,60 @@ test_legacy_enablement_fields_still_restore() {
         'legacy metadata uses the compatibility enable path'
     [ "${CLASHCTL_REPLACED_SERVICE_MANAGER+x}" != x ] ||
         fail 'legacy fixture unexpectedly published precise manager metadata'
+}
+
+test_clean_runit_snapshot_removes_service_directory() {
+    local original_state original_links installed_state installed_links
+    setup_case clean-runit
+    TEST_MANAGER=runit
+    TEST_TARGET="$CASE_DIR/etc/sv/mihomo/run"
+    TEST_ENABLE_LINK="$CASE_DIR/runsvdir/mihomo"
+    CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL="$CLASHCTL_HOME/.service-enablement.original"
+    CLASHCTL_SERVICE_ENABLEMENT_INSTALLED="$CLASHCTL_HOME/.service-enablement.installed"
+    FAKE_ACTIVE=0
+    mkdir -p -- "$CLASHCTL_HOME" "$(dirname -- "$TEST_TARGET")" \
+        "$(dirname -- "$TEST_ENABLE_LINK")"
+
+    service_enablement_capture runit mihomo "$CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL" ||
+        fail "cannot capture clean runit original fixture: $SERVICE_ENABLEMENT_ERROR"
+    original_state=$SERVICE_ENABLEMENT_STATE
+    original_links=$SERVICE_ENABLEMENT_LINKS
+    printf 'exec %s -d %s -f %s >%s 2>&1\n' \
+        "$BIN_KERNEL" "$CLASH_RESOURCES_DIR" "$CLASH_CONFIG_RUNTIME" \
+        "$CASE_DIR/service.log" >"$TEST_TARGET"
+    ln -s -- "$(dirname -- "$TEST_TARGET")" "$TEST_ENABLE_LINK"
+    service_enablement_capture runit mihomo "$CLASHCTL_SERVICE_ENABLEMENT_INSTALLED" ||
+        fail "cannot capture clean runit installed fixture: $SERVICE_ENABLEMENT_ERROR"
+    installed_state=$SERVICE_ENABLEMENT_STATE
+    installed_links=$SERVICE_ENABLEMENT_LINKS
+
+    CLASHCTL_REPLACED_SERVICE_MANAGER=runit
+    CLASHCTL_REPLACED_SERVICE_SOURCE=
+    CLASHCTL_REPLACED_SERVICE_TARGET=$TEST_TARGET
+    CLASHCTL_REPLACED_SERVICE_BACKUP=
+    CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE=0
+    CLASHCTL_REPLACED_SERVICE_WAS_ENABLED=0
+    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT=clashctl-service-enablement-v1
+    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE=$original_state
+    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS=$original_links
+    CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE=$installed_state
+    CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS=$installed_links
+    export CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL CLASHCTL_SERVICE_ENABLEMENT_INSTALLED
+    export CLASHCTL_REPLACED_SERVICE_MANAGER CLASHCTL_REPLACED_SERVICE_SOURCE
+    export CLASHCTL_REPLACED_SERVICE_TARGET CLASHCTL_REPLACED_SERVICE_BACKUP
+    export CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE CLASHCTL_REPLACED_SERVICE_WAS_ENABLED
+    export CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT
+    export CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS
+    export CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE
+    export CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS
+
+    uninstall_service >"$CASE_DIR/stdout" 2>"$CASE_DIR/stderr"
+    assert_absent "$TEST_TARGET" 'clean runit uninstall removes the run file'
+    assert_absent "$TEST_ENABLE_LINK" 'clean runit uninstall removes the enablement link'
+    assert_absent "$(dirname -- "$TEST_TARGET")" \
+        'clean runit uninstall removes its now-empty service directory'
+    assert_contains "$CASE_DIR/stderr" '已注销 runit 服务' \
+        'clean runit uninstall reports service removal'
 }
 
 test_runit_restored_link_survives_uninstall_retry() {
@@ -571,9 +790,16 @@ test_restore_failure_retains_backup
 test_missing_owned_target_refuses_unknown_active_service
 test_missing_target_stops_proven_loaded_service
 test_normal_uninstall_removes_owned_service
+test_missing_inactive_target_removes_owned_enablement_link
+test_missing_active_target_with_clean_snapshot_refuses_unknown_service
+test_missing_inactive_target_without_snapshot_refuses_enablement_link
+test_missing_inactive_target_preserves_multiple_enablement_links
+test_missing_active_owned_target_without_snapshot_refuses_enablement_link
+test_missing_inactive_target_reload_failure_restores_link
 test_binary_path_in_comment_does_not_prove_ownership
 test_administrator_link_change_blocks_uninstall
 test_legacy_enablement_fields_still_restore
+test_clean_runit_snapshot_removes_service_directory
 test_runit_restored_link_survives_uninstall_retry
 
 printf 'service-uninstall: ok\n'

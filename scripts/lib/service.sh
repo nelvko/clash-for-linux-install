@@ -759,6 +759,35 @@ _service_vendor_provider_exists() {
     [ -e "$source" ] || [ -L "$source" ]
 }
 
+_service_missing_definition_enablement_preflight() {
+    local snapshot state links
+    snapshot=$(mktemp "${CLASHCTL_HOME}/.service-enablement.uninstall.XXXXXX") || {
+        _ui_error '无法创建服务自启检查快照，拒绝卸载'
+        return 1
+    }
+    if ! service_enablement_capture "$service_manager" "$CLASHCTL_KERNEL" "$snapshot"; then
+        /usr/bin/rm -f -- "$snapshot" 2>/dev/null || true
+        _ui_error '服务定义已缺失，且无法完整检查残留自启状态，拒绝卸载'
+        _ui_detail '原因' "${SERVICE_ENABLEMENT_ERROR:-未知错误}"
+        return 1
+    fi
+    state=$SERVICE_ENABLEMENT_STATE
+    links=$SERVICE_ENABLEMENT_LINKS
+    if ! /usr/bin/rm -f -- "$snapshot"; then
+        _ui_error '无法清理服务自启检查快照，拒绝继续卸载'
+        _ui_detail '快照' "$snapshot"
+        return 1
+    fi
+    if [ -z "$links" ]; then
+        case $state in disabled | not-found) return 0 ;; esac
+    fi
+
+    _ui_error '服务定义已缺失，但仍存在无法确认归属的自启状态，拒绝卸载'
+    _ui_detail '当前状态' "$state"
+    _ui_detail '处理' "确认相关链接归属后，清理残留并重新运行 $CLASHCTL_HOME/uninstall.sh --yes"
+    return 1
+}
+
 _service_runit_uninstall_preflight() {
     local link=$1 expected=$2 original_kind=$3 original_target=$4
     local current_kind=absent current_target=
@@ -781,6 +810,18 @@ _service_runit_uninstall_preflight() {
     fi
     _ui_error "runit 自启入口已被其他操作修改，拒绝覆盖: $link"
     return 1
+}
+
+_service_original_state_present() {
+    [ -n "${CLASHCTL_REPLACED_SERVICE_SOURCE:-}" ] && return 0
+    [ -n "${CLASHCTL_REPLACED_SERVICE_BACKUP:-}" ] && return 0
+    [ "${CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE:-0}" = 1 ] && return 0
+    [ "${CLASHCTL_REPLACED_SERVICE_WAS_ENABLED:-0}" = 1 ] && return 0
+    [ -n "${CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS:-}" ] && return 0
+    case ${CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE:-} in
+    '' | disabled | not-found) return 1 ;;
+    *) return 0 ;;
+    esac
 }
 
 _service_replaced_enablement_preflight() {
@@ -921,9 +962,15 @@ _restore_replaced_service_after_uninstall() {
     local link=${CLASHCTL_REPLACED_SERVICE_ENABLE_LINK:-}
     local original_kind=${CLASHCTL_REPLACED_SERVICE_ENABLE_KIND:-absent}
     local original_target=${CLASHCTL_REPLACED_SERVICE_ENABLE_TARGET:-}
-    local provider staged='' enablement_rc=0
+    local provider staged='' enablement_rc=0 original_state_present=0
 
-    _SERVICE_REPLACED_RESTORE_STATUS='尚未修改原服务定义'
+    _service_original_state_present && original_state_present=1
+
+    if [ "$original_state_present" -eq 1 ]; then
+        _SERVICE_REPLACED_RESTORE_STATUS='尚未修改原服务定义'
+    else
+        _SERVICE_REPLACED_RESTORE_STATUS='尚未移除 clashctl 服务定义'
+    fi
 
     if [ "$source" = "$target" ]; then
         staged=$(mktemp "${target}.clashctl-restore.XXXXXX") || {
@@ -960,7 +1007,11 @@ _restore_replaced_service_after_uninstall() {
             fi
         fi
     fi
-    _SERVICE_REPLACED_RESTORE_STATUS='原服务定义已恢复；自启与运行状态尚未恢复'
+    if [ "$original_state_present" -eq 1 ]; then
+        _SERVICE_REPLACED_RESTORE_STATUS='原服务定义已恢复；自启与运行状态尚未恢复'
+    else
+        _SERVICE_REPLACED_RESTORE_STATUS='clashctl 服务定义已移除；自启与运行状态尚未确认'
+    fi
 
     if [ "${_SERVICE_REPLACED_ENABLEMENT_MODE:-legacy}" = exact ]; then
         service_enablement_restore "$service_manager" "$CLASHCTL_KERNEL" \
@@ -969,6 +1020,11 @@ _restore_replaced_service_after_uninstall() {
         if [ "$enablement_rc" -ne 0 ]; then
             _ui_error '恢复安装前的精确自启状态失败'
             _ui_detail '原因' "${SERVICE_ENABLEMENT_ERROR:-未知错误}"
+            case ${SERVICE_ENABLEMENT_ERROR:-} in
+            *'previous enablement links were restored'* | *'previous links were restored'*)
+                _ui_detail '回滚' '已恢复变更前的服务自启链接'
+                ;;
+            esac
             _ui_detail '原始快照' "$_SERVICE_REPLACED_ENABLEMENT_ORIGINAL"
             _ui_detail '安装快照' "$_SERVICE_REPLACED_ENABLEMENT_INSTALLED"
             return 1
@@ -1008,7 +1064,11 @@ _restore_replaced_service_after_uninstall() {
         _ui_error '恢复原服务禁用状态失败'
         return 1
     fi
-    _SERVICE_REPLACED_RESTORE_STATUS='原服务定义和自启状态已恢复；运行状态尚未恢复'
+    if [ "$original_state_present" -eq 1 ]; then
+        _SERVICE_REPLACED_RESTORE_STATUS='原服务定义和自启状态已恢复；运行状态尚未恢复'
+    else
+        _SERVICE_REPLACED_RESTORE_STATUS='clashctl 服务定义和自启状态已移除；运行状态尚未确认'
+    fi
     if [ "$was_active" = 1 ]; then
         service_start >/dev/null 2>&1 || true
         service_is_active || {
@@ -1020,8 +1080,13 @@ _restore_replaced_service_after_uninstall() {
         return 1
     fi
 
-    _SERVICE_REPLACED_RESTORE_STATUS='原服务定义、自启与运行状态均已恢复'
-    _ui_ok "已恢复安装前的同名服务${source:+: $source}"
+    if [ "$original_state_present" -eq 1 ]; then
+        _SERVICE_REPLACED_RESTORE_STATUS='原服务定义、自启与运行状态均已恢复'
+        _ui_ok "已恢复安装前的同名服务${source:+: $source}"
+    else
+        _SERVICE_REPLACED_RESTORE_STATUS='clashctl 服务定义和自启状态已移除，服务已停止'
+        _ui_ok "已注销 ${service_manager} 服务: $CLASHCTL_KERNEL"
+    fi
     return 0
 }
 
@@ -1034,9 +1099,10 @@ uninstall_service() {
     local runit_kind=${CLASHCTL_REPLACED_SERVICE_ENABLE_KIND:-absent}
     local runit_target=${CLASHCTL_REPLACED_SERVICE_ENABLE_TARGET:-}
     local owns_current_service=0 runit_link_owned=0 restored_definition=0
-    local current_kind current_target loaded_fragment exact_enablement=0
+    local current_kind current_target loaded_fragment exact_enablement=0 original_state_present=0
 
     target=$(_service_target) || target=
+    _service_original_state_present && original_state_present=1
     _replaced_service_preflight || restore_rc=$?
     [ "$restore_rc" -ne 1 ] || return 1
     [ "${_SERVICE_REPLACED_ENABLEMENT_MODE:-none}" != exact ] || exact_enablement=1
@@ -1057,9 +1123,9 @@ uninstall_service() {
         [ ! -e "$target" ] && [ ! -L "$target" ] && service_is_active; then
         if _service_systemd_loaded_unit_is_owned "$target"; then
             owns_current_service=1
-        elif [ "$restore_rc" -eq 0 ] && [ "$source" != "$target" ]; then
-            loaded_fragment=$(_service_systemd_property FragmentPath) || loaded_fragment=
-            if [ "$loaded_fragment" != "$source" ]; then
+        elif [ "$restore_rc" -eq 0 ] && [ -n "$source" ] && [ "$source" != "$target" ]; then
+            if ! loaded_fragment=$(_service_systemd_property FragmentPath) ||
+                [ -z "$loaded_fragment" ] || [ "$loaded_fragment" != "$source" ]; then
                 _ui_error 'systemd 服务定义已缺失且服务仍在运行，无法确认进程归属，拒绝卸载'
                 return 1
             fi
@@ -1067,6 +1133,10 @@ uninstall_service() {
             _ui_error 'systemd 服务定义已缺失且服务仍在运行，无法确认进程归属，拒绝卸载'
             return 1
         fi
+    fi
+    if [ "$service_manager" = systemd ] && [ "$restore_rc" -eq 2 ] &&
+        [ -n "$target" ] && [ ! -e "$target" ] && [ ! -L "$target" ]; then
+        _service_missing_definition_enablement_preflight || return 1
     fi
     if [ "$service_manager" = runit ] && [ "$exact_enablement" -eq 0 ]; then
         [ -n "$runit_link" ] || runit_link=$(_service_runit_enable_link)
@@ -1102,12 +1172,19 @@ uninstall_service() {
 
     if [ "$restore_rc" -eq 0 ]; then
         _restore_replaced_service_after_uninstall || {
-            _ui_error '安装前的同名服务未能完整恢复，卸载已中止'
+            if [ "$original_state_present" -eq 1 ]; then
+                _ui_error '安装前的同名服务未能完整恢复，卸载已中止'
+            else
+                _ui_error 'clashctl 服务未能完整注销，卸载已中止'
+            fi
             _ui_detail '恢复进度' "${_SERVICE_REPLACED_RESTORE_STATUS:-状态未知}"
             _ui_detail '保留目录' "$CLASHCTL_HOME"
             [ -z "$backup" ] || _ui_detail '保留备份' "$backup"
             return 1
         }
+        if [ "$service_manager" = runit ] && [ "$original_state_present" -eq 0 ]; then
+            rmdir "$(dirname -- "$target")" >/dev/null 2>&1 || true
+        fi
         return 0
     fi
 

@@ -689,6 +689,122 @@ test_install_env_persists_exact_enablement_metadata() {
     assert_absent "$CLASHCTL_SERVICE_JOURNAL" 'committed install removes transaction journal'
 }
 
+test_clean_install_persists_exact_enablement_metadata() {
+    local env_file
+    setup_case systemd
+    _install_impact_scan "$CLASHCTL_HOME" "$CLASHCTL_KERNEL" systemd \
+        >"$CASE_DIR/impact.stdout" 2>"$CASE_DIR/impact.stderr"
+    assert_eq 0 "$CLASHCTL_SERVICE_CONFLICT" 'clean install has no service conflict'
+    _install_begin_service_transaction \
+        >"$CASE_DIR/begin.stdout" 2>"$CASE_DIR/begin.stderr"
+    install_service >"$CASE_DIR/install.stdout" 2>"$CASE_DIR/install.stderr"
+    _install_capture_installed_enablement \
+        >"$CASE_DIR/installed-enablement.stdout" 2>"$CASE_DIR/installed-enablement.stderr"
+
+    if ! (
+        # shellcheck source=../scripts/lib/common.sh
+        . "$REPO_DIR/scripts/lib/common.sh"
+        _set_envs() {
+            # shellcheck disable=SC2317
+            return 0
+        }
+        _write_install_env mihomo iu >"$CASE_DIR/env.stdout" 2>"$CASE_DIR/env.stderr"
+    ); then
+        fail "clean install env write failed: $(<"$CASE_DIR/env.stderr")"
+    fi
+    env_file=$CLASHCTL_SRC/.env
+    (
+        unset CLASHCTL_REPLACED_SERVICE_MANAGER CLASHCTL_REPLACED_SERVICE_SOURCE
+        unset CLASHCTL_REPLACED_SERVICE_TARGET CLASHCTL_REPLACED_SERVICE_BACKUP
+        unset CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT
+        unset CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS
+        unset CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE
+        unset CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS
+        # shellcheck disable=SC1090
+        . "$env_file"
+        assert_eq systemd "${CLASHCTL_REPLACED_SERVICE_MANAGER:-}" \
+            'clean install records the service manager'
+        assert_eq '' "${CLASHCTL_REPLACED_SERVICE_SOURCE:-}" \
+            'clean install records that no service definition was replaced'
+        assert_eq "$TEST_SERVICE_TARGET" "${CLASHCTL_REPLACED_SERVICE_TARGET:-}" \
+            'clean install records the uninstall target'
+        assert_eq clashctl-service-enablement-v1 \
+            "${CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT:-}" \
+            'clean install records exact enablement metadata'
+        assert_eq disabled "${CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE:-}" \
+            'clean install records the original disabled state'
+        assert_eq enabled "${CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE:-}" \
+            'clean install records the installed enabled state'
+        [ -n "${CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS:-}" ] ||
+            fail 'clean install did not record its enablement link'
+    )
+
+    _install_end_service_transaction
+    assert_exists "$CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL" \
+        'clean install retains the original enablement snapshot for uninstall'
+    assert_exists "$CLASHCTL_SERVICE_ENABLEMENT_INSTALLED" \
+        'clean install retains the installed enablement snapshot for uninstall'
+    assert_eq 600 "$(stat -c '%a' "$CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL")" \
+        'clean install original snapshot permissions'
+    assert_eq 600 "$(stat -c '%a' "$CLASHCTL_SERVICE_ENABLEMENT_INSTALLED")" \
+        'clean install installed snapshot permissions'
+    assert_absent "$CLASHCTL_SERVICE_JOURNAL" \
+        'clean install removes the committed transaction journal'
+}
+
+test_owned_partial_install_discards_transaction_restore_state() {
+    local env_file backup original installed
+    setup_case systemd
+    printf '# clashctl partial unit\nExecStart=%s -d %s -f %s\n' \
+        "$BIN_KERNEL" "$CLASH_RESOURCES_DIR" "$CLASH_CONFIG_RUNTIME" \
+        >"$TEST_SERVICE_TARGET"
+    mkdir -p -- "$(dirname -- "$TEST_SYSTEMD_INSTALLED_LINK")"
+    ln -s -- "$TEST_SERVICE_TARGET" "$TEST_SYSTEMD_INSTALLED_LINK"
+
+    _install_impact_scan "$CLASHCTL_HOME" "$CLASHCTL_KERNEL" systemd \
+        >"$CASE_DIR/impact.stdout" 2>"$CASE_DIR/impact.stderr"
+    assert_eq 0 "$CLASHCTL_SERVICE_CONFLICT" \
+        'owned partial install is not treated as a foreign conflict'
+    assert_eq "$TEST_SERVICE_TARGET" "$CLASHCTL_SERVICE_SOURCE" \
+        'owned partial install is retained for transaction rollback'
+    _install_begin_service_transaction \
+        >"$CASE_DIR/begin.stdout" 2>"$CASE_DIR/begin.stderr"
+    install_service >"$CASE_DIR/install.stdout" 2>"$CASE_DIR/install.stderr"
+    _install_capture_installed_enablement \
+        >"$CASE_DIR/installed-enablement.stdout" 2>"$CASE_DIR/installed-enablement.stderr"
+    backup=$CLASHCTL_SERVICE_BACKUP
+    original=$CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL
+    installed=$CLASHCTL_SERVICE_ENABLEMENT_INSTALLED
+
+    if ! (
+        # shellcheck source=../scripts/lib/common.sh
+        . "$REPO_DIR/scripts/lib/common.sh"
+        _set_envs() {
+            # shellcheck disable=SC2317
+            return 0
+        }
+        _write_install_env mihomo iu >"$CASE_DIR/env.stdout" 2>"$CASE_DIR/env.stderr"
+    ); then
+        fail "owned partial install env write failed: $(<"$CASE_DIR/env.stderr")"
+    fi
+    env_file=$CLASHCTL_SRC/.env
+    if grep -q '^CLASHCTL_REPLACED_SERVICE_' "$env_file"; then
+        fail 'owned partial install was persisted as an external service to restore'
+    fi
+
+    _install_end_service_transaction
+    assert_absent "$original" \
+        'owned partial install removes its transaction original snapshot after commit'
+    assert_absent "$installed" \
+        'owned partial install removes its transaction installed snapshot after commit'
+    assert_absent "$backup" \
+        'owned partial install removes its transaction definition backup after commit'
+    assert_absent "$CLASHCTL_SERVICE_JOURNAL" \
+        'owned partial install removes its transaction journal after commit'
+    assert_exists "$TEST_SYSTEMD_INSTALLED_LINK" \
+        'owned partial install remains enabled after the successful refresh'
+}
+
 test_journal_load_rejects_corruption() {
     setup_case systemd
     write_original_service
@@ -748,6 +864,8 @@ test_systemd_external_link_change_blocks_rollback
 test_systemd_masked_state_round_trip
 test_interrupted_journal_without_installed_snapshot_recovers
 test_install_env_persists_exact_enablement_metadata
+test_clean_install_persists_exact_enablement_metadata
+test_owned_partial_install_discards_transaction_restore_state
 test_journal_load_rejects_corruption
 
 printf 'service-transaction: ok\n'

@@ -1218,6 +1218,11 @@ _install_enablement_supported() {
     return 1
 }
 
+_install_retain_enablement_snapshots() {
+    _install_enablement_supported "${CLASHCTL_SERVICE_MANAGER:-}" || return 1
+    [ "${CLASHCTL_SERVICE_CONFLICT:-0}" = 1 ] || [ -z "${CLASHCTL_SERVICE_SOURCE:-}" ]
+}
+
 _install_enablement_state_label() {
     case ${1:-} in
     enabled) printf '已启用' ;;
@@ -1794,7 +1799,7 @@ _install_end_service_transaction() {
     else
         journal_removed=1
     fi
-    if [ "$journal_removed" -eq 1 ] && [ "${CLASHCTL_SERVICE_CONFLICT:-0}" != 1 ]; then
+    if [ "$journal_removed" -eq 1 ] && ! _install_retain_enablement_snapshots; then
         if _install_cleanup_enablement_manifests; then
             snapshots_removed=1
         else
@@ -2339,8 +2344,9 @@ _install_wait_controller() {
 _write_install_env() {
     local kernel=$1 branch=$2 tmp="${CLASHCTL_SRC}/.env.installing" rc=0
     local original_state='' original_links='' installed_state='' installed_links=''
-    if [ "${CLASHCTL_SERVICE_CONFLICT:-}" = 1 ] &&
-        _install_enablement_supported "${CLASHCTL_SERVICE_MANAGER:-}"; then
+    local exact_enablement=0
+    if _install_retain_enablement_snapshots; then
+        exact_enablement=1
         if ! service_enablement_validate "${CLASHCTL_SERVICE_MANAGER}" "$kernel" \
             "${CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL:-}"; then
             _ui_error '安装前的服务自启快照在提交前校验失败'
@@ -2369,7 +2375,7 @@ _write_install_env() {
     [ "${CLASHCTL_DOWNLOAD_TIMEOUT+x}" != x ] ||
         _set_env CLASHCTL_DOWNLOAD_TIMEOUT "$CLASHCTL_DOWNLOAD_TIMEOUT" || rc=1
     _set_envs || rc=1
-    if [ "${CLASHCTL_SERVICE_CONFLICT:-}" = 1 ]; then
+    if [ "${CLASHCTL_SERVICE_CONFLICT:-}" = 1 ] || [ "$exact_enablement" -eq 1 ]; then
         _set_env CLASHCTL_REPLACED_SERVICE_MANAGER "$CLASHCTL_SERVICE_MANAGER" || rc=1
         _set_env CLASHCTL_REPLACED_SERVICE_SOURCE "$CLASHCTL_SERVICE_SOURCE" || rc=1
         _set_env CLASHCTL_REPLACED_SERVICE_TARGET "$CLASHCTL_SERVICE_TARGET" || rc=1
@@ -2381,7 +2387,7 @@ _write_install_env() {
         _set_env CLASHCTL_REPLACED_SERVICE_ENABLE_TARGET "${CLASHCTL_SERVICE_ENABLE_TARGET:-}" || rc=1
         _set_env CLASHCTL_REPLACED_SERVICE_EXPECTED_ENABLE_TARGET \
             "${CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET:-}" || rc=1
-        if _install_enablement_supported "$CLASHCTL_SERVICE_MANAGER"; then
+        if [ "$exact_enablement" -eq 1 ]; then
             _set_env CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT \
                 clashctl-service-enablement-v1 || rc=1
             _set_env CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE "$original_state" || rc=1

@@ -199,6 +199,33 @@ test_restore_preflight_failure_blocks_confirmation_and_mutation() {
     assert_contains "$stderr" '卸载尚未开始' 'failed preflight reports the unchanged boundary'
 }
 
+test_clean_install_snapshot_uses_uninstall_language() {
+    setup_install clean-snapshot
+    /usr/bin/rm -f -- "$CLASHCTL_REPLACED_SERVICE_BACKUP"
+    CLASHCTL_REPLACED_SERVICE_BACKUP=
+    CLASHCTL_REPLACED_SERVICE_SOURCE=
+    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT=clashctl-service-enablement-v1
+    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE=disabled
+    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS=
+    CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE=0
+    CLASHCTL_REPLACED_SERVICE_WAS_ENABLED=0
+    export CLASHCTL_REPLACED_SERVICE_BACKUP CLASHCTL_REPLACED_SERVICE_SOURCE
+    export CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT
+    export CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS
+    export CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE CLASHCTL_REPLACED_SERVICE_WAS_ENABLED
+    local stderr="$WORK_DIR/clean-snapshot/stderr"
+
+    main --yes >"$WORK_DIR/clean-snapshot/stdout" 2>"$stderr"
+    assert_eq 1 "$RESTORE_PREFLIGHT_CALLS" \
+        'clean install exact snapshot is checked before uninstall'
+    assert_contains "$stderr" '检查服务卸载条件' \
+        'clean install preflight uses uninstall language'
+    assert_contains "$stderr" '服务定义、自启快照和卸载目标已通过检查' \
+        'clean install snapshot validation is reported'
+    assert_not_contains "$stderr" '原服务' \
+        'clean install does not claim that an original service will be restored'
+}
+
 test_late_cleanup_failure_preserves_recovery_material() {
     setup_install cleanup-failure
     SHELL_RESULT=1
@@ -272,6 +299,7 @@ test_explicit_legacy_uninstall
 test_noninteractive_requires_confirmation
 test_service_failure_preserves_everything
 test_restore_preflight_failure_blocks_confirmation_and_mutation
+test_clean_install_snapshot_uses_uninstall_language
 test_late_cleanup_failure_preserves_recovery_material
 test_unavailable_cron_uses_partial_summary
 test_unreadable_cron_preserves_installation

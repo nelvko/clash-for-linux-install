@@ -283,7 +283,11 @@ _uninstall_interrupted() {
     _ui_error "卸载被 ${signal} 信号中断"
     case ${_UNINSTALL_STAGE:-unknown} in
     service)
-        _ui_detail '状态' '服务注销或原服务恢复可能未完成；Shell 集成和安装数据尚未处理'
+        if [ -n "$backup" ]; then
+            _ui_detail '状态' '服务注销或原服务恢复可能未完成；Shell 集成和安装数据尚未处理'
+        else
+            _ui_detail '状态' '服务注销可能未完成；Shell 集成和安装数据尚未处理'
+        fi
         ;;
     integration)
         _ui_detail '状态' '服务处理已完成；Shell 或定时任务清理可能未完成；安装数据仍保留'
@@ -337,13 +341,15 @@ _uninstall_disable_signal_summary() {
 main() {
     umask 077
     local replaced_backup=${CLASHCTL_REPLACED_SERVICE_BACKUP:-} assume_yes=0 confirm_rc=0
-    local allow_legacy=${_UNINSTALL_ALLOW_LEGACY:-0} restore_original=0 integration_warnings=0
+    local allow_legacy=${_UNINSTALL_ALLOW_LEGACY:-0} service_snapshot=0 restore_original=0
+    local integration_warnings=0
     local cron_report_rc=0 retry_command
     printf -v retry_command 'bash %q --yes' "$CLASHCTL_HOME/uninstall.sh"
     if [ -n "$replaced_backup" ] || [ -n "${CLASHCTL_REPLACED_SERVICE_SOURCE:-}" ] ||
         [ -n "${CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT:-}" ]; then
-        restore_original=1
+        service_snapshot=1
     fi
+    _service_original_state_present && restore_original=1
 
     while [ $# -gt 0 ]; do
         case $1 in
@@ -375,15 +381,27 @@ main() {
         _ui_error 'Tun 模式仍在运行；请先关闭 Tun 模式再卸载'
         return 1
     fi
-    if [ "$restore_original" -eq 1 ]; then
-        _ui_step '检查原服务恢复条件'
+    if [ "$service_snapshot" -eq 1 ]; then
+        if [ "$restore_original" -eq 1 ]; then
+            _ui_step '检查原服务恢复条件'
+        else
+            _ui_step '检查服务卸载条件'
+        fi
         if ! uninstall_replaced_service_preflight; then
-            _ui_error '安装前的同名服务当前无法安全恢复，卸载尚未开始'
+            if [ "$restore_original" -eq 1 ]; then
+                _ui_error '安装前的同名服务当前无法安全恢复，卸载尚未开始'
+            else
+                _ui_error 'clashctl 服务当前无法安全注销，卸载尚未开始'
+            fi
             _ui_detail '目录' "$CLASHCTL_HOME"
             [ -z "$replaced_backup" ] || _ui_detail '保留备份' "$replaced_backup"
             return 1
         fi
-        _ui_ok '原服务定义、自启快照和恢复目标已通过检查'
+        if [ "$restore_original" -eq 1 ]; then
+            _ui_ok '原服务定义、自启快照和恢复目标已通过检查'
+        else
+            _ui_ok '服务定义、自启快照和卸载目标已通过检查'
+        fi
     fi
 
     _ui_blank
@@ -397,7 +415,11 @@ main() {
 
     if [ "$assume_yes" -ne 1 ]; then
         _ui_blank
-        _ui_confirm '执行上述卸载与恢复操作？' || confirm_rc=$?
+        if [ "$restore_original" -eq 1 ]; then
+            _ui_confirm '执行上述卸载与恢复操作？' || confirm_rc=$?
+        else
+            _ui_confirm '执行上述卸载操作？' || confirm_rc=$?
+        fi
         case $confirm_rc in
         0) ;;
         2)
@@ -417,7 +439,11 @@ main() {
     _ui_step '停止并注销服务'
     uninstall_service || {
         _uninstall_disable_signal_summary
-        _ui_error '服务卸载或原服务恢复失败，安装数据已保留'
+        if [ "$restore_original" -eq 1 ]; then
+            _ui_error '服务卸载或原服务恢复失败，安装数据已保留'
+        else
+            _ui_error '服务卸载失败，安装数据已保留'
+        fi
         _ui_detail '目录' "$CLASHCTL_HOME"
         [ -z "$replaced_backup" ] || _ui_detail '恢复备份' "$replaced_backup"
         return 1
