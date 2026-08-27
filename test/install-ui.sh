@@ -280,8 +280,10 @@ _install_service_target() {
     printf '%s\n' "$unit"
 }
 
+SERVICE_SOURCE=$unit
 _install_existing_service() {
-    printf '%s\n' "$unit"
+    [ -n "$SERVICE_SOURCE" ] || return 1
+    printf '%s\n' "$SERVICE_SOURCE"
 }
 
 SERVICE_ACTIVE_STATE=active
@@ -302,8 +304,9 @@ service_enablement_systemd_runtime_root() {
     printf '%s\n' "$systemd_run"
 }
 
+SYSTEMD_ENABLEMENT_STATE=disabled
 service_enablement_systemd_state() {
-    printf '%s\n' disabled
+    printf '%s\n' "$SYSTEMD_ENABLEMENT_STATE"
 }
 
 service_enablement_systemd_unit_path() {
@@ -325,6 +328,9 @@ reset_service_state() {
     unset CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL CLASHCTL_SERVICE_ENABLEMENT_INSTALLED
     unset CLASHCTL_SERVICE_ENABLEMENT_STATE CLASHCTL_SERVICE_ENABLEMENT_LINKS
     unset CLASHCTL_ALLOW_UNIT_OVERWRITE CLASHCTL_NON_INTERACTIVE CI
+    SERVICE_SOURCE=$unit
+    SERVICE_ACTIVE_STATE=active
+    SYSTEMD_ENABLEMENT_STATE=disabled
 }
 
 backup_base="${unit}.clashctl-bak.20260826-120000"
@@ -332,6 +338,151 @@ backup_one="${backup_base}.1"
 backup_two="${backup_base}.2"
 printf 'keep-base\n' >"$backup_base"
 printf 'keep-one\n' >"$backup_one"
+
+stale_dir="$systemd_etc/multi-user.target.wants"
+stale_link="$stale_dir/mihomo.service"
+mkdir -p -- "$stale_dir"
+/usr/bin/rm -f -- "$unit"
+
+reset_service_state
+SERVICE_SOURCE=
+SERVICE_ACTIVE_STATE=inactive
+SYSTEMD_ENABLEMENT_STATE=not-found
+export CLASHCTL_NON_INTERACTIVE=1
+: >"$stderr_file"
+_install_impact_scan "$install_home" mihomo systemd >"$stdout_file" 2>"$stderr_file" ||
+    fail 'clean inactive systemd state was not accepted'
+assert_eq 0 "$CLASHCTL_SERVICE_CONFLICT" 'clean inactive systemd state is not a conflict'
+assert_not_contains "$stderr_file" '发现残留的 systemd 服务状态' \
+    'clean inactive systemd state does not emit a stale-state warning'
+
+reset_service_state
+SERVICE_SOURCE=
+SERVICE_ACTIVE_STATE=active
+SYSTEMD_ENABLEMENT_STATE=not-found
+export CLASHCTL_NON_INTERACTIVE=1 CLASHCTL_ALLOW_UNIT_OVERWRITE=1
+: >"$stderr_file"
+rc=0
+_install_impact_scan "$install_home" mihomo systemd >"$stdout_file" 2>"$stderr_file" || rc=$?
+assert_eq 1 "$rc" 'active missing definition without enablement links is rejected'
+assert_contains "$stderr_file" '定义已缺失，但服务仍在运行，无法确认进程归属' \
+    'active missing definition without links explains the ownership boundary'
+assert_not_contains "$stderr_file" '授权在记录残留状态后继续安装' \
+    'takeover authorization cannot bypass an active missing definition without links'
+
+ln -s -- "$unit" "$stale_link"
+
+reset_service_state
+SERVICE_SOURCE=
+SERVICE_ACTIVE_STATE=inactive
+SYSTEMD_ENABLEMENT_STATE=not-found
+export CLASHCTL_NON_INTERACTIVE=1
+: >"$stdout_file"
+: >"$stderr_file"
+rc=0
+_install_impact_scan "$install_home" mihomo systemd >"$stdout_file" 2>"$stderr_file" || rc=$?
+assert_eq 1 "$rc" 'non-interactive stale state is rejected without authorization'
+assert_contains "$stderr_file" '发现残留的 systemd 服务状态: mihomo.service' \
+    'stale state has a dedicated warning'
+assert_contains "$stderr_file" "残留链接: $stale_link -> $unit" \
+    'stale state reports the exact link and target'
+assert_contains "$stderr_file" '写入服务定义后，现有链接可能重新生效并影响服务自启' \
+    'stale state explains the installation impact'
+assert_contains "$stderr_file" '恢复安装前的自启状态；当前残留状态不会被自动清理' \
+    'stale state explains uninstall behavior'
+assert_contains "$stderr_file" '非交互安装不会在归属不明的残留服务状态上继续' \
+    'stale state preserves the non-interactive authorization gate'
+assert_not_contains "$stderr_file" '备份现有定义' \
+    'stale state does not promise to back up a missing definition'
+if [ -e "$unit" ] || [ -L "$unit" ]; then
+    fail 'stale-state scan created a service definition'
+fi
+assert_eq "$unit" "$(readlink -- "$stale_link")" 'stale-state scan preserves the existing link'
+
+reset_service_state
+SERVICE_SOURCE=
+SERVICE_ACTIVE_STATE=inactive
+SYSTEMD_ENABLEMENT_STATE=not-found
+export CLASHCTL_NON_INTERACTIVE=1 CLASHCTL_ALLOW_UNIT_OVERWRITE=1
+: >"$stderr_file"
+_install_impact_scan "$install_home" mihomo systemd >"$stdout_file" 2>"$stderr_file" ||
+    fail 'explicit authorization did not accept an inactive stale state'
+assert_contains "$stderr_file" '授权在记录残留状态后继续安装' \
+    'stale-state authorization is reported accurately'
+assert_eq '' "$CLASHCTL_SERVICE_SOURCE" 'stale-state authorization records no service source'
+assert_eq '' "$CLASHCTL_SERVICE_BACKUP" 'stale-state authorization does not select a definition backup'
+assert_eq 1 "$CLASHCTL_SERVICE_CONFLICT" 'stale-state authorization records the conflict gate'
+service_enablement_validate systemd mihomo "$CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL" ||
+    fail "authorized stale-state snapshot is invalid: $SERVICE_ENABLEMENT_ERROR"
+[ -n "$SERVICE_ENABLEMENT_LINKS" ] || fail 'authorized stale-state snapshot omitted the link'
+if [ -e "$unit" ] || [ -L "$unit" ]; then
+    fail 'authorized stale-state scan created a service definition'
+fi
+assert_eq "$unit" "$(readlink -- "$stale_link")" 'authorized stale-state scan preserves the link'
+
+/usr/bin/rm -f -- "$stale_link"
+hostile_target=$'/missing target\n[ERROR] forged\033[31m'
+printf -v hostile_target_display '%q' "$hostile_target"
+ln -s -- "$hostile_target" "$stale_link"
+reset_service_state
+SERVICE_SOURCE=
+SERVICE_ACTIVE_STATE=inactive
+SYSTEMD_ENABLEMENT_STATE=not-found
+export CLASHCTL_NON_INTERACTIVE=1 CLASHCTL_ALLOW_UNIT_OVERWRITE=1
+: >"$stderr_file"
+_install_impact_scan "$install_home" mihomo systemd >"$stdout_file" 2>"$stderr_file" ||
+    fail 'escaped stale-link target was rejected'
+assert_contains "$stderr_file" "残留链接: $stale_link -> $hostile_target_display" \
+    'stale-link target is rendered with shell escaping'
+assert_no_ansi "$stderr_file" 'stale-link target cannot inject terminal escapes'
+if grep -Fqx -- '[ERROR] forged' "$stderr_file"; then
+    fail 'stale-link target forged a log line'
+fi
+/usr/bin/rm -f -- "$stale_link"
+ln -s -- "$unit" "$stale_link"
+
+reset_service_state
+SERVICE_SOURCE=
+SERVICE_ACTIVE_STATE=inactive
+SYSTEMD_ENABLEMENT_STATE=not-found
+prompt_file="$WORK_DIR/stale-confirm-prompt"
+: >"$stderr_file"
+(
+    # shellcheck disable=SC2317  # invoked dynamically by _install_impact_scan
+    _ui_confirm() {
+        printf '%s\n' "$1" >"$prompt_file"
+        return 0
+    }
+    _install_impact_scan "$install_home" mihomo systemd >"$stdout_file" 2>"$stderr_file"
+) || fail 'interactive confirmation did not accept an inactive stale state'
+assert_eq '保留上述残留状态并继续安装 mihomo.service？' "$(<"$prompt_file")" \
+    'stale state uses the dedicated confirmation prompt'
+assert_contains "$stderr_file" '已确认继续安装；残留服务状态尚未修改' \
+    'stale-state confirmation reports its read-only boundary'
+
+reset_service_state
+SERVICE_SOURCE=
+SERVICE_ACTIVE_STATE=active
+SYSTEMD_ENABLEMENT_STATE=not-found
+export CLASHCTL_NON_INTERACTIVE=1 CLASHCTL_ALLOW_UNIT_OVERWRITE=1
+: >"$stderr_file"
+rc=0
+_install_impact_scan "$install_home" mihomo systemd >"$stdout_file" 2>"$stderr_file" || rc=$?
+assert_eq 1 "$rc" 'active service with a missing definition is always rejected'
+assert_contains "$stderr_file" '定义已缺失，但服务仍在运行，无法确认进程归属' \
+    'active stale service rejection explains the ownership boundary'
+assert_not_contains "$stderr_file" '授权在记录残留状态后继续安装' \
+    'takeover authorization cannot bypass an unknown active service'
+if [ -e "$unit" ] || [ -L "$unit" ]; then
+    fail 'active stale-state scan created a service definition'
+fi
+assert_eq "$unit" "$(readlink -- "$stale_link")" 'active stale-state scan preserves the link'
+
+/usr/bin/rm -f -- "$stale_link"
+cat >"$unit" <<'EOF'
+[Service]
+ExecStart=/foreign/bin/mihomo -d /foreign/data
+EOF
 
 reset_service_state
 SERVICE_ACTIVE_STATE=unknown

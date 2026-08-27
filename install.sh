@@ -1250,6 +1250,22 @@ _install_enablement_has_artifacts() {
     esac
 }
 
+_install_report_enablement_links() {
+    local record path_hex target_hex path target path_display target_display
+    local -a records=()
+    [ -n "${CLASHCTL_SERVICE_ENABLEMENT_LINKS:-}" ] || return 0
+    IFS=, read -r -a records <<<"$CLASHCTL_SERVICE_ENABLEMENT_LINKS"
+    for record in "${records[@]}"; do
+        path_hex=${record%%:*}
+        target_hex=${record#*:}
+        _service_enablement_hex_decode "$path_hex" path
+        _service_enablement_hex_decode "$target_hex" target
+        printf -v path_display '%q' "$path"
+        printf -v target_display '%q' "$target"
+        _ui_detail '残留链接' "$path_display -> $target_display"
+    done
+}
+
 _install_remove_enablement_manifest() {
     local manifest=$1
     [ -e "$manifest" ] || [ -L "$manifest" ] || return 0
@@ -1316,6 +1332,7 @@ _install_next_backup() {
 _install_impact_scan() {
     local home=$1 kernel=$2 manager=$3 legacy="${HOME}/clashctl"
     local target source service_name runtime_state=已停止 enable_state=未启用
+    local enablement_only=0 runtime_captured=0
 
     CLASHCTL_SERVICE_MANAGER=$manager
     CLASHCTL_SERVICE_TARGET=
@@ -1374,13 +1391,26 @@ _install_impact_scan() {
     source=$(_install_existing_service "$manager" "$target" "$kernel") || source=
     CLASHCTL_SERVICE_SOURCE=$source
     export CLASHCTL_SERVICE_SOURCE
+    if [ "$manager" = systemd ] && [ -z "$source" ]; then
+        _install_capture_service_runtime_state "$manager" "$kernel" || return 1
+        runtime_captured=1
+        if [ "$CLASHCTL_SERVICE_WAS_ACTIVE" = 1 ]; then
+            _ui_error "${kernel}.service 的定义已缺失，但服务仍在运行，无法确认进程归属"
+            _install_report_enablement_links
+            _ui_detail '当前进度' '仅完成只读检查；服务定义、自启状态和运行状态均未修改'
+            _ui_detail '处理' '确认并停止该服务，或恢复其 unit 定义后重新运行安装'
+            return 1
+        fi
+    fi
     if [ -n "$source" ]; then
         CLASHCTL_SERVICE_BACKUP=$(_install_next_backup "$target")
         export CLASHCTL_SERVICE_BACKUP
     elif ! _install_enablement_has_artifacts; then
         return 0
     fi
-    _install_capture_service_runtime_state "$manager" "$kernel" || return 1
+    if [ "$runtime_captured" -eq 0 ]; then
+        _install_capture_service_runtime_state "$manager" "$kernel" || return 1
+    fi
     CLASHCTL_SERVICE_WAS_ENABLED=0
     _install_service_is_enabled "$manager" "$kernel" && CLASHCTL_SERVICE_WAS_ENABLED=1
     export CLASHCTL_SERVICE_WAS_ACTIVE CLASHCTL_SERVICE_WAS_ENABLED
@@ -1400,46 +1430,96 @@ _install_impact_scan() {
     export CLASHCTL_SERVICE_CONFLICT
     service_name=$kernel
     [ "$manager" != systemd ] || service_name="${kernel}.service"
-    _ui_blank
-    _ui_warn "发现现有服务: $service_name"
-    _ui_detail '现有定义' "${source:-未找到（仅检测到启用、链接或屏蔽状态）}"
-    _ui_detail '当前状态' "$runtime_state · $enable_state"
-    _ui_detail '当前进度' '仅完成只读检查；服务定义、自启状态和运行状态均未修改'
-    _ui_detail '将执行' '如正在运行则先停止，备份现有定义，再由 clashctl 接管'
-    _ui_detail '写入位置' "$target"
-    if [ -n "$CLASHCTL_SERVICE_BACKUP" ]; then
-        _ui_detail '备份位置' "$CLASHCTL_SERVICE_BACKUP"
-    else
-        _ui_detail '定义备份' '不需要（当前没有可备份的服务定义）'
+    if [ "$manager" = systemd ] && [ -z "$source" ]; then
+        enablement_only=1
     fi
-    _ui_detail '失败处理' '自动尝试恢复原状态；若恢复不完整，将保留事务快照与备份'
+    _ui_blank
+    if [ "$enablement_only" -eq 1 ]; then
+        _ui_warn "发现残留的 systemd 服务状态: $service_name"
+        _ui_detail '服务定义' '未找到'
+        _ui_detail '当前状态' "$runtime_state · $enable_state"
+        _install_report_enablement_links
+        if [ -n "${CLASHCTL_SERVICE_ENABLEMENT_LINKS:-}" ]; then
+            _ui_detail '安装影响' '写入服务定义后，现有链接可能重新生效并影响服务自启'
+        else
+            _ui_detail '安装影响' '现有注册或屏蔽状态可能影响服务启用'
+        fi
+        _ui_detail '当前进度' '仅完成只读检查；服务定义、自启状态和运行状态均未修改'
+        _ui_detail '将执行' '保存安装前的自启状态，在缺失位置写入、启用并启动 clashctl 服务'
+        _ui_detail '写入位置' "$target"
+        _ui_detail '定义备份' '不需要（当前没有可备份的服务定义）'
+        _ui_detail '卸载行为' '恢复安装前的自启状态；当前残留状态不会被自动清理'
+        _ui_detail '清理建议' '若确认残留状态已无其他用途，请先取消安装并清理后重试'
+        _ui_detail '失败处理' '自动尝试移除本次写入并恢复安装前状态；恢复不完整时保留事务快照'
+    else
+        _ui_warn "发现现有服务: $service_name"
+        _ui_detail '现有定义' "${source:-未找到（仅检测到启用、链接或屏蔽状态）}"
+        _ui_detail '当前状态' "$runtime_state · $enable_state"
+        _ui_detail '当前进度' '仅完成只读检查；服务定义、自启状态和运行状态均未修改'
+        _ui_detail '将执行' '如正在运行则先停止，备份现有定义，再由 clashctl 接管'
+        _ui_detail '写入位置' "$target"
+        if [ -n "$CLASHCTL_SERVICE_BACKUP" ]; then
+            _ui_detail '备份位置' "$CLASHCTL_SERVICE_BACKUP"
+        else
+            _ui_detail '定义备份' '不需要（当前没有可备份的服务定义）'
+        fi
+        _ui_detail '失败处理' '自动尝试恢复原状态；若恢复不完整，将保留事务快照与备份'
+    fi
     _ui_blank
 
     if [ "${CLASHCTL_ALLOW_UNIT_OVERWRITE:-}" = 1 ]; then
-        _ui_info '已通过 --take-over-service / CLASHCTL_ALLOW_UNIT_OVERWRITE=1 授权接管'
+        if [ "$enablement_only" -eq 1 ]; then
+            _ui_info '已通过 --take-over-service / CLASHCTL_ALLOW_UNIT_OVERWRITE=1 授权在记录残留状态后继续安装'
+        else
+            _ui_info '已通过 --take-over-service / CLASHCTL_ALLOW_UNIT_OVERWRITE=1 授权接管'
+        fi
         return 0
     fi
     if [ "${CLASHCTL_NON_INTERACTIVE:-}" = 1 ] || [ "${CI+x}" = x ]; then
-        _ui_error '非交互安装不会接管现有服务'
+        if [ "$enablement_only" -eq 1 ]; then
+            _ui_error '非交互安装不会在归属不明的残留服务状态上继续'
+        else
+            _ui_error '非交互安装不会接管现有服务'
+        fi
         _ui_detail '重新执行' '添加 --take-over-service'
         return 1
     fi
     local confirm_rc=0
-    _ui_confirm "停止并接管 ${service_name}？" || confirm_rc=$?
+    if [ "$enablement_only" -eq 1 ]; then
+        _ui_confirm "保留上述残留状态并继续安装 ${service_name}？" || confirm_rc=$?
+    else
+        _ui_confirm "停止并接管 ${service_name}？" || confirm_rc=$?
+    fi
     if [ "$confirm_rc" -eq 0 ]; then
-        _ui_ok '已确认接管；现有服务尚未被修改'
+        if [ "$enablement_only" -eq 1 ]; then
+            _ui_ok '已确认继续安装；残留服务状态尚未修改'
+        else
+            _ui_ok '已确认接管；现有服务尚未被修改'
+        fi
         return 0
     fi
     if [ "$confirm_rc" -eq 2 ]; then
-        _ui_error '当前环境无法交互确认服务接管'
+        if [ "$enablement_only" -eq 1 ]; then
+            _ui_error '当前环境无法交互确认残留服务状态'
+        else
+            _ui_error '当前环境无法交互确认服务接管'
+        fi
         _ui_detail '非交互授权' '添加 --take-over-service'
         _ui_detail '保留目录' "$home"
         _ui_detail '继续安装' '使用相同参数重试；安装器会复用可信的未完成目录'
         _INSTALL_INCOMPLETE_SUMMARY_SHOWN=1
     else
-        _ui_info '安装已取消；现有服务未被修改'
+        if [ "$enablement_only" -eq 1 ]; then
+            _ui_info '安装已取消；残留服务状态未被修改'
+        else
+            _ui_info '安装已取消；现有服务未被修改'
+        fi
         _ui_detail '保留目录' "$home"
-        _ui_detail '继续安装' '重新运行安装命令，并在确认后接管服务'
+        if [ "$enablement_only" -eq 1 ]; then
+            _ui_detail '继续安装' '重新运行安装命令，并确认保留残留状态后继续'
+        else
+            _ui_detail '继续安装' '重新运行安装命令，并在确认后接管服务'
+        fi
         _ui_detail '放弃安装' '确认目录内无所需数据后，可删除上述未完成安装目录'
         _INSTALL_INCOMPLETE_SUMMARY_SHOWN=1
     fi
@@ -2547,7 +2627,7 @@ Options:
   --source-dir <路径>       从明确指定的本地源码目录安装
   --subscription-file <文件> 从权限受限的单行文件读取初始订阅 URL
   --allow-legacy-layout     显式接管并升级无安装标记的旧版目录
-  --take-over-service       允许备份并接管现有同名服务
+  --take-over-service       允许接管现有同名服务或残留服务状态
   --non-interactive         禁用所有交互；缺少订阅时直接跳过
   --verbose                 显示下载进度与失败诊断
   --color <模式>            auto、always 或 never（默认 auto）
