@@ -11,7 +11,9 @@ fail() {
     exit 1
 }
 
-export CLASHCTL_SRC=$REPO_DIR CLASHCTL_KERNEL=mihomo INIT_TYPE=nohup
+export CLASHCTL_SRC=$REPO_DIR CLASHCTL_HOME="$WORK_DIR/home"
+export CLASHCTL_KERNEL=mihomo INIT_TYPE=nohup
+mkdir -p -- "$CLASHCTL_HOME"
 # shellcheck source=../scripts/preflight.sh
 . "$REPO_DIR/scripts/preflight.sh"
 
