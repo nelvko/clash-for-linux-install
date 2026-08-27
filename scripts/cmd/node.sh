@@ -50,8 +50,10 @@ clashnode() {
 ########################################
 
 _node_api_base() {
-    _detect_ext_addr # 填充 EXT_PORT（服务运行时不会触发改端口分支）
-    printf 'http://127.0.0.1:%s' "$EXT_PORT"
+    _detect_ext_addr || return 1 # 填充 EXT_IP/EXT_PORT（服务运行时不会触发改端口分支）
+    local api_host=$EXT_IP
+    case $api_host in \[*\]) ;; *:*) api_host="[$api_host]" ;; esac
+    printf 'http://%s:%s' "$api_host" "$EXT_PORT"
 }
 
 # 统一 curl 封装：--noproxy '*' 避免走系统代理；Bearer 仅通过私有临时文件传递。
@@ -76,7 +78,7 @@ _node_curl() (
     trap 'exit 130' INT
     trap 'exit 143' TERM
 
-    base=$(_node_api_base)
+    base=$(_node_api_base) || return 1
     secret=$(_get_secret) || return 1
     if [ -n "$secret" ]; then
         cleaned=$(printf '%s' "$secret" | LC_ALL=C tr -d '\001-\037\177')

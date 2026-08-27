@@ -235,7 +235,7 @@ main_reexec_output="$WORK_DIR/main-reexec.args"
     export CLASHCTL_INSTALL_SESSION=1
     unset CLASHCTL_LOCAL_SOURCE CLASHCTL_SUBSCRIPTION_FILE CLASHCTL_SUB_URL
     _install_validate_home_path() { :; }
-    _require_empty_home() { _INSTALL_HOME_STATE=resume; }
+    _require_empty_home() { _INSTALL_HOME_STATE=new; }
     main --home "$WORK_DIR/reexec-home" --source-dir "$REPO_DIR" \
         --subscription-file "$secure_file" mihomo
 ) >"$WORK_DIR/main-reexec.stdout" 2>"$WORK_DIR/main-reexec.stderr"

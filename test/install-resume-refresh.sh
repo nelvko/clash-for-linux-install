@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TEST_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+REPO_DIR=$(cd -- "$TEST_DIR/.." && pwd -P)
+WORK_DIR=$(mktemp -d)
+trap '/usr/bin/rm -rf -- "$WORK_DIR"' EXIT
+
+fail() {
+    printf 'FAIL: %s\n' "$*" >&2
+    exit 1
+}
+
+assert_eq() {
+    local expected=$1 actual=$2 description=$3
+    [ "$expected" = "$actual" ] ||
+        fail "$description: expected [$expected], got [$actual]"
+}
+
+assert_contains() {
+    local file=$1 expected=$2 description=$3
+    grep -Fqs -- "$expected" "$file" ||
+        fail "$description: missing [$expected]"
+}
+
+make_layout() {
+    local root=$1 version=$2
+    mkdir -p -- "$root/scripts/lib" "$root/scripts/cmd"
+    printf '%s\n' "$version-install" >"$root/install.sh"
+    printf '%s\n' "$version-uninstall" >"$root/uninstall.sh"
+    printf '%s\n' "$version-preflight" >"$root/scripts/preflight.sh"
+    printf '%s\n' "$version-common" >"$root/scripts/lib/common.sh"
+    printf '%s\n' "$version-off" >"$root/scripts/cmd/off.sh"
+}
+
+snapshot_tree() {
+    {
+        find "$1" -xdev -printf 'meta|%P|%y|%m|%s\n'
+        find "$1" -xdev -type f -exec sha256sum -- {} +
+    } | LC_ALL=C sort
+}
+
+assert_no_stage() {
+    local home=$1
+    if find "$(dirname -- "$home")" -maxdepth 1 -name "$(basename -- "$home").installing.*" \
+        -print -quit | grep -q .; then
+        fail "$2: installation stage was created"
+    fi
+}
+
+export CLASHCTL_INSTALL_SOURCE_ONLY=1 CLASHCTL_COLOR=never
+# shellcheck source=../install.sh
+. "$REPO_DIR/install.sh"
+
+home="$WORK_DIR/network/home"
+mkdir -p -- "$home"
+make_layout "$home" old
+_install_marker_write "$home" "$home" || fail 'could not mark incomplete home'
+mkdir -p -- "$home/data/profiles" "$home/archives" "$home/bin"
+printf 'private-data\n' >"$home/data/profiles/demo.yaml"
+printf 'cached-archive\n' >"$home/archives/component.gz"
+printf 'old-binary\n' >"$home/bin/mihomo"
+printf 'service-state\n' >"$home/.service-transaction"
+before=$(snapshot_tree "$home")
+
+fetch_called=0
+_install_plan() { :; }
+_install_detect_service_manager() { printf 'nohup\n'; }
+_fetch_into() {
+    fetch_called=1
+    return 1
+}
+
+export CLASHCTL_SRC=
+unset CLASHCTL_LOCAL_SOURCE CLASHCTL_INSTALL_SESSION CLASHCTL_NON_INTERACTIVE
+rc=0
+main --home "$home" --branch iu --non-interactive \
+    >"$WORK_DIR/network.stdout" 2>"$WORK_DIR/network.stderr" || rc=$?
+assert_eq 1 "$rc" 'network bootstrap rejects source replacement'
+assert_eq 0 "$fetch_called" 'network bootstrap rejects before downloading'
+assert_eq "$before" "$(snapshot_tree "$home")" 'network rejection preserves incomplete home'
+assert_no_stage "$home" 'network rejection'
+assert_contains "$WORK_DIR/network.stderr" \
+    '拒绝用另一份程序文件自动覆盖' 'network rejection explains the boundary'
+assert_contains "$WORK_DIR/network.stderr" '当前状态: 未刷新、搬移或删除现有内容' \
+    'network rejection reports that the home was preserved'
+assert_contains "$WORK_DIR/network.stderr" '原版本续装:' \
+    'network rejection provides an in-place continuation command'
+assert_contains "$WORK_DIR/network.stderr" '推荐处理:' \
+    'network rejection provides backup and reinstall guidance'
+assert_contains "$WORK_DIR/network.stderr" '原版本可能重复上次失败' \
+    'network rejection warns about retrying the old installer'
+
+external="$WORK_DIR/external/source"
+mkdir -p -- "$external"
+make_layout "$external" new
+before=$(snapshot_tree "$home")
+unset CLASHCTL_INSTALL_SESSION CLASHCTL_NON_INTERACTIVE
+rc=0
+main --home "$home" --source-dir "$external" --branch iu --non-interactive \
+    >"$WORK_DIR/external.stdout" 2>"$WORK_DIR/external.stderr" || rc=$?
+assert_eq 1 "$rc" 'external source rejects source replacement'
+assert_eq "$before" "$(snapshot_tree "$home")" 'external rejection preserves incomplete home'
+assert_no_stage "$home" 'external source rejection'
+assert_contains "$WORK_DIR/external.stderr" \
+    '拒绝用另一份程序文件自动覆盖' 'external rejection explains the boundary'
+
+subscription_file="$WORK_DIR/subscription input.url"
+subscription_url='https://subscription.invalid/api?token=resume-secret'
+printf '%s\n' "$subscription_url" >"$subscription_file"
+chmod 0600 -- "$subscription_file"
+unset CLASHCTL_LOCAL_SOURCE CLASHCTL_INSTALL_SESSION CLASHCTL_NON_INTERACTIVE
+export CLASHCTL_SRC=
+rc=0
+main --home "$home" --branch iu --non-interactive \
+    --subscription-file "$subscription_file" \
+    >"$WORK_DIR/subscription.stdout" 2>"$WORK_DIR/subscription.stderr" || rc=$?
+assert_eq 1 "$rc" 'subscription-file bootstrap rejects source replacement'
+assert_contains "$WORK_DIR/subscription.stderr" '--subscription-file' \
+    'continuation command preserves the subscription-file option'
+printf -v quoted_subscription '%q' "$subscription_file"
+assert_contains "$WORK_DIR/subscription.stderr" "$quoted_subscription" \
+    'continuation command safely quotes the subscription-file path'
+if grep -Fqs -- "$subscription_url" "$WORK_DIR/subscription.stderr"; then
+    fail 'source replacement rejection leaked the subscription URL'
+fi
+
+printf '%s\n' \
+    'SELF_SOURCE_REACHED=1' \
+    'operation_lock_acquire() { return 1; }' \
+    >"$home/scripts/lib/operation-lock.sh"
+SELF_SOURCE_REACHED=0
+_INSTALL_SCRIPT_DIR=$home
+export CLASHCTL_SRC=
+unset CLASHCTL_LOCAL_SOURCE CLASHCTL_INSTALL_SESSION CLASHCTL_NON_INTERACTIVE
+rc=0
+main --home "$home" --branch iu --non-interactive \
+    >"$WORK_DIR/self-source.stdout" 2>"$WORK_DIR/self-source.stderr" || rc=$?
+assert_eq 1 "$rc" 'in-place continuation reaches the operation lock stub'
+assert_eq 1 "$SELF_SOURCE_REACHED" 'in-place installer is recognized as the current source'
+assert_contains "$WORK_DIR/self-source.stderr" \
+    '使用未完成目录内已验证的程序文件继续安装' \
+    'in-place continuation reports the selected source'
+if grep -Fqs -- '拒绝用另一份程序文件自动覆盖' \
+    "$WORK_DIR/self-source.stderr"; then
+    fail 'in-place continuation was rejected as a source replacement'
+fi
+
+printf 'install-resume-refresh: ok\n'

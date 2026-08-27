@@ -93,11 +93,11 @@ _INSTALL_HOME_STATE=resume
 _INSTALL_INCOMPLETE_SUMMARY_SHOWN=0
 _install_report_incomplete_home >"$WORK_DIR/incomplete.stdout" 2>"$WORK_DIR/incomplete.stderr"
 [ ! -s "$WORK_DIR/incomplete.stdout" ] || fail 'incomplete-install summary wrote to stdout'
-grep -Fqs '安装未完成；已保留可安全复用的安装目录' "$WORK_DIR/incomplete.stderr" ||
+grep -Fqs '安装未完成；安装目录和运行数据已保留' "$WORK_DIR/incomplete.stderr" ||
     fail 'trusted incomplete directory did not receive a failure summary'
 grep -Fqs "目录: $target" "$WORK_DIR/incomplete.stderr" ||
     fail 'incomplete-install summary omitted the retained directory'
-grep -Fqs '重新校验并复用该目录' "$WORK_DIR/incomplete.stderr" ||
+grep -Fqs '继续原安装' "$WORK_DIR/incomplete.stderr" ||
     fail 'incomplete-install summary omitted retry guidance'
 
 : >"$target/.env"

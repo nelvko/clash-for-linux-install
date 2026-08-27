@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 clashui() {
-    _detect_ext_addr
+    _detect_ext_addr || return 1
     if ! service_is_active >/dev/null 2>&1; then
         local service_ready=0 _
         _ui_step "启动 ${CLASHCTL_KERNEL} 服务"

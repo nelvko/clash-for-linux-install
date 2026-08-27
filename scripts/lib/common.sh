@@ -6,7 +6,6 @@ CLASH_DATA_DIR="${CLASHCTL_HOME}/data"
 CLASH_CONFIG_BASE="${CLASH_DATA_DIR}/config.yaml"
 CLASH_CONFIG_MIXIN="${CLASH_DATA_DIR}/mixin.yaml"
 CLASH_CONFIG_RUNTIME="${CLASH_DATA_DIR}/runtime.yaml"
-CLASH_CONFIG_TEMP="${CLASH_DATA_DIR}/temp.yaml"
 # 订阅下载/校验失败时保留的调试产物（稳定路径，便于排障）
 CLASH_CONFIG_DEBUG="${CLASH_DATA_DIR}/last-failed.yaml"
 CLASH_CONFIG_DEBUG_RAW="${CLASH_DATA_DIR}/last-failed.raw"
@@ -31,7 +30,34 @@ CLASHCTL_CMD_DIR="${CLASHCTL_HOME}/scripts/cmd"
 CLASHCTL_CRON_TAG="# clashctl-auto-update"
 
 _is_port_used() {
-    { ss -tunlp 2>/dev/null || netstat -tunlp 2>/dev/null; } | grep -qs "$1"
+    local port=${1:-} sockets
+    [[ $port =~ ^[0-9]+$ ]] && [ "${#port}" -le 5 ] &&
+        ((10#$port >= 1 && 10#$port <= 65535)) || return 1
+    port=$((10#$port))
+
+    if command -v ss >/dev/null 2>&1 &&
+        sockets=$(ss -H -lntu "sport = :$port" 2>/dev/null); then
+        awk -v expected="$port" '
+            {
+                local_addr = $5
+                sub(/^.*:/, "", local_addr)
+                if (local_addr == expected) found = 1
+            }
+            END { exit(found ? 0 : 1) }
+        ' <<<"$sockets"
+        return
+    fi
+
+    command -v netstat >/dev/null 2>&1 || return 1
+    sockets=$(netstat -lntu 2>/dev/null) || return 1
+    awk -v expected="$port" '
+        {
+            local_addr = $4
+            sub(/^.*:/, "", local_addr)
+            if (local_addr == expected) found = 1
+        }
+        END { exit(found ? 0 : 1) }
+    ' <<<"$sockets"
 }
 
 _is_root() {

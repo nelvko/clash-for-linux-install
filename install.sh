@@ -401,6 +401,10 @@ main() {
         return 1
     }
     _INSTALL_TARGET_HOME=$home
+    if [ -z "$source_dir" ] && [ "$_INSTALL_SCRIPT_DIR" = "$home" ] &&
+        _install_marker_validate "$home"; then
+        source_dir=$home
+    fi
     if [ -n "$source_dir" ]; then
         source_dir=$(_install_absolute_path "$source_dir") || {
             _ui_error "无法解析本地源码路径: $source_dir"
@@ -465,30 +469,30 @@ main() {
     # 先验证目标目录，再询问或执行任何接管操作。
     _require_empty_home "$home" || return 1
 
+    if [ "$_INSTALL_HOME_STATE" = resume ]; then
+        if [ -z "$CLASHCTL_SRC" ] || [ "$CLASHCTL_SRC" != "$home" ]; then
+            _install_refuse_incomplete_source_change \
+                "$home" "$branch" "$kernel" "$subscription_file"
+            return 1
+        fi
+        _ui_info "使用未完成目录内已验证的程序文件继续安装: $home"
+    fi
+
     unset CLASHCTL_SUBSCRIPTION_FILE CLASHCTL_SUB_URL
 
     if [ -z "$CLASHCTL_SRC" ]; then
-        if [ "$_INSTALL_HOME_STATE" != resume ]; then
-            local download_stage
-            _install_create_stage "$home" download_stage || return 1
-            if ! _fetch_into "$download_stage" "$branch" "$proxy" ||
-                ! _install_finalize_stage "$download_stage" "$home"; then
-                _install_discard_stage "$download_stage" || true
-                return 1
-            fi
-        else
-            _ui_info "继续上次未完成的安装: $home"
+        local download_stage
+        _install_create_stage "$home" download_stage || return 1
+        if ! _fetch_into "$download_stage" "$branch" "$proxy" ||
+            ! _install_finalize_stage "$download_stage" "$home"; then
+            _install_discard_stage "$download_stage" || true
+            return 1
         fi
         export CLASHCTL_LOCAL_SOURCE=$home
         _install_reexec "${home}/install.sh" "$home" "$branch" "$kernel" "$subscription_file"
     fi
 
     if [ "${CLASHCTL_SRC}" != "$home" ]; then
-        if [ "$_INSTALL_HOME_STATE" = resume ]; then
-            _ui_info "继续上次未完成的安装: $home"
-            export CLASHCTL_LOCAL_SOURCE=$home
-            _install_reexec "${home}/install.sh" "$home" "$branch" "$kernel" "$subscription_file"
-        fi
         local source_stage
         _install_create_stage "$home" source_stage || return 1
         _ui_step '准备安装文件'
@@ -941,7 +945,8 @@ _install_validate_home_path() {
         fi
     fi
     if [ -n "$source_dir" ]; then
-        if [ "$home" = "$source_dir" ] && [ "${CLASHCTL_INSTALL_SESSION:-0}" = 1 ] &&
+        if [ "$home" = "$source_dir" ] &&
+            { [ "${CLASHCTL_INSTALL_SESSION:-0}" = 1 ] || [ "$_INSTALL_SCRIPT_DIR" = "$home" ]; } &&
             _install_marker_validate "$home"; then
             return 0
         fi
@@ -2146,10 +2151,34 @@ _install_report_incomplete_home() {
     _install_layout_is_trusted "$home" >/dev/null 2>&1 || return 0
 
     _ui_blank
-    _ui_error '安装未完成；已保留可安全复用的安装目录'
+    _ui_error '安装未完成；安装目录和运行数据已保留'
     _ui_detail '目录' "$home"
-    _ui_detail '继续' '使用相同参数重新运行安装；安装器会重新校验并复用该目录，继续完成安装'
-    _ui_detail '放弃' '确认目录内没有需要保留的数据后，再手动删除该目录'
+    _ui_detail '继续原安装' '审核目录内的 install.sh 后，直接运行它；安装器会重新校验该目录'
+    _ui_detail '全新安装' '先备份 data/ 和 archives/（如需），确认备份后删除整个安装目录，再重新安装'
+    _INSTALL_INCOMPLETE_SUMMARY_SHOWN=1
+}
+
+_install_refuse_incomplete_source_change() {
+    local home=$1 branch=$2 kernel=$3 subscription_file=${4:-}
+    local argument quoted resume_command
+    local -a resume_args=(--home "$home" --branch "$branch")
+    [ -z "$subscription_file" ] ||
+        resume_args+=(--subscription-file "$subscription_file")
+    resume_args+=("$kernel")
+    printf -v resume_command 'bash %q' "$home/install.sh"
+    for argument in "${resume_args[@]}"; do
+        printf -v quoted '%q' "$argument"
+        resume_command+=" $quoted"
+    done
+
+    _ui_blank
+    _ui_error '检测到未完成安装；拒绝用另一份程序文件自动覆盖'
+    _ui_detail '目录' "$home"
+    _ui_detail '原因' '目录中可能保留配置、日志或待恢复的服务事务，自动覆盖可能造成数据丢失'
+    _ui_detail '当前状态' '未刷新、搬移或删除现有内容'
+    _ui_detail '推荐处理' "先备份 $home/data 和 $home/archives（如需），确认备份后删除整个 $home，再重试"
+    _ui_detail '原版本续装' "$resume_command"
+    _ui_detail '注意' '原版本可能重复上次失败；仅在审核目录内脚本并确认继续使用时选择'
     _INSTALL_INCOMPLETE_SUMMARY_SHOWN=1
 }
 
@@ -2194,7 +2223,7 @@ _require_empty_home() {
             return 1
         fi
         _INSTALL_HOME_STATE=resume
-        _ui_warn "检测到可信的未完成安装，将继续: $home"
+        _ui_warn "检测到可信的未完成安装: $home"
         return 0
     fi
 

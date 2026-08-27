@@ -32,7 +32,7 @@ header_path_file="$WORK_DIR/header.path"
 header_mode_file="$WORK_DIR/header.mode"
 
 _detect_ext_addr() {
-    export EXT_PORT=9090
+    export EXT_IP=127.0.0.1 EXT_PORT=9090
 }
 
 _get_secret() {

@@ -1,14 +1,25 @@
 #!/usr/bin/env bash
 
 _get_bind_addr() {
-  local allow_lan bind_addr
-  IFS='|' read -r bind_addr allow_lan < <(
-    "$BIN_YQ" '[.bind-address // "*", .allow-lan // false] | join("|")' "$CLASH_CONFIG_RUNTIME"
-  )
+  local allow_lan bind_addr bind_values
+  bind_values=$(
+    "$BIN_YQ" '[.bind-address // "*", .allow-lan // false] | join("|")' \
+      "$CLASH_CONFIG_RUNTIME"
+  ) || {
+    _ui_error '无法读取运行配置中的监听地址'
+    return 1
+  }
+  IFS='|' read -r bind_addr allow_lan <<<"$bind_values"
 
   case $allow_lan in
   true)
-    [ "$bind_addr" = "*" ] && bind_addr=$(_get_local_ip)
+    if [ "$bind_addr" = "*" ]; then
+      bind_addr=$(_get_local_ip)
+      [ -n "$bind_addr" ] || {
+        _ui_error '无法确定局域网监听地址'
+        return 1
+      }
+    fi
     ;;
   false)
     bind_addr=127.0.0.1
@@ -18,10 +29,15 @@ _get_bind_addr() {
 }
 
 _detect_proxy_port() {
-  local mixed_port http_port socks_port
-  IFS='|' read -r mixed_port http_port socks_port < <(
-    "$BIN_YQ" '[.mixed-port // "", .port // "", .socks-port // ""] | join("|")' "$CLASH_CONFIG_RUNTIME"
-  )
+  local mixed_port http_port socks_port port_values
+  port_values=$(
+    "$BIN_YQ" '[.mixed-port // "", .port // "", .socks-port // ""] | join("|")' \
+      "$CLASH_CONFIG_RUNTIME"
+  ) || {
+    _ui_error '无法读取运行配置中的代理端口'
+    return 1
+  }
+  IFS='|' read -r mixed_port http_port socks_port <<<"$port_values"
 
   [ -z "$mixed_port" ] && [ -z "$http_port" ] && [ -z "$socks_port" ] && mixed_port=7890
 
@@ -40,41 +56,84 @@ _detect_proxy_port() {
     yaml_key=${entry%%:*}
     port=${entry#*:}
 
-    [ -n "$port" ] && _is_port_used "$port" && [ "$service_active" != "true" ] && {
-      new_port=$(_get_random_port) || return
+    if [ -n "$port" ] && _is_port_used "$port" && [ "$service_active" != "true" ]; then
+      new_port=$(_get_random_port) || return 1
       count=$((count + 1))
-      _ui_warn_fail "端口冲突：[$yaml_key] $port；已随机分配 $new_port"
-      "$BIN_YQ" -i ".${yaml_key} = $new_port" "$CLASH_CONFIG_MIXIN"
-    }
+      _ui_warn "端口冲突：[$yaml_key] $port；已随机分配 $new_port"
+      "$BIN_YQ" -i ".${yaml_key} = $new_port" "$CLASH_CONFIG_MIXIN" || {
+        _ui_error "无法写入随机代理端口：$yaml_key"
+        return 1
+      }
+    fi
   done
 
-  [ "$count" -gt 0 ] && _merge_config
+  if [ "$count" -gt 0 ] && ! _merge_config; then
+    _ui_error '代理端口已调整，但运行配置更新失败'
+    return 1
+  fi
+  return 0
 }
 
 _detect_ext_addr() {
-  local ext_addr
-  ext_addr=$("$BIN_YQ" '.external-controller // ""' "$CLASH_CONFIG_RUNTIME")
+  local ext_addr listen_host='' ext_ip='' ext_port='' display_ip
+  ext_addr=$("$BIN_YQ" '.external-controller // ""' "$CLASH_CONFIG_RUNTIME") || {
+    _ui_error '无法读取运行配置中的控制器地址'
+    return 1
+  }
 
-  local ext_ip=${ext_addr%%:*}
-  local ext_port=${ext_addr##*:}
+  if [[ $ext_addr =~ ^(\[[0-9A-Fa-f:.]+\]):([0-9]+)$ ]]; then
+    listen_host=${BASH_REMATCH[1]}
+    ext_port=${BASH_REMATCH[2]}
+    ext_ip=${listen_host#\[}
+    ext_ip=${ext_ip%\]}
+    [[ $ext_ip == *:* ]] || ext_ip=
+  elif [[ $ext_addr =~ ^([A-Za-z0-9._-]+):([0-9]+)$ ]]; then
+    listen_host=${BASH_REMATCH[1]}
+    ext_ip=$listen_host
+    ext_port=${BASH_REMATCH[2]}
+  fi
+  if [ -z "$ext_ip" ] || [ -z "$ext_port" ] || [ "${#ext_port}" -gt 5 ] ||
+    ((10#$ext_port < 1 || 10#$ext_port > 65535)); then
+    _ui_error '运行配置中的控制器地址无效（应为 hostname/IPv4:port 或 [IPv6]:port）'
+    return 1
+  fi
+  ext_port=$((10#$ext_port))
 
-  # shellcheck disable=SC2034  # 由 scripts/cmd/ui.sh 读取
-  EXT_IP=$ext_ip
-  EXT_PORT=$ext_port
-  # shellcheck disable=SC2034  # 由 scripts/cmd/ui.sh 读取
-  [ "$ext_ip" = '0.0.0.0' ] && EXT_IP=$(_get_local_ip)
+  display_ip=$ext_ip
+  case $ext_ip in
+  0.0.0.0 | ::)
+    display_ip=$(_get_local_ip) || display_ip=
+    [ -n "$display_ip" ] || {
+      _ui_error '无法确定控制器的本机访问地址'
+      return 1
+    }
+    ;;
+  esac
 
   local service_active=false
   service_is_active >&/dev/null && service_active=true
 
-  _is_port_used "$EXT_PORT" && [ "$service_active" != "true" ] && {
+  if _is_port_used "$ext_port" && [ "$service_active" != "true" ]; then
     local new_port
-    new_port=$(_get_random_port) || return
-    _ui_warn_fail "端口冲突：[external-controller] ${EXT_PORT}；已随机分配 $new_port"
-    EXT_PORT=$new_port
-    EXT_ADDR="$ext_ip:$new_port" "$BIN_YQ" -i '.external-controller = env(EXT_ADDR)' "$CLASH_CONFIG_MIXIN"
-    _merge_config
-  }
+    new_port=$(_get_random_port) || return 1
+    _ui_warn "端口冲突：[external-controller] ${ext_port}；已随机分配 $new_port"
+    EXT_ADDR="${listen_host}:$new_port" "$BIN_YQ" -i \
+      '.external-controller = env(EXT_ADDR)' "$CLASH_CONFIG_MIXIN" || {
+      _ui_error '无法写入随机控制器端口'
+      return 1
+    }
+    _merge_config || {
+      _ui_error '控制器端口已调整，但运行配置更新失败'
+      return 1
+    }
+    ext_port=$new_port
+  fi
+
+  # shellcheck disable=SC2034  # 由 scripts/cmd/ui.sh 读取
+  EXT_IP=$display_ip
+  # shellcheck disable=SC2034  # 由 scripts/cmd/ui.sh 与 scripts/cmd/node.sh 读取
+  EXT_PORT=$ext_port
+  return 0
 }
 
 _get_secret() {
@@ -100,10 +159,17 @@ _valid_config() {
   }
 }
 
-_merge_config() {
-  cat "$CLASH_CONFIG_RUNTIME" >"$CLASH_CONFIG_TEMP" 2>/dev/null
+_merge_config() (
+  umask 077
+  local candidate
+  candidate=$(mktemp "${CLASH_CONFIG_RUNTIME}.next.XXXXXX") || {
+    _ui_error '无法创建运行配置候选文件'
+    return 1
+  }
+  trap '[ -z "${candidate:-}" ] || /usr/bin/rm -f -- "$candidate"' EXIT
+
   # shellcheck disable=SC2016
-  "$BIN_YQ" eval-all '
+  if ! "$BIN_YQ" eval-all '
       ########################################
       #              Load Files              #
       ########################################
@@ -184,14 +250,26 @@ _merge_config() {
         ($inj | .[$g.name] // []) as $extra |
         .proxies = (.proxies + $extra | unique)
       )
-    ' "$CLASH_CONFIG_BASE" "$CLASH_CONFIG_MIXIN" >"$CLASH_CONFIG_RUNTIME"
+    ' "$CLASH_CONFIG_BASE" "$CLASH_CONFIG_MIXIN" >"$candidate"; then
+    _ui_error '无法合并运行配置；已保留原运行配置'
+    return 1
+  fi
 
-  _valid_config "$CLASH_CONFIG_RUNTIME" || {
-    cat "$CLASH_CONFIG_TEMP" >"$CLASH_CONFIG_RUNTIME"
-    _errorcat "验证失败：请检查 Mixin 配置"
+  _valid_config "$candidate" || {
+    _ui_error '运行配置验证失败；已保留原运行配置'
     return 1
   }
-}
+  chmod 0600 -- "$candidate" || {
+    _ui_error '无法保护运行配置候选文件；已保留原运行配置'
+    return 1
+  }
+  /bin/mv -fT -- "$candidate" "$CLASH_CONFIG_RUNTIME" || {
+    _ui_error '无法提交运行配置；已保留原运行配置'
+    return 1
+  }
+  candidate=
+  return 0
+)
 tunstatus() {
   local device
   device=$("$BIN_YQ" '.tun.device // ""' "$CLASH_CONFIG_RUNTIME")
@@ -204,36 +282,65 @@ tunstatus() {
   return 1
 }
 _is_tun_enabled() {
-  "$BIN_YQ" -e '.tun.enable == true' "$CLASH_CONFIG_RUNTIME" >&/dev/null
+  local enabled
+  enabled=$("$BIN_YQ" '.tun.enable // false' "$CLASH_CONFIG_RUNTIME") || {
+    _ui_error '无法读取运行配置中的 Tun 状态'
+    return 2
+  }
+  case $enabled in
+  true) return 0 ;;
+  false) return 1 ;;
+  *)
+    _ui_error '运行配置中的 Tun 状态不是布尔值'
+    return 2
+    ;;
+  esac
 }
 _merge_config_restart() {
-  local was_tun_active
+  local was_tun_active=false tun_enabled=false tun_state_rc=0
 
   tunstatus >&/dev/null && was_tun_active=true
-  # rc=1：合并/校验失败（runtime 已由 _merge_config 回滚为旧配置）
+  # rc=1：候选配置合并或校验失败，原 runtime 保持不变。
   _merge_config || return 1
 
-  if [ "${was_tun_active}" = true ]; then
-    service_sudo_stop >/dev/null
-    service_is_active >&/dev/null && {
-      _errorcat "请先关闭 Tun 模式"
+  _is_tun_enabled || tun_state_rc=$?
+  case $tun_state_rc in
+  0) tun_enabled=true ;;
+  1) ;;
+  *) return 2 ;;
+  esac
+
+  if [ "$was_tun_active" = true ]; then
+    service_sudo_stop >/dev/null 2>&1 || :
+    if service_is_active >&/dev/null; then
+      _ui_error "运行配置已更新，但未能停止 $CLASHCTL_KERNEL 服务"
       return 2
-    }
+    fi
   else
-    service_stop >&/dev/null
+    service_stop >/dev/null 2>&1 || :
+    if service_is_active >&/dev/null; then
+      _ui_error "运行配置已更新，但未能停止 $CLASHCTL_KERNEL 服务"
+      return 2
+    fi
   fi
 
   sleep 0.1
 
   # rc=2：合并成功（runtime 已是新配置）但服务重启失败
-  if _is_tun_enabled; then
-    service_sudo_start >/dev/null
+  if [ "$tun_enabled" = true ]; then
+    service_sudo_start >/dev/null 2>&1 || :
     sleep 1
-    tunstatus >&/dev/null || {
-      _errorcat "Tun 模式重启失败，请检查代理内核日志"
+    if ! service_is_active >&/dev/null || ! tunstatus >&/dev/null; then
+      _ui_error "运行配置已更新，但 Tun 模式重启失败，请检查代理内核日志"
+      return 2
+    fi
+  else
+    service_start >/dev/null 2>&1 || :
+    sleep 0.1
+    service_is_active >&/dev/null || {
+      _ui_error "运行配置已更新，但服务重启失败，请检查代理内核日志"
       return 2
     }
-  else
-    service_start >/dev/null || return 2
   fi
+  return 0
 }

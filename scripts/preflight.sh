@@ -115,13 +115,76 @@ _archive_is_valid() {
     local archive=$1
     local expected=${archive%.part}
 
-    [ -f "$archive" ] && [ -s "$archive" ] || return 1
+    [ -f "$archive" ] && [ ! -L "$archive" ] && [ -s "$archive" ] || return 1
     case $expected in
-    *.zip) unzip -tqq "$archive" >/dev/null 2>&1 ;;
+    *.zip)
+        unzip -tqq "$archive" >/dev/null 2>&1 ||
+            tar -tf "$archive" >/dev/null 2>&1
+        ;;
     *.tar.gz | *.tgz) tar -tzf "$archive" >/dev/null 2>&1 ;;
     *.gz) gzip -tq "$archive" >/dev/null 2>&1 ;;
     *) gzip -tq "$archive" >/dev/null 2>&1 || unzip -tqq "$archive" >/dev/null 2>&1 ;;
     esac
+}
+
+_managed_directory_is_safe() {
+    local path=$1 owner mode
+
+    [ -d "$path" ] && [ ! -L "$path" ] || return 1
+    owner=$(stat -c %u -- "$path" 2>/dev/null) || return 1
+    mode=$(stat -c %a -- "$path" 2>/dev/null) || return 1
+    [ "$owner" -eq "$(id -u)" ] &&
+        [ $((8#$mode & 0700)) -eq $((8#700)) ] &&
+        [ $((8#$mode & 0022)) -eq 0 ]
+}
+
+_managed_directory_prepare() {
+    local path=$1 mode=${2:-0755}
+
+    if [ -e "$path" ] || [ -L "$path" ]; then
+        _managed_directory_is_safe "$path"
+        return
+    fi
+    /usr/bin/install -d -m "$mode" -- "$path" || return 1
+    _managed_directory_is_safe "$path"
+}
+
+_managed_cache_file_discard() {
+    local archive=$1 owner cache_dir archive_dir archive_parent
+
+    _managed_directory_is_safe "$ZIP_BASE_DIR" || return 2
+    [ -f "$archive" ] && [ ! -L "$archive" ] || return 2
+    owner=$(stat -c %u -- "$archive" 2>/dev/null) || return 2
+    [ "$owner" -eq "$(id -u)" ] || return 2
+
+    cache_dir=$(cd -P -- "$ZIP_BASE_DIR" 2>/dev/null && pwd -P) || return 2
+    archive_parent=$(dirname -- "$archive") || return 2
+    archive_dir=$(cd -P -- "$archive_parent" 2>/dev/null && pwd -P) || return 2
+    [ "$archive_dir" = "$cache_dir" ] || return 2
+
+    /usr/bin/rm -f -- "$archive" || return 1
+    [ ! -e "$archive" ] && [ ! -L "$archive" ]
+}
+
+_component_discard_invalid_cache() {
+    local label=$1 archive=$2 discard_rc=0
+
+    _managed_cache_file_discard "$archive" || discard_rc=$?
+    if [ "$discard_rc" -eq 0 ]; then
+        _ui_warn "已废弃布局无效的依赖缓存：$label"
+        _ui_detail "缓存" "$archive"
+        _ui_detail "重试" "重新运行安装；安装器将重新下载该组件"
+    else
+        _ui_warn "布局无效的依赖缓存未被删除：$label"
+        _ui_detail "缓存" "$archive"
+        if [ "$discard_rc" -eq 2 ]; then
+            _ui_detail "原因" "路径、归属或文件类型未通过托管缓存安全校验"
+        else
+            _ui_detail "原因" "删除缓存文件失败"
+        fi
+        _ui_detail "处理" "检查该文件后手动移除，再重新运行安装"
+    fi
+    return 0
 }
 
 _cache_token() {
@@ -149,7 +212,7 @@ _download_archive() {
         return 0
     fi
 
-    if [ -e "$target" ]; then
+    if [ -e "$target" ] || [ -L "$target" ]; then
         _ui_warn "忽略损坏的依赖缓存：$label"
         _ui_detail "文件" "$target"
         /usr/bin/rm -f -- "$target" || {
@@ -197,9 +260,10 @@ _download_archive() {
 
 download_zip() {
     (($#)) || return 0
-    /usr/bin/install -d "$ZIP_BASE_DIR" || {
-        _ui_error "无法创建依赖缓存目录"
+    _managed_directory_prepare "$ZIP_BASE_DIR" 0755 || {
+        _ui_error "依赖缓存目录无法安全使用"
         _ui_detail "目录" "$ZIP_BASE_DIR"
+        _ui_detail "要求" "必须是当前用户所有的真实目录，且组用户和其他用户不可写"
         return 1
     }
     local url_clash url_mihomo url_yq url_subconverter
@@ -336,41 +400,374 @@ valid_zip() {
     return 0
 }
 
-unzip_zip() {
+_component_file_is_safe() {
+    local path=$1 expected_mode=$2 owner mode
+
+    [ -f "$path" ] && [ ! -L "$path" ] || return 1
+    owner=$(stat -c %u -- "$path" 2>/dev/null) || return 1
+    mode=$(stat -c %a -- "$path" 2>/dev/null) || return 1
+    [ "$owner" -eq "$(id -u)" ] && [ "$mode" = "$expected_mode" ]
+}
+
+_component_tree_is_safe() {
+    local root=$1 unexpected
+
+    [ -d "$root" ] && [ ! -L "$root" ] || return 1
+    unexpected=$(find "$root" ! -user "$(id -u)" -print -quit 2>/dev/null) || return 1
+    [ -z "$unexpected" ] || return 1
+    unexpected=$(find "$root" ! -type d ! -type f -print -quit 2>/dev/null) || return 1
+    [ -z "$unexpected" ] || return 1
+    unexpected=$(find "$root" -perm /022 -print -quit 2>/dev/null) || return 1
+    [ -z "$unexpected" ]
+}
+
+_component_public_tree_is_safe() {
+    local root=$1 unexpected
+
+    _component_tree_is_safe "$root" || return 1
+    unexpected=$(find "$root" \
+        \( \( -type d ! -perm 0755 \) -o \( -type f ! -perm 0644 \) \) \
+        -print -quit 2>/dev/null) || return 1
+    [ -z "$unexpected" ]
+}
+
+_component_subconverter_is_safe() {
+    local root=$1
+
+    _component_tree_is_safe "$root" || return 1
+    _component_file_is_safe "$root/subconverter" 755 || return 1
+    _component_file_is_safe "$root/pref.yml" 600
+}
+
+_component_normalize_public_tree() {
+    local root=$1
+
+    find "$root" -type d -exec chmod 0755 -- {} + &&
+        find "$root" -type f -exec chmod 0644 -- {} +
+}
+
+_component_extract_tar() {
+    local archive=$1 destination=$2
+
+    tar --extract --no-same-owner --no-same-permissions \
+        --file "$archive" --directory "$destination"
+}
+
+_component_prepare_yq() {
+    local archive=$1 stage=$2
+    local extract_dir="$stage/yq.extract"
+    local candidate='' count=0 path
+
+    /usr/bin/install -d -m 0700 -- "$extract_dir" || return 1
+    _component_extract_tar "$archive" "$extract_dir" || return 1
+    while IFS= read -r -d '' path; do
+        candidate=$path
+        count=$((count + 1))
+    done < <(find "$extract_dir" -mindepth 1 -maxdepth 1 -type f \
+        -name 'yq_linux_*' -print0)
+    [ "$count" -eq 1 ] && [ -n "$candidate" ] && [ ! -L "$candidate" ] &&
+        [ -x "$candidate" ] || return 2
+    /usr/bin/install -m 0755 -- "$candidate" "$stage/yq.ready" || return 1
+    _component_file_is_safe "$stage/yq.ready" 755 || return 3
+}
+
+_component_prepare_subconverter() {
+    local archive=$1 stage=$2
+    local extract_dir="$stage/subconverter.extract"
+    local candidate="$extract_dir/subconverter" unexpected
+
+    /usr/bin/install -d -m 0700 -- "$extract_dir" || return 1
+    _component_extract_tar "$archive" "$extract_dir" || return 1
+    unexpected=$(find "$extract_dir" -mindepth 1 -maxdepth 1 \
+        ! -name subconverter -print -quit 2>/dev/null) || return 1
+    [ -z "$unexpected" ] && [ -d "$candidate" ] && [ ! -L "$candidate" ] || return 2
+    [ -f "$candidate/subconverter" ] && [ ! -L "$candidate/subconverter" ] || return 2
+    [ -f "$candidate/pref.example.yml" ] && [ ! -L "$candidate/pref.example.yml" ] || return 2
+    _component_normalize_public_tree "$candidate" || return 1
+    chmod 0755 -- "$candidate/subconverter" || return 1
+    /usr/bin/install -m 0600 -- "$candidate/pref.example.yml" \
+        "$candidate/pref.yml" || return 1
+    _component_subconverter_is_safe "$candidate" || return 3
+}
+
+_component_prepare_ui() {
+    local archive=$1 stage=$2
+    local extract_dir="$stage/ui.extract"
+    local candidate="$extract_dir/dist" unexpected
+
+    /usr/bin/install -d -m 0700 -- "$extract_dir" || return 1
+    if ! unzip -oqq "$archive" -d "$extract_dir" 2>/dev/null; then
+        /usr/bin/rm -rf -- "$extract_dir" || return 1
+        /usr/bin/install -d -m 0700 -- "$extract_dir" || return 1
+        _component_extract_tar "$archive" "$extract_dir" || return 1
+    fi
+    unexpected=$(find "$extract_dir" -mindepth 1 -maxdepth 1 \
+        ! -name dist -print -quit 2>/dev/null) || return 1
+    [ -z "$unexpected" ] && [ -d "$candidate" ] && [ ! -L "$candidate" ] || return 2
+    [ -f "$candidate/index.html" ] && [ ! -L "$candidate/index.html" ] || return 2
+    _component_normalize_public_tree "$candidate" || return 1
+    _component_public_tree_is_safe "$candidate" || return 3
+}
+
+_component_rollback_pending() {
+    [ "${_COMPONENT_REPLACE_PENDING:-0}" -eq 1 ] || return 0
+
+    if [ "${_COMPONENT_REPLACE_HAD_PREVIOUS:-0}" -eq 1 ]; then
+        if [ -e "$_COMPONENT_REPLACE_BACKUP" ] || [ -L "$_COMPONENT_REPLACE_BACKUP" ]; then
+            /usr/bin/rm -rf -- "$_COMPONENT_REPLACE_TARGET" || return 1
+            /bin/mv -T -- "$_COMPONENT_REPLACE_BACKUP" \
+                "$_COMPONENT_REPLACE_TARGET" || return 1
+        fi
+    else
+        /usr/bin/rm -rf -- "$_COMPONENT_REPLACE_TARGET" || return 1
+    fi
+    _COMPONENT_REPLACE_PENDING=0
+}
+
+_component_transaction_init() {
+    _COMPONENT_TRANSACTION_TARGETS=()
+    _COMPONENT_TRANSACTION_BACKUPS=()
+    _COMPONENT_TRANSACTION_HAD_PREVIOUS=()
+    _COMPONENT_TRANSACTION_COMMITTED=0
+    _COMPONENT_REPLACE_PENDING=0
+}
+
+_component_transaction_record() {
+    _COMPONENT_TRANSACTION_TARGETS+=("$1")
+    _COMPONENT_TRANSACTION_BACKUPS+=("$2")
+    _COMPONENT_TRANSACTION_HAD_PREVIOUS+=("$3")
+}
+
+_component_rollback_committed() {
+    local index target backup had_previous record_failed rollback_failed=0
+    local -a remaining_targets=() remaining_backups=() remaining_had_previous=()
+
+    for ((index = ${#_COMPONENT_TRANSACTION_TARGETS[@]} - 1; index >= 0; index--)); do
+        target=${_COMPONENT_TRANSACTION_TARGETS[index]}
+        backup=${_COMPONENT_TRANSACTION_BACKUPS[index]}
+        had_previous=${_COMPONENT_TRANSACTION_HAD_PREVIOUS[index]}
+        record_failed=0
+        if [ "$had_previous" -eq 1 ]; then
+            if { [ ! -e "$backup" ] && [ ! -L "$backup" ]; } ||
+                ! /usr/bin/rm -rf -- "$target" ||
+                ! /bin/mv -T -- "$backup" "$target"; then
+                record_failed=1
+            fi
+        else
+            /usr/bin/rm -rf -- "$target" || record_failed=1
+        fi
+        if [ "$record_failed" -ne 0 ]; then
+            rollback_failed=1
+            remaining_targets=("$target" "${remaining_targets[@]}")
+            remaining_backups=("$backup" "${remaining_backups[@]}")
+            remaining_had_previous=("$had_previous" "${remaining_had_previous[@]}")
+        fi
+    done
+    _COMPONENT_TRANSACTION_TARGETS=("${remaining_targets[@]}")
+    _COMPONENT_TRANSACTION_BACKUPS=("${remaining_backups[@]}")
+    _COMPONENT_TRANSACTION_HAD_PREVIOUS=("${remaining_had_previous[@]}")
+    [ "$rollback_failed" -eq 0 ]
+}
+
+_component_replace_path() {
+    local candidate=$1 target=$2 backup=$3 verifier=$4
+    shift 4
+
+    _COMPONENT_REPLACE_TARGET=$target
+    _COMPONENT_REPLACE_BACKUP=$backup
+    _COMPONENT_REPLACE_HAD_PREVIOUS=0
+    if [ -e "$target" ] || [ -L "$target" ]; then
+        _COMPONENT_REPLACE_HAD_PREVIOUS=1
+        _COMPONENT_REPLACE_PENDING=1
+        if ! /bin/mv -T -- "$target" "$backup"; then
+            _COMPONENT_REPLACE_PENDING=0
+            return 1
+        fi
+    else
+        _COMPONENT_REPLACE_PENDING=1
+    fi
+
+    if ! /bin/mv -T -- "$candidate" "$target" || ! "$verifier" "$target" "$@"; then
+        _component_rollback_pending || return 1
+        return 1
+    fi
+    _component_transaction_record "$target" "$backup" "$_COMPONENT_REPLACE_HAD_PREVIOUS"
+    _COMPONENT_REPLACE_PENDING=0
+}
+
+_component_remove_path() {
+    local target=$1 backup=$2
+
+    [ -e "$target" ] || [ -L "$target" ] || return 0
+    _COMPONENT_REPLACE_TARGET=$target
+    _COMPONENT_REPLACE_BACKUP=$backup
+    _COMPONENT_REPLACE_HAD_PREVIOUS=1
+    _COMPONENT_REPLACE_PENDING=1
+    if ! /bin/mv -T -- "$target" "$backup"; then
+        _COMPONENT_REPLACE_PENDING=0
+        return 1
+    fi
+    _component_transaction_record "$target" "$backup" 1
+    _COMPONENT_REPLACE_PENDING=0
+}
+
+_component_cleanup_stages() {
+    local bin_stage=${1:-} ui_stage=${2:-} rollback_failed=0
+
+    if [ "${_COMPONENT_TRANSACTION_COMMITTED:-0}" -ne 1 ]; then
+        _component_rollback_committed || rollback_failed=1
+    fi
+    _component_rollback_pending || rollback_failed=1
+    if [ "$rollback_failed" -ne 0 ]; then
+        _ui_error "组件安装事务回滚失败，已保留暂存目录"
+        _ui_detail "暂存" "${bin_stage:-$ui_stage}"
+        return 1
+    fi
+    [ -z "$bin_stage" ] || /usr/bin/rm -rf -- "$bin_stage" || return 1
+    [ -z "$ui_stage" ] || /usr/bin/rm -rf -- "$ui_stage" || return 1
+}
+
+unzip_zip() (
+    local bin_stage='' ui_stage='' kernel_unpacked kernel_candidate
+    local yq_rc converter_rc ui_rc component_dir component_label
+    local ui_target="$CLASH_RESOURCES_DIR/dist"
+
+    _component_transaction_init
+    trap '_component_cleanup_stages "$bin_stage" "$ui_stage" || :' EXIT
+    umask 077
     valid_zip "$ZIP_KERNEL" "$ZIP_YQ" "$ZIP_SUBCONVERTER" "$ZIP_UI" || return 1
-    /usr/bin/install -d "$BIN_BASE_DIR" "$CLASH_RESOURCES_DIR" || {
-        _ui_error "无法创建组件安装目录"
+    for component_dir in "$BIN_BASE_DIR" "$CLASH_RESOURCES_DIR"; do
+        if [ "$component_dir" = "$BIN_BASE_DIR" ]; then
+            component_label=运行组件目录
+        else
+            component_label=资源目录
+        fi
+        _managed_directory_prepare "$component_dir" 0755 || {
+            _ui_error "${component_label}无法安全使用"
+            _ui_detail "目录" "$component_dir"
+            _ui_detail "要求" "必须是当前用户所有的真实目录，且组用户和其他用户不可写"
+            return 1
+        }
+    done
+
+    _ui_info "安装运行组件"
+    bin_stage=$(mktemp -d "$BIN_BASE_DIR/.components.XXXXXX") || {
+        _ui_error "无法创建组件暂存目录"
+        _ui_detail "目录" "$BIN_BASE_DIR"
+        return 1
+    }
+    ui_stage=$(mktemp -d "$CLASH_RESOURCES_DIR/.web-ui.XXXXXX") || {
+        _ui_error "无法创建 Web UI 暂存目录"
+        _ui_detail "目录" "$CLASH_RESOURCES_DIR"
+        return 1
+    }
+    chmod 0700 -- "$bin_stage" "$ui_stage" || {
+        _ui_error "无法保护组件暂存目录"
         return 1
     }
 
-    _ui_info "安装运行组件"
-    /usr/bin/install -D <(gzip -dc "$ZIP_KERNEL") "$BIN_KERNEL" || {
+    kernel_unpacked="$bin_stage/kernel.unpacked"
+    kernel_candidate="$bin_stage/kernel.ready"
+    if ! gzip -dc "$ZIP_KERNEL" >"$kernel_unpacked" ||
+        ! /usr/bin/install -m 0755 -- "$kernel_unpacked" "$kernel_candidate"; then
         _ui_error "安装内核失败：$CLASHCTL_KERNEL"
         return 1
-    }
-    tar -xf "$ZIP_YQ" -C "${BIN_BASE_DIR}" || {
-        _ui_error "解压 yq 失败"
+    fi
+    _component_file_is_safe "$kernel_candidate" 755 || {
+        _ui_error "内核文件的归属或权限校验失败"
         return 1
     }
-    /bin/mv -f "${BIN_BASE_DIR}"/yq_* "${BIN_BASE_DIR}/yq" || {
-        _ui_error "安装 yq 失败"
+
+    yq_rc=0
+    _component_prepare_yq "$ZIP_YQ" "$bin_stage" || yq_rc=$?
+    if [ "$yq_rc" -ne 0 ]; then
+        if [ "$yq_rc" -eq 2 ]; then
+            _ui_error "yq 归档结构无效"
+        else
+            _ui_error "准备 yq 失败"
+        fi
+        _ui_detail "预期" "归档根目录中唯一的 yq_linux_* 可执行文件"
+        if [ "$yq_rc" -eq 2 ]; then
+            _component_discard_invalid_cache yq "$ZIP_YQ"
+        fi
+        return 1
+    fi
+
+    converter_rc=0
+    _component_prepare_subconverter "$ZIP_SUBCONVERTER" "$bin_stage" || converter_rc=$?
+    if [ "$converter_rc" -ne 0 ]; then
+        if [ "$converter_rc" -eq 2 ]; then
+            _ui_error "subconverter 归档结构无效"
+        else
+            _ui_error "准备 subconverter 失败"
+        fi
+        _ui_detail "预期" "subconverter/ 及其可执行文件和 pref.example.yml"
+        if [ "$converter_rc" -eq 2 ]; then
+            _component_discard_invalid_cache subconverter "$ZIP_SUBCONVERTER"
+        fi
+        return 1
+    fi
+
+    ui_rc=0
+    _component_prepare_ui "$ZIP_UI" "$ui_stage" || ui_rc=$?
+    if [ "$ui_rc" -ne 0 ]; then
+        if [ "$ui_rc" -eq 2 ]; then
+            _ui_error "Web UI 归档结构无效"
+        else
+            _ui_error "准备 Web UI 失败"
+        fi
+        _ui_detail "预期" "dist/ 目录及 dist/index.html"
+        if [ "$ui_rc" -eq 2 ]; then
+            _component_discard_invalid_cache 'Web UI' "$ZIP_UI"
+        fi
+        return 1
+    fi
+
+    _component_replace_path "$kernel_candidate" "$BIN_KERNEL" \
+        "$bin_stage/kernel.previous" _component_file_is_safe 755 || {
+        _ui_error "提交内核失败：$CLASHCTL_KERNEL"
         return 1
     }
-    tar -xf "$ZIP_SUBCONVERTER" -C "$BIN_BASE_DIR" || {
-        _ui_error "解压 subconverter 失败"
+    _component_replace_path "$bin_stage/yq.ready" "$BIN_YQ" \
+        "$bin_stage/yq.previous" _component_file_is_safe 755 || {
+        _ui_error "提交 yq 失败"
         return 1
     }
-    /bin/cp "$BIN_SUBCONVERTER_DIR/pref.example.yml" "$BIN_SUBCONVERTER_CONFIG" || {
-        _ui_error "初始化 subconverter 配置失败"
+    _component_replace_path "$bin_stage/subconverter.extract/subconverter" \
+        "$BIN_SUBCONVERTER_DIR" "$bin_stage/subconverter.previous" \
+        _component_subconverter_is_safe || {
+        _ui_error "提交 subconverter 失败"
         return 1
     }
-    unzip -oqq "$ZIP_UI" -d "$CLASH_RESOURCES_DIR" 2>/dev/null ||
-        tar -xf "$ZIP_UI" -C "$CLASH_RESOURCES_DIR" || {
-        _ui_error "解压 Web UI 失败"
+    _component_replace_path "$ui_stage/ui.extract/dist" "$ui_target" \
+        "$ui_stage/dist.previous" _component_public_tree_is_safe || {
+        _ui_error "提交 Web UI 失败"
         return 1
     }
+
+    if ! _component_remove_path "$BIN_BASE_DIR/yq.1" "$bin_stage/yq.1.previous" ||
+        ! _component_remove_path "$BIN_BASE_DIR/install-man-page.sh" \
+            "$bin_stage/install-man-page.previous"; then
+        _ui_error "无法清理旧版 yq 附带文件"
+        return 1
+    fi
+    if ! _component_file_is_safe "$BIN_KERNEL" 755 ||
+        ! _component_file_is_safe "$BIN_YQ" 755 ||
+        ! _component_subconverter_is_safe "$BIN_SUBCONVERTER_DIR" ||
+        ! _component_public_tree_is_safe "$ui_target"; then
+        _ui_error "运行组件的归属或权限校验失败"
+        return 1
+    fi
+    _COMPONENT_TRANSACTION_COMMITTED=1
+    if ! _component_cleanup_stages "$bin_stage" "$ui_stage"; then
+        _ui_error "无法清理组件暂存目录"
+        return 1
+    fi
+    bin_stage=
+    ui_stage=
+    trap - EXIT
     _ui_ok "运行组件已安装"
-}
+)
 
 _set_envs() {
     local rev
