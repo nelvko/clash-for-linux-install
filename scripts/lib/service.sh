@@ -212,36 +212,48 @@ service_read_log() {
 install_service() {
     detect_service_manager
 
-    local template_dir="${CLASHCTL_SRC}/scripts/init"
+    # CLASHCTL_SRC 只由 install.sh / uninstall.sh 设置，运行期 shell 中为空；
+    # 回退到安装目录，install_clashctl 已把 scripts/init 复制过去。
+    local template_dir="${CLASHCTL_SRC:-$CLASHCTL_HOME}/scripts/init"
     local kernel_desc="$CLASHCTL_KERNEL Daemon, A[nother] Clash Kernel."
     local cmd_path="${BIN_KERNEL}"
     local cmd_arg="-d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME}"
     local cmd_full="${BIN_KERNEL} -d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME}"
-    local service_src service_target
+    local service_src service_target service_mode
 
     case "$service_manager" in
     systemd)
         service_src="${template_dir}/systemd.sh"
         service_target="/etc/systemd/system/${CLASHCTL_KERNEL}.service"
+        # unit 文件只被读取，不会被执行。此前的 `-m +x` 会编译成 0111：
+        # systemd 以 root 身份仍能加载，但会记录 "marked executable" 警告，
+        # 而任何非特权工具都读不回来。
+        service_mode=0644
         ;;
     sysvinit)
         service_src="${template_dir}/sysvinit.sh"
         service_target="/etc/init.d/${CLASHCTL_KERNEL}"
+        service_mode=0755
         ;;
     openrc)
         service_src="${template_dir}/openrc.sh"
         service_target="/etc/init.d/${CLASHCTL_KERNEL}"
+        service_mode=0755
         ;;
     runit)
         service_src="${template_dir}/runit.sh"
         service_target="/etc/sv/${CLASHCTL_KERNEL}/run"
+        service_mode=0755
         ;;
     nohup | *)
         return 0
         ;;
     esac
 
-    /usr/bin/install -D -m +x "$service_src" "$service_target"
+    /usr/bin/install -D -m "$service_mode" "$service_src" "$service_target" || {
+        _failcat '❌' "写入服务文件失败：$service_target"
+        return 1
+    }
     sed -i \
         -e "s#placeholder_cmd_path#$cmd_path#g" \
         -e "s#placeholder_cmd_args#$cmd_arg#g" \
@@ -250,7 +262,10 @@ install_service() {
         -e "s#placeholder_pid_path#$service_pid_path#g" \
         -e "s#placeholder_kernel_name#$CLASHCTL_KERNEL#g" \
         -e "s#placeholder_kernel_desc#$kernel_desc#g" \
-        "$service_target"
+        "$service_target" || {
+        _failcat '❌' "服务文件模板替换失败：$service_target"
+        return 1
+    }
 
     case "$service_manager" in
     systemd)
