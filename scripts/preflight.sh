@@ -71,38 +71,33 @@ _fetch_latest_tag() {
 _resolve_version() {
     local varname=$1 repo=$2
     local local_version="${!varname}"
-    local check_latest="${CLASHCTL_CHECK_LATEST_VERSION:-1}"
-    local latest_failed=0 version_source=配置版本
 
-    case "$check_latest" in
-    1)
-        local tag
-        tag=$(_fetch_latest_tag "$repo") && {
-            printf -v "$varname" '%s' "$tag"
-            _ui_detail "$repo" "$tag（最新版本）"
-            return 0
-        }
-        latest_failed=1
-        ;;
-    esac
-
-    # 版本来源优先级：最新版本查询 > 用户指定（.env/环境变量）> 文件顶部的内置钉版
-    if [ -z "$local_version" ]; then
-        version_source=内置钉版
-        case "$varname" in
-        VERSION_MIHOMO) local_version=$DEFAULT_VERSION_MIHOMO ;;
-        VERSION_YQ) local_version=$DEFAULT_VERSION_YQ ;;
-        VERSION_SUBCONVERTER) local_version=$DEFAULT_VERSION_SUBCONVERTER ;;
-        VERSION_UI) local_version=$DEFAULT_VERSION_UI ;;
-        esac
-    fi
+    # 版本来源优先级：用户显式钉版（.env/环境变量）> 最新版本查询 > 内置钉版
     if [ -n "$local_version" ]; then
-        if [ "$latest_failed" -ne 0 ] && [ "${CLASHCTL_LATEST_VERSION_FALLBACK_WARNED:-0}" -eq 0 ]; then
-            _ui_warn "无法查询部分依赖的最新版本，使用配置版本或内置钉版"
+        _ui_detail "$repo" "$local_version（配置版本）"
+        return 0
+    fi
+
+    local tag
+    if tag=$(_fetch_latest_tag "$repo"); then
+        printf -v "$varname" '%s' "$tag"
+        _ui_detail "$repo" "$tag（最新版本）"
+        return 0
+    fi
+
+    case "$varname" in
+    VERSION_MIHOMO) local_version=$DEFAULT_VERSION_MIHOMO ;;
+    VERSION_YQ) local_version=$DEFAULT_VERSION_YQ ;;
+    VERSION_SUBCONVERTER) local_version=$DEFAULT_VERSION_SUBCONVERTER ;;
+    VERSION_UI) local_version=$DEFAULT_VERSION_UI ;;
+    esac
+    if [ -n "$local_version" ]; then
+        if [ "${CLASHCTL_LATEST_VERSION_FALLBACK_WARNED:-0}" -eq 0 ]; then
+            _ui_warn "无法查询部分依赖的最新版本，回退内置钉版"
             CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=1
         fi
         printf -v "$varname" '%s' "$local_version"
-        _ui_detail "$repo" "$local_version（$version_source）"
+        _ui_detail "$repo" "$local_version（内置钉版）"
         return 0
     fi
 
@@ -226,7 +221,7 @@ _download_archive() {
         return 1
     }
 
-    if [ -t 2 ] && [ "${CLASHCTL_VERBOSE:-}" = 1 ]; then
+    if [ -t 2 ] && [ "${_INSTALL_VERBOSE:-}" = 1 ]; then
         curl_args+=(--progress-bar)
     else
         curl_args+=(--silent)
@@ -274,9 +269,7 @@ download_zip() {
     }
 
     CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=0
-    case "${CLASHCTL_CHECK_LATEST_VERSION:-1}" in
-    1) _ui_info "查询依赖版本" ;;
-    esac
+    _ui_info "解析依赖版本"
     local item
     for item in "$@"; do
         case $item in

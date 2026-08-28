@@ -2,9 +2,9 @@
 
 # shellcheck disable=SC2034  # 默认值由 preflight.sh 与 version.sh 读取
 # ── 依赖钉版（本文件为唯一事实源，升级依赖时随同一提交更新）──────
-# ── 用户可用 .env/环境变量覆盖 VERSION_* 同名键；CLASHCTL_CHECK_ ──
-# ── LATEST_VERSION=1（默认）时最新版查询成功则优先最新，钉版仅为──
-# ── 查询失败时的兜底。`clashctl version` 可查看当前生效版本。────
+# ── 用户显式设置 VERSION_* 同名键（.env/环境变量）即钉版生效，──
+# ── 并跳过最新版查询；未设置时查询最新版，失败回退本钉版。────
+# ── `clashctl version` 可查看当前生效版本。────
 DEFAULT_VERSION_MIHOMO=v1.19.27
 DEFAULT_VERSION_YQ=v4.53.3
 DEFAULT_VERSION_SUBCONVERTER=v0.9.9

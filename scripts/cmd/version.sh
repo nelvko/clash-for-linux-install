@@ -33,5 +33,8 @@ EOF
     _ui_info_out "分支：$branch"
     _ui_info_out "内核（已装）：$kernel"
     _ui_info_out "依赖钉版：mihomo ${DEFAULT_VERSION_MIHOMO} / yq ${DEFAULT_VERSION_YQ} / subconverter ${DEFAULT_VERSION_SUBCONVERTER} / UI ${DEFAULT_VERSION_UI}"
-    _ui_info_out "更新策略：${CLASHCTL_CHECK_LATEST_VERSION:-1} =1 优先最新版（钉版为查询失败兜底），=0 固定钉版"
+    local strategy='最新版优先，查询失败回退内置钉版（显式设置 VERSION_* 同名键可钉版）'
+    [ -z "${VERSION_MIHOMO:-}${VERSION_YQ:-}${VERSION_SUBCONVERTER:-}${VERSION_UI:-}" ] ||
+        strategy='已显式钉版（VERSION_*），跳过最新版查询'
+    _ui_info_out "更新策略：$strategy"
 }

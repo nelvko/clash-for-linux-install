@@ -352,20 +352,10 @@ main() {
                 return 1
             }
             ;;
-        --allow-legacy-layout) CLASHCTL_ALLOW_LEGACY_LAYOUT=1 ;;
+        --allow-legacy-layout) _INSTALL_ALLOW_LEGACY_LAYOUT=1 ;;
         --take-over-service) CLASHCTL_ALLOW_UNIT_OVERWRITE=1 ;;
         --non-interactive) CLASHCTL_NON_INTERACTIVE=1 ;;
-        --verbose) CLASHCTL_VERBOSE=1 ;;
-        --no-color) CLASHCTL_COLOR=never ;;
-        --color)
-            shift
-            [ $# -gt 0 ] || {
-                _ui_error '--color 缺少模式参数: auto、always 或 never'
-                return 1
-            }
-            CLASHCTL_COLOR=$1
-            ;;
-        --color=*) CLASHCTL_COLOR=${1#*=} ;;
+        --verbose) _INSTALL_VERBOSE=1 ;;
         -h | --help)
             usage
             return 0
@@ -439,10 +429,10 @@ main() {
         ;;
     esac
     export CLASHCTL_COLOR
-    [ -z "${CLASHCTL_VERBOSE:-}" ] || export CLASHCTL_VERBOSE
+    [ -z "${_INSTALL_VERBOSE:-}" ] || export _INSTALL_VERBOSE
     [ -z "${CLASHCTL_NON_INTERACTIVE:-}" ] || export CLASHCTL_NON_INTERACTIVE
     [ -z "${CLASHCTL_ALLOW_UNIT_OVERWRITE:-}" ] || export CLASHCTL_ALLOW_UNIT_OVERWRITE
-    [ -z "${CLASHCTL_ALLOW_LEGACY_LAYOUT:-}" ] || export CLASHCTL_ALLOW_LEGACY_LAYOUT
+    [ -z "${_INSTALL_ALLOW_LEGACY_LAYOUT:-}" ] || export _INSTALL_ALLOW_LEGACY_LAYOUT
     case ${sub_url,,} in
     '' | http://* | https://* | file://*) ;;
     *)
@@ -499,7 +489,7 @@ main() {
         if command -v git >/dev/null 2>&1 && [ -d "${CLASHCTL_SRC}/.git" ]; then
             _ui_detail '本地源码' "$CLASHCTL_SRC"
             local -a clone_args=(-q)
-            [ ! -t 2 ] || [ "${CLASHCTL_VERBOSE:-}" != 1 ] || clone_args+=(--progress)
+            [ ! -t 2 ] || [ "${_INSTALL_VERBOSE:-}" != 1 ] || clone_args+=(--progress)
             git clone "${clone_args[@]}" "$CLASHCTL_SRC" "$source_stage" || {
                 _ui_error '复制本地 Git 仓库失败'
                 _install_discard_stage "$source_stage" || true
@@ -2312,7 +2302,7 @@ _require_empty_home() {
         return 0
     fi
 
-    if [ "${CLASHCTL_ALLOW_LEGACY_LAYOUT:-0}" = 1 ]; then
+    if [ "${_INSTALL_ALLOW_LEGACY_LAYOUT:-0}" = 1 ]; then
         _install_layout_is_trusted "$home" || {
             _ui_error '旧版目录未通过严格的脚本归属、权限与结构校验'
             _ui_detail '目录' "$home"
@@ -2364,7 +2354,7 @@ _install_wait_service() {
 
 _install_service_diagnostic() {
     local manager=$1 startup_error=${2:-}
-    if [ "${CLASHCTL_VERBOSE:-}" = 1 ] && [ -s "$startup_error" ]; then
+    if [ "${_INSTALL_VERBOSE:-}" = 1 ] && [ -s "$startup_error" ]; then
         _ui_detail '启动错误' '如下'
         sed 's/^/        | /' "$startup_error" >&2
     elif [ -s "$startup_error" ]; then
@@ -2412,7 +2402,7 @@ _install_wait_controller() {
         curl --disable --silent --show-error --fail --noproxy '*' --max-time 1 \
             --header "@$header_file" "http://${request_host}:${port}/version" >/dev/null 2>&1 && {
             _install_cleanup_controller_header || return 1
-            CLASHCTL_VERIFIED_CONTROLLER=$addr
+            _INSTALL_VERIFIED_CONTROLLER=$addr
             return 0
         }
         sleep 0.25
@@ -2505,7 +2495,7 @@ _install_finish() {
 _install_complete() {
     local manager=$1 subscription=$2 shell_state=${3:-ready} transaction_state=${4:-complete}
     local addr host port load_command journal backup
-    addr=${CLASHCTL_VERIFIED_CONTROLLER:-}
+    addr=${_INSTALL_VERIFIED_CONTROLLER:-}
     host=${addr%:*}
     port=${addr##*:}
     [ "$host" != 0.0.0.0 ] || host=$(_get_local_ip)
@@ -2579,7 +2569,7 @@ _fetch_into() {
             [ -n "$proxy" ] && url="${proxy%/}/${url}"
         }
         local -a clone_args=(-q --depth 50 --single-branch --branch "$branch")
-        [ ! -t 2 ] || [ "${CLASHCTL_VERBOSE:-}" != 1 ] || clone_args+=(--progress)
+        [ ! -t 2 ] || [ "${_INSTALL_VERBOSE:-}" != 1 ] || clone_args+=(--progress)
         git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "${clone_args[@]}" -- "$url" "$destination" && {
             git -C "$destination" config gc.auto 0
             _ui_ok '安装文件已下载'
@@ -2599,7 +2589,7 @@ _fetch_into() {
         return 1
     }
     local -a curl_args=(--show-error --fail --location --max-time "${CLASHCTL_DOWNLOAD_TIMEOUT:-60}" --retry 1)
-    if [ -t 2 ] && [ "${CLASHCTL_VERBOSE:-}" = 1 ]; then
+    if [ -t 2 ] && [ "${_INSTALL_VERBOSE:-}" = 1 ]; then
         curl_args+=(--progress-bar)
     else
         curl_args+=(--silent)
@@ -2630,12 +2620,10 @@ Options:
   --take-over-service       允许接管现有同名服务或残留服务状态
   --non-interactive         禁用所有交互；缺少订阅时直接跳过
   --verbose                 显示下载进度与失败诊断
-  --color <模式>            auto、always 或 never（默认 auto）
-  --no-color                等同于 --color never
   -h, --help                显示帮助信息
 
 安装期也支持环境变量：CLASHCTL_HOME、GH_PROXY、CLASHCTL_DOWNLOAD_TIMEOUT、
-CLASHCTL_CHECK_LATEST_VERSION、VERSION_MIHOMO/YQ/SUBCONVERTER/UI、SUBCONVERTER_REPO、
+VERSION_MIHOMO/YQ/SUBCONVERTER/UI（显式设置即钉版）、SUBCONVERTER_REPO、
 CLASHCTL_SUBSCRIPTION_FILE、CLASHCTL_ALLOW_UNIT_OVERWRITE=1、CLASHCTL_COLOR、NO_COLOR。
 
 订阅 URL 不接受位置参数或 CLASHCTL_SUB_URL 环境变量，避免泄漏到 Shell 历史、

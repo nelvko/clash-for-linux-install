@@ -18,7 +18,6 @@ Usage:
 Options:
   -y, --yes                确认卸载；非交互环境必须显式指定
   --allow-legacy-layout    显式允许卸载无安装标记的旧版目录
-  --no-color               禁用彩色输出
   -h, --help               显示帮助信息
 EOF
 }
@@ -122,7 +121,7 @@ _uninstall_target_is_trusted() {
 }
 
 _uninstall_preflight_gate() {
-    local arg allow_legacy=${CLASHCTL_ALLOW_LEGACY_LAYOUT:-0}
+    local arg allow_legacy=${_UNINSTALL_ALLOW_LEGACY_LAYOUT:-0}
     for arg in "$@"; do
         if _uninstall_has_control_chars "$arg"; then
             printf '%s\n' '[ERROR] 命令行参数不能包含控制字符，未加载或修改安装目录' >&2
@@ -355,10 +354,6 @@ main() {
         case $1 in
         -y | --yes) assume_yes=1 ;;
         --allow-legacy-layout) allow_legacy=1 ;;
-        --no-color)
-            CLASHCTL_COLOR=never
-            export CLASHCTL_COLOR
-            ;;
         -h | --help)
             _uninstall_usage
             return 0

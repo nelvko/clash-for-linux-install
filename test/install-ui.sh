@@ -211,7 +211,7 @@ assert_not_contains "$stderr_file" 'proxy.invalid' 'rejected proxy input is not 
 
 export CLASHCTL_HOME="$WORK_DIR/completion home"
 export CLASHCTL_CMD_DIR="$CLASHCTL_HOME/scripts/cmd"
-export CLASHCTL_VERIFIED_CONTROLLER=127.0.0.1:9090
+export _INSTALL_VERIFIED_CONTROLLER=127.0.0.1:9090
 CLASHCTL_SERVICE_CONFLICT=0
 apply_rc_result=0
 

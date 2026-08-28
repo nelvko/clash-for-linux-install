@@ -125,7 +125,7 @@ export CLASHCTL_HOME="$CASE_DIR/home"
 export CLASHCTL_KERNEL=mihomo
 export CLASHCTL_COLOR=never
 export CLASHCTL_DOWNLOAD_TIMEOUT=60
-export CLASHCTL_VERBOSE=$VERBOSE
+export _INSTALL_VERBOSE=$VERBOSE
 
 # shellcheck source=../scripts/preflight.sh
 . "$REPO_DIR/scripts/preflight.sh"

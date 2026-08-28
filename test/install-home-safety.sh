@@ -64,10 +64,10 @@ assert_rejected 'group-writable install directory' _require_empty_home "$writabl
 
 legacy="$WORK_DIR/legacy layout"
 make_layout "$legacy"
-export CLASHCTL_ALLOW_LEGACY_LAYOUT=1
+export _INSTALL_ALLOW_LEGACY_LAYOUT=1
 _require_empty_home "$legacy" >"$WORK_DIR/legacy.stdout" 2>"$WORK_DIR/legacy.stderr" ||
     fail 'explicitly authorized legacy layout was rejected'
-unset CLASHCTL_ALLOW_LEGACY_LAYOUT
+unset _INSTALL_ALLOW_LEGACY_LAYOUT
 [ "$_INSTALL_HOME_STATE" = resume ] || fail 'legacy layout did not enter resume state'
 _install_marker_validate "$legacy" || fail 'legacy layout did not receive a valid marker'
 [ "$(stat -c %a -- "$legacy/.clashctl-installation")" = 600 ] || fail 'marker mode is not 0600'
