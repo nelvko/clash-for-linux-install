@@ -195,4 +195,24 @@ assert_eq 1 "$RUN_RC" 'controller merge failure is reported'
 assert_contains "$RUN_STDERR" '控制器端口已调整，但运行配置更新失败' \
     'controller merge failure diagnosis'
 
+# _valid_config 须以服务同款工作目录（resources/，geodata 所在）校验——
+# 旧实现 -d "$(dirname config)" 在 data 目录迁移后导致校验期现下载 geodata
+kernel_args="$WORK_DIR/kernel.args"
+BIN_KERNEL="$WORK_DIR/fake-kernel"
+CLASHCTL_KERNEL=mihomo
+export CLASHCTL_KERNEL
+cat >"$BIN_KERNEL" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >"$kernel_args"
+exit 0
+EOF
+chmod 0755 -- "$BIN_KERNEL"
+CLASH_RESOURCES_DIR="$WORK_DIR/resources"
+export BIN_KERNEL CLASH_RESOURCES_DIR
+mkdir -p -- "$CLASH_RESOURCES_DIR"
+printf 'proxies: []\n' >"$WORK_DIR/candidate.yaml"
+_valid_config "$WORK_DIR/candidate.yaml"
+assert_file_eq "-d $CLASH_RESOURCES_DIR -f $WORK_DIR/candidate.yaml -t" "$kernel_args" \
+    'config validation uses the resources working directory'
+
 printf 'config-detection: ok\n'

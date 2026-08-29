@@ -158,7 +158,10 @@ _valid_config() {
   [[ ! -e "$config" || "$(wc -l <"$config")" -lt 1 ]] && return 1
 
   local test_log
-  test_log=$("$BIN_KERNEL" -d "$(dirname "$config")" -f "$config" -t 2>&1) || {
+  # 校验须与服务同工作目录（resources/ 内含随仓库分发的 geodata）；
+  # 旧实现的 -d "$(dirname "$config")" 在 data 目录迁移后指向 data/，
+  # 内核找不到 GeoSite/mmdb 会在校验期现下载（慢链路超时→校验失败）
+  test_log=$("$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$config" -t 2>&1) || {
     printf '%s\n' "$test_log" >&2
     grep -qs "unsupport proxy type" <<<"$test_log" && {
       local prefix="检测到订阅中包含不受支持的代理协议"
