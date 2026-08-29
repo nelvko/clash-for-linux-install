@@ -43,6 +43,8 @@ assert_safe_path() {
 export CLASHCTL_INSTALL_SOURCE_ONLY=1
 # shellcheck source=../install.sh
 . "$REPO_DIR/install.sh"
+# shellcheck source=../scripts/lib/install-transaction.sh
+. "$REPO_DIR/scripts/lib/install-transaction.sh"
 # shellcheck source=../scripts/lib/service.sh
 . "$REPO_DIR/scripts/lib/service.sh"
 

@@ -24,6 +24,8 @@ assert_not_contains() {
 }
 
 export CLASHCTL_KERNEL=mihomo
+mkdir -p -- "$WORK_DIR/resources"
+export CLASH_RESOURCES_DIR="$WORK_DIR/resources"
 # shellcheck source=../scripts/cmd/ui.sh
 . "$REPO_DIR/scripts/cmd/ui.sh"
 
@@ -32,6 +34,7 @@ _detect_ext_addr() {
     EXT_PORT=9090
     export EXT_IP EXT_PORT
 }
+_ui_info() { printf '[INFO] %s\n' "$*" >&2; }
 _ui_step() { printf '[STEP] %s\n' "$*" >&2; }
 _ui_ok() { printf '[ OK ] %s\n' "$*" >&2; }
 _ui_error() { printf '[ERROR] %s\n' "$*" >&2; }
@@ -39,6 +42,10 @@ _ui_blank() { printf '\n' >&2; }
 _ui_header() { printf '[INFO] %s\n' "$*" >&2; }
 _ui_detail() { printf '        %s: %s\n' "$1" "$2" >&2; }
 curl() { return 1; }
+_ci_provision() {
+    PROVISIONED=$1
+    return 0
+}
 sleep() { :; }
 
 ACTIVE_CHECKS=0

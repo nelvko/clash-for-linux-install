@@ -169,7 +169,7 @@ printf 'outside-unchanged\n' >"$bin_external/sentinel"
 ln -s "$bin_external" "$bin_home/bin"
 CLASHCTL_HOME=$bin_home
 BIN_BASE_DIR="$bin_home/bin"
-BIN_KERNEL="$BIN_BASE_DIR/mihomo"
+BIN_KERNEL="$BIN_BASE_DIR/mihomo/mihomo"
 BIN_YQ="$BIN_BASE_DIR/yq"
 BIN_SUBCONVERTER_DIR="$BIN_BASE_DIR/subconverter"
 BIN_SUBCONVERTER="$BIN_SUBCONVERTER_DIR/subconverter"
@@ -190,7 +190,7 @@ printf 'outside-unchanged\n' >"$resources_external/sentinel"
 ln -s "$resources_external" "$resources_home/resources"
 CLASHCTL_HOME=$resources_home
 BIN_BASE_DIR="$resources_home/bin"
-BIN_KERNEL="$BIN_BASE_DIR/mihomo"
+BIN_KERNEL="$BIN_BASE_DIR/mihomo/mihomo"
 BIN_YQ="$BIN_BASE_DIR/yq"
 BIN_SUBCONVERTER_DIR="$BIN_BASE_DIR/subconverter"
 BIN_SUBCONVERTER="$BIN_SUBCONVERTER_DIR/subconverter"
@@ -235,13 +235,13 @@ fi
 configure_home() {
     CLASHCTL_HOME="$WORK_DIR/$1/home"
     BIN_BASE_DIR="$CLASHCTL_HOME/bin"
-    BIN_KERNEL="$BIN_BASE_DIR/mihomo"
+    BIN_KERNEL="$BIN_BASE_DIR/mihomo/mihomo"
     BIN_YQ="$BIN_BASE_DIR/yq"
     BIN_SUBCONVERTER_DIR="$BIN_BASE_DIR/subconverter"
     BIN_SUBCONVERTER="$BIN_SUBCONVERTER_DIR/subconverter"
     BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
     CLASH_RESOURCES_DIR="$CLASHCTL_HOME/resources"
-    mkdir -p -- "$BIN_SUBCONVERTER_DIR" "$CLASH_RESOURCES_DIR/dist"
+    mkdir -p -- "$BIN_BASE_DIR/mihomo" "$BIN_SUBCONVERTER_DIR" "$CLASH_RESOURCES_DIR/dist"
 }
 
 seed_existing_components() {
@@ -430,6 +430,32 @@ assert_eq old-converter "$(<"$BIN_SUBCONVERTER")" \
 assert_eq '<html>old-ui</html>' "$(<"$CLASH_RESOURCES_DIR/dist/index.html")" \
     'extraction failure preserved Web UI'
 assert_no_stages
+
+# ── 部分组件集（provision_component 场景）：仅 UI 时其他组件不动 ──
+configure_home ui-only
+seed_existing_components
+stdout_file="$WORK_DIR/ui-only.stdout"
+stderr_file="$WORK_DIR/ui-only.stderr"
+ZIP_KERNEL= ZIP_YQ= ZIP_SUBCONVERTER= unzip_zip >"$stdout_file" 2>"$stderr_file" ||
+    fail "ui-only provisioning failed: $(<"$stderr_file")"
+assert_eq old-kernel "$(<"$BIN_KERNEL")" 'ui-only provisioning keeps the kernel'
+assert_eq old-yq "$(<"$BIN_YQ")" 'ui-only provisioning keeps yq'
+assert_eq old-converter "$(<"$BIN_SUBCONVERTER")" 'ui-only provisioning keeps subconverter'
+assert_eq '<html>new-ui</html>' "$(<"$CLASH_RESOURCES_DIR/dist/index.html")" \
+    'ui-only provisioning replaces the Web UI'
+assert_absent "$CLASH_RESOURCES_DIR/dist/stale.js" 'ui-only provisioning cleans stale UI'
+assert_no_stages
+assert_contains "$stderr_file" '运行组件已安装' 'ui-only provisioning success output'
+
+# 空组件集拒绝
+configure_home empty-set
+stdout_file="$WORK_DIR/empty-set.stdout"
+stderr_file="$WORK_DIR/empty-set.stderr"
+rc=0
+ZIP_KERNEL= ZIP_YQ= ZIP_SUBCONVERTER= ZIP_UI= unzip_zip \
+    >"$stdout_file" 2>"$stderr_file" || rc=$?
+assert_eq 1 "$rc" 'empty component set is rejected'
+assert_contains "$stderr_file" '没有待安装的组件归档' 'empty set diagnostic is actionable'
 
 if [ "$(id -u)" -eq 0 ]; then
     printf 'preflight-components: ok (root numeric-owner coverage)\n'

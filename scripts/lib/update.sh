@@ -60,6 +60,41 @@ _update_fetch() {
     git -C "$CLASHCTL_HOME" rev-parse FETCH_HEAD
 }
 
+# 校验 FETCH_HEAD 与 GitHub 官方分支 HEAD 一致，防镜像向 root 投递任意脚本。
+# 必须直连 api.github.com（--noproxy）：代理通道的应答不能作为凭证——镜像可以
+# 返回与篡改内容一致的恶意 sha 自证。策略：sha 明确不一致 → 中止；
+# 直连不可达/无法解析/自定义更新源 → 明确降级警告后继续（CN 直连受限的
+# 可用性折衷，镜像投递风险如实告知）。
+_update_verify_commit() {
+    local branch=$1 fetch_head=$2 body remote_sha
+    if [ -n "${CLASHCTL_UPDATE_GIT_URL:-}" ]; then
+        _ui_warn '更新源为自定义 CLASHCTL_UPDATE_GIT_URL，跳过官方提交校验'
+        return 0
+    fi
+    body=$(curl -sS --fail --max-time 10 --retry 1 --noproxy '*' \
+        -H 'Accept: application/vnd.github+json' \
+        "https://api.github.com/repos/${_UPDATE_REPO}/commits/${branch}") || {
+        _ui_warn '无法直连 GitHub 校验更新提交（本次跳过校验）'
+        _ui_detail '风险' '镜像通道理论上可投递被篡改的更新'
+        _ui_detail '处理' '网络恢复后将自动恢复校验'
+        return 0
+    }
+    remote_sha=$(printf '%s' "$body" |
+        grep -oE '"sha"[[:space:]]*:[[:space:]]*"[0-9a-f]{40}"' | head -1 |
+        grep -oE '[0-9a-f]{40}')
+    if [ -z "$remote_sha" ]; then
+        _ui_warn '无法解析 GitHub 分支 HEAD（本次跳过提交校验）'
+        return 0
+    fi
+    if [ "$remote_sha" != "$fetch_head" ]; then
+        _ui_error '更新内容与 GitHub 官方分支 HEAD 不一致，疑似镜像投递被篡改的更新'
+        _ui_detail '本地 FETCH_HEAD' "$fetch_head"
+        _ui_detail '官方 HEAD' "$remote_sha"
+        return 1
+    fi
+    _ui_detail '官方校验' "GitHub HEAD 与下载内容一致（${fetch_head:0:7}）"
+}
+
 # 本地祖先关系判定，输出：identical / behind N / ahead N / diverged
 _update_status() {
     local fetch_head=$1 head base n merge_rc
@@ -364,6 +399,7 @@ _UPDATE_ARCHIVE_PATHS=(
     install.sh
     uninstall.sh
     .env.example
+    versions.env
     resources/Country.mmdb
     resources/geosite.dat
     resources/mixin.yaml.example
@@ -374,6 +410,7 @@ _UPDATE_ARCHIVE_REQUIRED_FILES=(
     scripts/cmd/clashctl.fish
     scripts/cmd/clashctl.sh
     scripts/cmd/help.sh
+    scripts/cmd/install.sh
     scripts/cmd/log.sh
     scripts/cmd/mixin.sh
     scripts/cmd/node.sh
@@ -394,15 +431,16 @@ _UPDATE_ARCHIVE_REQUIRED_FILES=(
     scripts/lib/common.sh
     scripts/lib/config.sh
     scripts/lib/convert.sh
+    scripts/lib/install-transaction.sh
     scripts/lib/operation-lock.sh
     scripts/lib/service-enablement.sh
     scripts/lib/service-process.sh
     scripts/lib/service.sh
     scripts/lib/update.sh
-    scripts/lib/versions.sh
     install.sh
     uninstall.sh
     .env.example
+    versions.env
     resources/Country.mmdb
     resources/geosite.dat
     resources/mixin.yaml.example

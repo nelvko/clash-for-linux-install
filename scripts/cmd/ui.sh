@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 
 clashui() {
+    # 面板资源按需补装（v2 安装只装内核+yq；首次 clashctl ui 时下载）
+    if [ ! -f "$CLASH_RESOURCES_DIR/dist/index.html" ]; then
+        _ui_info '面板资源未安装，正在按需下载…'
+        _ci_provision ui || {
+            _ui_error '面板资源下载失败'
+            _ui_detail '重试' 'clashctl install（补全全部组件）或稍后再试 clashctl ui'
+            return 1
+        }
+    fi
     _detect_ext_addr || return 1
     if ! service_is_active >/dev/null 2>&1; then
         local service_ready=0 _

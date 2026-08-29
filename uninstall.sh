@@ -47,7 +47,6 @@ _uninstall_owned_file() {
 _uninstall_layout_is_trusted() {
     local home=$1 path unsafe uid
     local -a required=(
-        "$home/.env"
         "$home/install.sh"
         "$home/uninstall.sh"
         "$home/scripts/preflight.sh"
@@ -58,6 +57,10 @@ _uninstall_layout_is_trusted() {
     for path in "${required[@]}"; do
         _uninstall_owned_file "$path" || return 1
     done
+    # 空壳态（尚未运行 clashctl install）没有 .env；存在时必须同样受信
+    if [ -e "$home/.env" ] || [ -L "$home/.env" ]; then
+        _uninstall_owned_file "$home/.env" || return 1
+    fi
     uid=$(id -u)
     unsafe=$(find "$home/scripts" \
         \( -type l -o ! -user "$uid" -o -perm /022 \) -print -quit 2>/dev/null) || return 1

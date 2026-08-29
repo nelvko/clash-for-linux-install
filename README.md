@@ -51,13 +51,16 @@ bash "$installer" --non-interactive --subscription-file /run/secrets/clash-subsc
 bash "$installer" --non-interactive --take-over-service
 ```
 
+安装分两步：`install.sh` 只落位 clashctl 本体（脚本与 Shell 集成），随后自动执行 `clashctl install` 完成内核、组件、服务与初始订阅——失败后直接重跑 `clashctl install` 即可补全。检测到旧版安装（`~/clashctl` 布局）时会询问是否自动迁移订阅与配置，旧目录整体保留为 `.bak`。
+
 - `--non-interactive` 禁用交互并在未提供订阅时跳过订阅；它不会授权覆盖已有服务。
 - `--subscription-file` 从当前用户所有、权限为 `0400` 或 `0600` 的单行普通文件读取初始订阅 URL；文件路径可进入命令行，URL 本身不会进入安装器参数、输出或子进程环境。
 - `--take-over-service` 明确授权备份并接管同名服务；若仅检测到定义缺失的残留自启状态，则授权记录并保留该状态后继续。systemd 服务定义缺失但服务仍在运行时始终拒绝安装。
 - 安装目录会写入权限为 `0600` 的 `.clashctl-installation` 身份标记；非空目录缺少有效标记时，安装器不会执行其中脚本。
 - 迁移可信的旧版目录需显式添加 `--allow-legacy-layout`；目录归属、权限或脚本结构校验失败时仍会拒绝接管。
 - 接管同名服务时会保存定义、运行状态及各服务管理器的精确自启链接；恢复时若发现管理员在安装后修改过相关链接，会停止并保留快照与备份。
-- 可追加 `mihomo|clash` 选择内核；交互安装会隐藏读取初始订阅，自动化安装应使用 `--subscription-file`，避免 URL 留在 Shell 历史中。完整选项可将最后一行改为 `bash "$installer" --help` 查看。
+- 可追加 `mihomo|clash` 选择内核（`clashctl install <内核>` 可安装或切换，多内核并存于 `bin/<内核>/` 与同名服务单元）；交互安装会隐藏读取初始订阅，自动化安装应使用 `--subscription-file`，避免 URL 留在 Shell 历史中。完整选项可将最后一行改为 `bash "$installer" --help` 查看。
+- 面板与订阅转换组件（zashboard/subconverter）在首次使用 `clashctl ui` / `clashctl sub add` 时按需下载，无需预装。
 - 上述下载地址使用了[加速前缀](https://gh-proxy.org/)，如失效请更换其他[可用链接](https://ghproxy.link/)；依赖下载源可通过 `GH_PROXY` 配置。
 
 - 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)

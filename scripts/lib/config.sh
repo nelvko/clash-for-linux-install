@@ -140,7 +140,20 @@ _get_secret() {
   "$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_RUNTIME"
 }
 
+# 配置适配层：渲染/校验当前仅支持 clash-yaml 系内核；sing-box 等 JSON 内核
+# 在 _valid_config/_merge_config 顶部的分派处扩展（换渲染器与校验命令）。
+_config_kernel_supported() {
+    case "$CLASHCTL_KERNEL" in
+    mihomo | clash) return 0 ;;
+    *) return 1 ;;
+    esac
+}
+
 _valid_config() {
+  _config_kernel_supported || {
+    _ui_error "内核 $CLASHCTL_KERNEL 暂不支持配置校验"
+    return 1
+  }
   local config="$1"
   [[ ! -e "$config" || "$(wc -l <"$config")" -lt 1 ]] && return 1
 
@@ -160,6 +173,10 @@ _valid_config() {
 }
 
 _merge_config() (
+  _config_kernel_supported || {
+    _ui_error "内核 $CLASHCTL_KERNEL 暂不支持配置渲染"
+    return 1
+  }
   umask 077
   local candidate
   candidate=$(mktemp "${CLASH_CONFIG_RUNTIME}.next.XXXXXX") || {

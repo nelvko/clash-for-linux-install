@@ -21,6 +21,8 @@ assert_probe() {
 export CLASHCTL_INSTALL_SOURCE_ONLY=1
 # shellcheck source=../install.sh
 . "$REPO_DIR/install.sh"
+# shellcheck source=../scripts/lib/install-transaction.sh
+. "$REPO_DIR/scripts/lib/install-transaction.sh"
 
 SYSTEMD_STATE=active
 SYSTEMD_RC=0

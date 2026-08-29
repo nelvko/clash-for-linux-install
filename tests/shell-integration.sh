@@ -30,6 +30,9 @@ printf '%s\n' 'CLASHCTL_TEST_LOADED=1' >"$CLASHCTL_CMD_DIR/clashctl.sh"
 printf '%s\n' '# fish completion fixture' >"$CLASHCTL_CMD_DIR/clashctl.fish"
 export CLASHCTL_CMD_DIR CLASHCTL_COLOR=never
 
+# 保存真实 detect_rc（随后用参数化桩覆盖；文件尾部恢复以验证 fish 判定）
+_real_detect_rc=$(declare -f detect_rc)
+
 RC_MODE=none
 detect_rc() {
     SHELL_RC_BASH=
@@ -99,5 +102,20 @@ RC_MODE=none
 rc=0
 apply_rc >"$WORK_DIR/load-failure.stdout" 2>"$WORK_DIR/load-failure.stderr" || rc=$?
 assert_eq 1 "$rc" 'command loader failures are reported as real failures'
+
+# ── 真实 detect_rc：fish 需「二进制存在 且 ~/.config/fish 已存在」（使用证据）──
+eval "$_real_detect_rc"
+detect_home="$WORK_DIR/detect-user"
+fake_bin="$WORK_DIR/fakebin"
+mkdir -p -- "$detect_home" "$fake_bin"
+printf '#!/bin/sh\n' >"$fake_bin/fish"
+chmod 0755 -- "$fake_bin/fish"
+PATH="$fake_bin:$PATH" HOME="$detect_home" detect_rc || true
+[ -z "${SHELL_RC_FISH:-}" ] ||
+    fail 'fish without an existing config directory must not be targeted'
+mkdir -p -- "$detect_home/.config/fish"
+PATH="$fake_bin:$PATH" HOME="$detect_home" detect_rc || true
+[ -n "${SHELL_RC_FISH:-}" ] ||
+    fail 'fish with an existing config directory must be targeted'
 
 printf 'shell-integration: ok\n'

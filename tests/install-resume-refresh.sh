@@ -56,10 +56,10 @@ home="$WORK_DIR/network/home"
 mkdir -p -- "$home"
 make_layout "$home" old
 _install_marker_write "$home" "$home" || fail 'could not mark incomplete home'
-mkdir -p -- "$home/data/profiles" "$home/archives" "$home/bin"
+mkdir -p -- "$home/data/profiles" "$home/archives" "$home/bin/mihomo"
 printf 'private-data\n' >"$home/data/profiles/demo.yaml"
 printf 'cached-archive\n' >"$home/archives/component.gz"
-printf 'old-binary\n' >"$home/bin/mihomo"
+printf 'old-binary\n' >"$home/bin/mihomo/mihomo"
 printf 'service-state\n' >"$home/.service-transaction"
 before=$(snapshot_tree "$home")
 
@@ -125,19 +125,29 @@ if grep -Fqs -- "$subscription_url" "$WORK_DIR/subscription.stderr"; then
     fail 'source replacement rejection leaked the subscription URL'
 fi
 
-printf '%s\n' \
-    'SELF_SOURCE_REACHED=1' \
-    'operation_lock_acquire() { return 1; }' \
-    >"$home/scripts/lib/operation-lock.sh"
-SELF_SOURCE_REACHED=0
+handoff_called=0
+handoff_home='' handoff_kernel='' handoff_branch='' handoff_subfile=''
+_install_handoff_to_clashctl() {
+    handoff_called=1
+    handoff_home=$1 handoff_kernel=$2 handoff_branch=$3 handoff_subfile=$4
+}
+before=$(snapshot_tree "$home")
 _INSTALL_SCRIPT_DIR=$home
 export CLASHCTL_SRC=
 unset CLASHCTL_LOCAL_SOURCE CLASHCTL_INSTALL_SESSION CLASHCTL_NON_INTERACTIVE
 rc=0
 main --home "$home" --branch iu --non-interactive \
+    --subscription-file "$subscription_file" \
     >"$WORK_DIR/self-source.stdout" 2>"$WORK_DIR/self-source.stderr" || rc=$?
-assert_eq 1 "$rc" 'in-place continuation reaches the operation lock stub'
-assert_eq 1 "$SELF_SOURCE_REACHED" 'in-place installer is recognized as the current source'
+assert_eq 0 "$rc" 'in-place continuation reaches the clashctl handoff'
+assert_eq 1 "$handoff_called" 'in-place continuation hands off to clashctl install'
+assert_eq "$home" "$handoff_home" 'handoff receives the incomplete home'
+assert_eq mihomo "$handoff_kernel" 'handoff receives the requested kernel'
+assert_eq iu "$handoff_branch" 'handoff receives the tracked branch'
+assert_eq "$subscription_file" "$handoff_subfile" \
+    'handoff preserves the subscription-file option'
+assert_eq "$before" "$(snapshot_tree "$home")" \
+    'in-place continuation preserves private data until clashctl install runs'
 assert_contains "$WORK_DIR/self-source.stderr" \
     '使用未完成目录内已验证的程序文件继续安装' \
     'in-place continuation reports the selected source'
@@ -145,5 +155,9 @@ if grep -Fqs -- '拒绝用另一份程序文件自动覆盖' \
     "$WORK_DIR/self-source.stderr"; then
     fail 'in-place continuation was rejected as a source replacement'
 fi
+if grep -Fqs -- "$subscription_url" "$WORK_DIR/self-source.stderr"; then
+    fail 'in-place continuation leaked the subscription URL'
+fi
 
-printf 'install-resume-refresh: ok\n'
+printf '%s\n' 'install-resume-refresh: ok'
+

@@ -166,6 +166,9 @@ clashupdate_git() {
 
     _update_check_env || return 1
 
+    # 部署前校验提交与官方一致（镜像篡改防护；直连不可达时降级警告）
+    _update_verify_commit "$branch" "$fetch_head" || return 1
+
     # 部署置于子 shell：锁随子 shell 释放，不影响当前交互 shell
     (
         _update_acquire_lock || exit 1

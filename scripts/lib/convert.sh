@@ -414,10 +414,15 @@ _start_convert() {
     BIN_SUBCONVERTER_RUN_CONFIG=
     BIN_SUBCONVERTER_PRIVATE_LOG=
 
-    [ -x "$BIN_SUBCONVERTER" ] || {
-        _errorcat "subconverter 未找到或不可执行：$BIN_SUBCONVERTER"
-        return 1
-    }
+    if [ ! -x "$BIN_SUBCONVERTER" ]; then
+        # 可选组件按需补装（v2 安装只装内核+yq；首次订阅转换时下载）
+        _ui_info '订阅转换组件未安装，正在按需下载…'
+        _ci_provision subconverter || {
+            _errorcat "subconverter 安装失败：$BIN_SUBCONVERTER_DIR"
+            _errorcat "可运行 clashctl install 补全全部组件后重试"
+            return 1
+        }
+    fi
     command -v curl >/dev/null 2>&1 || {
         _errorcat "缺少订阅转换依赖：curl"
         return 1

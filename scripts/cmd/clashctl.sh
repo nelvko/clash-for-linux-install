@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
-. "$CLASHCTL_HOME"/.env
+# 空壳态（已装 clashctl、尚未跑 clashctl install）没有 .env，缺省跳过
+[ -f "$CLASHCTL_HOME"/.env ] && . "$CLASHCTL_HOME"/.env
 
 for lib_file in "$CLASHCTL_HOME"/scripts/lib/*.sh; do
     # shellcheck disable=SC1090  # 运行时按安装目录加载公共库

@@ -39,6 +39,10 @@ assert_env_name_absent() {
 export CLASHCTL_INSTALL_SOURCE_ONLY=1 CLASHCTL_COLOR=never
 # shellcheck source=../install.sh
 . "$REPO_DIR/install.sh"
+# shellcheck source=../scripts/lib/install-transaction.sh
+. "$REPO_DIR/scripts/lib/install-transaction.sh"
+# shellcheck source=../scripts/cmd/install.sh
+. "$REPO_DIR/scripts/cmd/install.sh"
 
 secret_url='https://subscription.invalid/api?token=argv-secret-123'
 secure_file="$WORK_DIR/subscription.url"
@@ -47,7 +51,7 @@ stderr_file="$WORK_DIR/stderr"
 printf '%s\n' "$secret_url" >"$secure_file"
 chmod 0600 "$secure_file"
 
-result=$(_install_read_subscription_file "$secure_file" 2>"$stderr_file") ||
+result=$(_ci_read_subscription_file "$secure_file" 2>"$stderr_file") ||
     fail 'secure subscription file was rejected'
 assert_eq "$secret_url" "$result" 'secure subscription file value'
 [ ! -s "$stderr_file" ] || fail 'secure subscription file produced diagnostics'
@@ -66,7 +70,7 @@ hostile_file_env="$WORK_DIR/hostile-file.env"
         /usr/bin/env >>"$HOSTILE_ENV_LOG"
         /usr/bin/tr "$@"
     }
-    hostile_result=$(_install_read_subscription_file "$secure_file") ||
+    hostile_result=$(_ci_read_subscription_file "$secure_file") ||
         fail 'hostile exported variables broke subscription-file reading'
     assert_eq "$secret_url" "$hostile_result" 'hostile subscription-file value'
 )
@@ -87,7 +91,7 @@ hostile_prompt_env="$WORK_DIR/hostile-prompt.env"
         /usr/bin/env >>"$HOSTILE_ENV_LOG"
         /usr/bin/tr "$@"
     }
-    prompt_result=$(_install_read_subscription <<<"$secret_url" 2>/dev/null) ||
+    prompt_result=$(_ci_read_subscription <<<"$secret_url" 2>/dev/null) ||
         fail 'hostile exported variables broke hidden subscription input'
     assert_eq "$secret_url" "$prompt_result" 'hidden subscription input value'
 )
@@ -101,13 +105,13 @@ assert_env_name_absent "$hostile_prompt_env" value \
 no_lf_file="$WORK_DIR/no-lf.url"
 printf '%s' "$secret_url" >"$no_lf_file"
 chmod 0400 "$no_lf_file"
-result=$(_install_read_subscription_file "$no_lf_file" 2>"$stderr_file") ||
+result=$(_ci_read_subscription_file "$no_lf_file" 2>"$stderr_file") ||
     fail '0400 subscription file without trailing LF was rejected'
 assert_eq "$secret_url" "$result" 'subscription file without trailing LF'
 
 chmod 0644 "$secure_file"
 rc=0
-_install_read_subscription_file "$secure_file" >"$stdout_file" 2>"$stderr_file" || rc=$?
+_ci_read_subscription_file "$secure_file" >"$stdout_file" 2>"$stderr_file" || rc=$?
 assert_eq 1 "$rc" 'world-readable subscription file is rejected'
 [ ! -s "$stdout_file" ] || fail 'unsafe subscription file leaked data to stdout'
 assert_not_contains "$stderr_file" "$secret_url" 'unsafe mode diagnostic redacts the URL'
@@ -116,14 +120,14 @@ chmod 0600 "$secure_file"
 
 chmod 0700 "$secure_file"
 rc=0
-_install_read_subscription_file "$secure_file" >"$stdout_file" 2>"$stderr_file" || rc=$?
+_ci_read_subscription_file "$secure_file" >"$stdout_file" 2>"$stderr_file" || rc=$?
 assert_eq 1 "$rc" 'executable subscription file is rejected'
 assert_not_contains "$stderr_file" "$secret_url" 'executable-file diagnostic redacts the URL'
 chmod 0600 "$secure_file"
 
 ln -s -- "$secure_file" "$WORK_DIR/subscription.link"
 rc=0
-_install_read_subscription_file "$WORK_DIR/subscription.link" \
+_ci_read_subscription_file "$WORK_DIR/subscription.link" \
     >"$stdout_file" 2>"$stderr_file" || rc=$?
 assert_eq 1 "$rc" 'subscription symlink is rejected'
 assert_not_contains "$stderr_file" "$secret_url" 'symlink diagnostic redacts the URL'
@@ -132,7 +136,7 @@ multiline="$WORK_DIR/multiline.url"
 printf '%s\n%s\n' "$secret_url" 'https://second.invalid/' >"$multiline"
 chmod 0600 "$multiline"
 rc=0
-_install_read_subscription_file "$multiline" >"$stdout_file" 2>"$stderr_file" || rc=$?
+_ci_read_subscription_file "$multiline" >"$stdout_file" 2>"$stderr_file" || rc=$?
 assert_eq 1 "$rc" 'multiline subscription file is rejected'
 assert_not_contains "$stderr_file" "$secret_url" 'multiline diagnostic redacts the URL'
 assert_contains "$stderr_file" '只能包含一行' 'multiline diagnostic is actionable'
@@ -141,7 +145,7 @@ double_lf="$WORK_DIR/double-lf.url"
 printf '%s\n\n' "$secret_url" >"$double_lf"
 chmod 0600 "$double_lf"
 rc=0
-_install_read_subscription_file "$double_lf" >"$stdout_file" 2>"$stderr_file" || rc=$?
+_ci_read_subscription_file "$double_lf" >"$stdout_file" 2>"$stderr_file" || rc=$?
 assert_eq 1 "$rc" 'subscription file with an extra empty line is rejected'
 assert_not_contains "$stderr_file" "$secret_url" 'extra-line diagnostic redacts the URL'
 
@@ -149,7 +153,7 @@ nul_file="$WORK_DIR/nul.url"
 printf 'https://subscription.invalid/\000suffix\n' >"$nul_file"
 chmod 0600 "$nul_file"
 rc=0
-_install_read_subscription_file "$nul_file" >"$stdout_file" 2>"$stderr_file" || rc=$?
+_ci_read_subscription_file "$nul_file" >"$stdout_file" 2>"$stderr_file" || rc=$?
 assert_eq 1 "$rc" 'NUL-containing subscription file is rejected'
 assert_contains "$stderr_file" 'NUL' 'NUL diagnostic is actionable'
 for nul_position in first last; do
@@ -160,7 +164,7 @@ for nul_position in first last; do
     esac
     chmod 0600 "$nul_file"
     rc=0
-    _install_read_subscription_file "$nul_file" >"$stdout_file" 2>"$stderr_file" || rc=$?
+    _ci_read_subscription_file "$nul_file" >"$stdout_file" 2>"$stderr_file" || rc=$?
     assert_eq 1 "$rc" "NUL at $nul_position is rejected"
     assert_contains "$stderr_file" 'NUL' "NUL-at-$nul_position diagnostic is actionable"
 done
@@ -169,7 +173,7 @@ empty_line="$WORK_DIR/empty-line.url"
 printf '\n' >"$empty_line"
 chmod 0600 "$empty_line"
 rc=0
-_install_read_subscription_file "$empty_line" >"$stdout_file" 2>"$stderr_file" || rc=$?
+_ci_read_subscription_file "$empty_line" >"$stdout_file" 2>"$stderr_file" || rc=$?
 assert_eq 1 "$rc" 'empty subscription line is rejected'
 assert_contains "$stderr_file" '不能为空' 'empty-line diagnostic is actionable'
 

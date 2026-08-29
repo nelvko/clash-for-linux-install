@@ -25,12 +25,16 @@ assert_not_contains() {
 }
 
 export CLASHCTL_KERNEL=mihomo
+mkdir -p -- "$WORK_DIR/resources"
+export CLASH_RESOURCES_DIR="$WORK_DIR/resources"
 # shellcheck source=../scripts/cmd/on.sh
 . "$REPO_DIR/scripts/cmd/on.sh"
 # shellcheck source=../scripts/cmd/ui.sh
 . "$REPO_DIR/scripts/cmd/ui.sh"
 # shellcheck source=../scripts/cmd/node.sh
 . "$REPO_DIR/scripts/cmd/node.sh"
+_ui_info() { printf '[INFO] %s\n' "$*" >&2; }
+_ci_provision() { return 0; }
 
 SERVICE_ACTIVE=0
 SERVICE_START_CALLS=0

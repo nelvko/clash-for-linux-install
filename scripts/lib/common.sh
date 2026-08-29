@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
+# 依赖钉版数据（versions.env 为纯数据文件，随仓库分发，位于仓库根目录）
+_versions_env_file="$(dirname -- "${BASH_SOURCE[0]}")/../../versions.env"
+[ -f "$_versions_env_file" ] && . "$_versions_env_file"
+unset -v _versions_env_file
+
+# 下载默认值（.env 物化前或环境变量未设时兜底；GH_PROXY 显式置空 = 直连）
+[ -n "${SUBCONVERTER_REPO:-}" ] || SUBCONVERTER_REPO=asdlokj1qpi233/subconverter
+[ "${GH_PROXY+x}" = x ] || GH_PROXY=https://gh-proxy.org
+[ "${CLASHCTL_DOWNLOAD_TIMEOUT+x}" = x ] || CLASHCTL_DOWNLOAD_TIMEOUT=60
+
 # 用户态全部在 data/（gitignore 目录），resources/ 只保留跟踪的资源文件
 CLASH_DATA_DIR="${CLASHCTL_HOME}/data"
 CLASH_CONFIG_BASE="${CLASH_DATA_DIR}/config.yaml"
@@ -13,7 +23,9 @@ CLASH_CONFIG_DEBUG_RAW="${CLASH_DATA_DIR}/last-failed.raw"
 CLASH_RESOURCES_DIR="${CLASHCTL_HOME}/resources"
 
 BIN_BASE_DIR="${CLASHCTL_HOME}/bin"
-BIN_KERNEL="${BIN_BASE_DIR}/$CLASHCTL_KERNEL"
+# 每内核一目录（bin/mihomo/mihomo、bin/sing-box/sing-box…），支持多内核并存；
+# CLASHCTL_KERNEL 是激活指针，已装集合以 bin/ 子目录为准
+BIN_KERNEL="${BIN_BASE_DIR}/$CLASHCTL_KERNEL/$CLASHCTL_KERNEL"
 BIN_YQ="${BIN_BASE_DIR}/yq"
 BIN_SUBCONVERTER_DIR="${BIN_BASE_DIR}/subconverter"
 BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
@@ -366,7 +378,7 @@ detect_rc() {
     command -v zsh >&/dev/null && {
         SHELL_RC_ZSH="${HOME}/.zshrc"
     }
-    command -v fish >&/dev/null && {
+    command -v fish >&/dev/null && [ -d "${HOME}/.config/fish" ] && {
         SHELL_RC_FISH="${HOME}/.config/fish/conf.d/clashctl.fish"
     }
 }
@@ -397,7 +409,9 @@ _append_source_block() {
         /^# >>> clashctl >>>$/ { managed=1; next }
         /^# <<< clashctl <<<$/{ managed=0; next }
         managed { next }
+        # 同时清除旧版（master 时代）遗留的裸引导行与历史导出
         /^export CLASHCTL_HOME=/ { next }
+        /^\. \$CLASHCTL_HOME\/scripts\/cmd\/clashctl\.sh$/ { next }
         /^\[ -s "\$CLASHCTL_HOME\/scripts\/cmd\/clashctl\.sh" \]/ { next }
         { print }
     ' "$rc" >"$tmp" || {

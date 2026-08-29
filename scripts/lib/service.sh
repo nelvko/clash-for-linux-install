@@ -645,21 +645,18 @@ install_service() {
             _service_install_failed '设置 systemd 开机自启失败' "$service_target" "$rollback" "$had_target"
             return 1
         }
-        _ui_info "systemd 已接受服务启用请求，正在核验链接与状态"
         ;;
     sysvinit)
         service_enable || {
             _service_install_failed '注册或启用 SysVinit 服务失败' "$service_target" "$rollback" "$had_target"
             return 1
         }
-        _ui_info "SysVinit 已接受服务启用请求，正在核验各 runlevel"
         ;;
     openrc)
         service_enable || {
             _service_install_failed '设置 OpenRC 开机自启失败' "$service_target" "$rollback" "$had_target"
             return 1
         }
-        _ui_info "OpenRC 已接受服务启用请求，正在核验各 runlevel"
         ;;
 
     runit)
@@ -668,7 +665,6 @@ install_service() {
             return 1
         }
 
-        _ui_info "runit 启用入口已写入，正在核验链接目标"
         ;;
 
     *)

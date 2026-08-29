@@ -50,14 +50,18 @@ assert_has_ansi() {
 export CLASHCTL_INSTALL_SOURCE_ONLY=1
 # shellcheck source=../install.sh
 . "$REPO_DIR/install.sh"
+# shellcheck source=../scripts/lib/install-transaction.sh
+. "$REPO_DIR/scripts/lib/install-transaction.sh"
 # shellcheck source=../scripts/lib/service-enablement.sh
 . "$REPO_DIR/scripts/lib/service-enablement.sh"
+# shellcheck source=../scripts/cmd/install.sh
+. "$REPO_DIR/scripts/cmd/install.sh"
 
-impact_line=$(awk '/^    _install_impact_scan .*install_manager/{ print NR; exit }' "$REPO_DIR/install.sh")
-prompt_line=$(awk '/sub_url=\$\(_install_read_subscription\)/{ print NR; exit }' "$REPO_DIR/install.sh")
+impact_line=$(awk '/^    _install_impact_scan .*install_manager/{ print NR; exit }' "$REPO_DIR/scripts/cmd/install.sh")
+prompt_line=$(awk '/sub_url=\$\(_ci_read_subscription\)/{ print NR; exit }' "$REPO_DIR/scripts/cmd/install.sh")
 runtime_write_line=$(awk '/^    \/usr\/bin\/install -d -m 0700 "\$CLASH_DATA_DIR"/{ print NR; exit }' \
-    "$REPO_DIR/install.sh")
-prepare_line=$(awk '/^    prepare_zip /{ print NR; exit }' "$REPO_DIR/install.sh")
+    "$REPO_DIR/scripts/cmd/install.sh")
+prepare_line=$(awk '/^    prepare_zip /{ print NR; exit }' "$REPO_DIR/scripts/cmd/install.sh")
 if [ -z "$impact_line" ] || [ -z "$prompt_line" ] ||
     [ -z "$runtime_write_line" ] || [ -z "$prepare_line" ]; then
     fail 'installer phase boundaries were not found'
@@ -78,37 +82,37 @@ export TERM=xterm CLASHCTL_COLOR=never
 : >"$stdout_file"
 : >"$stderr_file"
 export CLASHCTL_NON_INTERACTIVE=1
-_install_plan "$WORK_DIR/plan-home" default mihomo master nohup '' '' \
+_install_plan "$WORK_DIR/plan-home" default mihomo master '' '' \
     >"$stdout_file" 2>"$stderr_file"
 unset CLASHCTL_NON_INTERACTIVE
 [ ! -s "$stdout_file" ] || fail 'installation plan wrote to stdout'
 assert_contains "$stderr_file" 'clashctl 安装计划' 'installation plan has an explicit heading'
-assert_contains "$stderr_file" '运行数据:' 'installation plan discloses runtime data'
-assert_contains "$stderr_file" '服务动作:' 'installation plan discloses service actions'
+assert_contains "$stderr_file" '程序目录:' 'installation plan discloses home directory'
+assert_contains "$stderr_file" '代理内核:' 'installation plan discloses kernel choice'
 assert_contains "$stderr_file" 'Shell 集成:' 'installation plan discloses shell integration'
-assert_contains "$stderr_file" '初始订阅: 未提供；本次将跳过' \
+assert_contains "$stderr_file" '初始订阅: 未提供；非交互环境将跳过' \
     'non-interactive plan truthfully reports skipped subscription input'
 assert_not_contains "$stderr_file" '稍后询问' \
     'non-interactive plan does not promise a later prompt'
 
 : >"$stderr_file"
 export CLASHCTL_NON_INTERACTIVE=1
-_install_plan "$WORK_DIR/systemd-home" --home mihomo master systemd '' '' \
+_install_plan "$WORK_DIR/systemd-home" --home mihomo master '' '' \
     >"$stdout_file" 2>"$stderr_file"
 unset CLASHCTL_NON_INTERACTIVE
-assert_contains "$stderr_file" '服务定义: /etc/systemd/system/mihomo.service' \
-    'systemd plan identifies the exact service definition'
-assert_contains "$stderr_file" '写入服务定义 · 设置开机自启 · 启动并验证' \
-    'systemd plan discloses write, enable, start, and verification actions'
+assert_contains "$stderr_file" '程序目录: '"$WORK_DIR"'/systemd-home（--home）' \
+    'plan honors explicit --home argument'
+assert_contains "$stderr_file" 'clashctl install 下载并配置服务' \
+    'plan routes service provisioning through clashctl install'
 
 : >"$stdout_file"
 : >"$stderr_file"
 usage >"$stdout_file" 2>"$stderr_file"
 assert_contains "$stdout_file" '--verbose                 显示下载进度与失败诊断' \
     'verbose help covers progress and failure diagnostics'
-assert_contains "$REPO_DIR/install.sh" 'Web 访问密钥已生成（不会在输出中显示）' \
+assert_contains "$REPO_DIR/scripts/cmd/install.sh" 'Web 访问密钥已生成（不会在输出中显示）' \
     'generated-secret message describes output privacy'
-assert_not_contains "$REPO_DIR/install.sh" 'Web 访问密钥已生成（不会写入安装日志）' \
+assert_not_contains "$REPO_DIR/scripts/cmd/install.sh" 'Web 访问密钥已生成（不会写入安装日志）' \
     'generated-secret message no longer overstates logging behavior'
 
 : >"$stdout_file"
@@ -166,7 +170,7 @@ _get_random_val() {
     printf 'aB3xY9'
 }
 export secret=hostile-secret part=hostile-part
-generated_secret=$(_install_generate_secret) || fail 'secret generation failed'
+generated_secret=$(_ci_generate_secret) || fail 'secret generation failed'
 unset secret part
 assert_eq 32 "${#generated_secret}" 'generated secret uses 32 characters'
 case $generated_secret in
@@ -644,8 +648,10 @@ rc=0
 # shellcheck disable=SC2016  # 子 Bash 必须在运行时展开其局部变量和 $?
 env CLASHCTL_INSTALL_SOURCE_ONLY=1 bash -c '
     . "$1"
+    . "${1%/*}/scripts/lib/install-transaction.sh"
+    . "${1%/*}/scripts/cmd/install.sh"
     _INSTALL_STREAM_COMPLETE=1
-    trap '\''_install_exit_guard $?'\'' EXIT
+    trap '\''_ci_exit_guard $?'\'' EXIT
     trap '\''exit 143'\'' TERM
     CLASH_DATA_DIR=$2
     CLASH_CONFIG_RUNTIME=$2/runtime.yaml

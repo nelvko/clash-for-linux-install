@@ -257,6 +257,7 @@ make_git_repo() {
 prepare_git_update_stubs() {
     _update_local_rev() { printf '%s\n' "${OLD_SHA:0:7}"; }
     _update_fetch() { printf '%s\n' "$NEW_SHA"; }
+    _update_verify_commit() { return 0; }
     _update_status() { printf 'behind 1\n'; }
     _update_dirty() { return 1; }
     _update_check_env() { return 0; }
