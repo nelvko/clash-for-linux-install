@@ -273,6 +273,12 @@ _download_archive() {
 
 download_zip() {
     (($#)) || return 0
+    # 上游行只标识制品身份；实际下载通道在此一次性披露（镜像排障线索）
+    if [ -n "${GH_PROXY:-}" ]; then
+        _ui_detail '下载经由' "$GH_PROXY"
+    else
+        _ui_detail '下载经由' '直连'
+    fi
     _managed_directory_prepare "$ZIP_BASE_DIR" 0755 || {
         _ui_error "依赖缓存目录无法安全使用"
         _ui_detail "目录" "$ZIP_BASE_DIR"
