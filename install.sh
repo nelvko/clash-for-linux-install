@@ -223,6 +223,19 @@ main() {
                 return 1
             }
             ;;
+        --gh-proxy)
+            shift
+            [ $# -gt 0 ] || {
+                _ui_error '--gh-proxy 缺少地址参数（置空字符串为直连）'
+                return 1
+            }
+            proxy=$1
+            export GH_PROXY=$proxy
+            ;;
+        --gh-proxy=*)
+            proxy=${1#*=}
+            export GH_PROXY=$proxy
+            ;;
         --source-dir)
             shift
             [ $# -gt 0 ] || {
@@ -1005,6 +1018,8 @@ Usage:
 Options:
   --home <路径>             安装路径（默认 ~/.clashctl）
   --branch <分支>           安装分支及后续更新分支（默认 master）
+  --gh-proxy <地址>         依赖下载加速前缀（置空为直连；优先于 GH_PROXY
+                            环境变量，选择将持久化到 .env）
   --source-dir <路径>       从明确指定的本地源码目录安装
   --subscription-file <文件> 从权限受限的单行文件读取初始订阅 URL
   --allow-legacy-layout     显式接管并升级无安装标记的旧版目录
@@ -1015,7 +1030,8 @@ Options:
 
 检测到旧版安装（~/clashctl 布局）时会询问是否自动迁移订阅与配置。
 
-环境变量：CLASHCTL_HOME、GH_PROXY、CLASHCTL_DOWNLOAD_TIMEOUT、
+环境变量：CLASHCTL_HOME、GH_PROXY（或用 --gh-proxy 旗标指定，旗标优先）、
+CLASHCTL_DOWNLOAD_TIMEOUT、
 VERSION_MIHOMO/YQ/SUBCONVERTER/UI（显式设置即钉版）、SUBCONVERTER_REPO、
 CLASHCTL_SUBSCRIPTION_FILE、CLASHCTL_ALLOW_UNIT_OVERWRITE=1、CLASHCTL_COLOR、NO_COLOR。
 

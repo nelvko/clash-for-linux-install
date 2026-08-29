@@ -188,6 +188,28 @@ assert_eq 1 "$rc" 'control characters in command-line input are rejected'
 assert_contains "$stderr_file" '命令行参数不能包含控制字符' 'control-character rejection is actionable'
 assert_not_contains "$stderr_file" 'stable' 'rejected command-line input is not echoed'
 
+# ── --gh-proxy：旗标优先、导出贯穿全链（空值=直连）──
+: >"$stderr_file"
+rc=0
+main --gh-proxy https://mirror.test/ --definitely-unknown >"$stdout_file" 2>"$stderr_file" || rc=$?
+assert_eq 1 "$rc" 'gh-proxy flag still fails on a trailing unknown option'
+assert_eq 'https://mirror.test/' "${GH_PROXY:-}" \
+    'gh-proxy flag exports GH_PROXY for the install chain'
+export GH_PROXY=
+rc=0
+main --gh-proxy= --definitely-unknown >"$stdout_file" 2>"$stderr_file" || rc=$?
+assert_eq 1 "$rc" 'empty gh-proxy value parses (direct connection)'
+[ "${GH_PROXY+x}" = x ] && [ -z "$GH_PROXY" ] ||
+    fail 'empty gh-proxy must leave GH_PROXY set-but-empty (direct)'
+unset GH_PROXY
+: >"$stderr_file"
+rc=0
+main --gh-proxy >"$stdout_file" 2>"$stderr_file" || rc=$?
+assert_eq 1 "$rc" 'gh-proxy without a value is rejected'
+assert_contains "$stderr_file" '--gh-proxy 缺少地址参数' \
+    'gh-proxy missing-value diagnostic is actionable'
+unset GH_PROXY
+
 : >"$stdout_file"
 : >"$stderr_file"
 rc=0
