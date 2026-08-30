@@ -268,15 +268,15 @@ _sub_validate_name() {
 
 # 由名称派生安全的磁盘文件路径（非 [A-Za-z0-9._-] → _，冲突追加 -2/-3…）
 _sub_filename() {
-    local name=$1 safe path n=1
+    local name=$1 safe cfg_path n=1
     safe=$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '_')
     [ -z "$safe" ] && safe=sub
-    path="${CLASH_PROFILES_DIR}/${safe}.yaml"
-    while [ -e "$path" ]; do
+    cfg_path="${CLASH_PROFILES_DIR}/${safe}.yaml"
+    while [ -e "$cfg_path" ]; do
         n=$((n + 1))
-        path="${CLASH_PROFILES_DIR}/${safe}-${n}.yaml"
+        cfg_path="${CLASH_PROFILES_DIR}/${safe}-${n}.yaml"
     done
-    printf '%s' "$path"
+    printf '%s' "$cfg_path"
 }
 
 # 一次性把旧的数字 id 模型迁移为 name 模型（幂等：以 id 字段存在为哨兵）
@@ -343,7 +343,8 @@ _sub_pick() {
     # 需用户明确确认，不做隐式自动选择。
 
     local i w namew=0 trafw=0 expw=0
-    for i in "${!_SUB_NAMES[@]}"; do
+    _arr_indices _SUB_NAMES
+    for i in "${_ARR_IDX[@]}"; do
         w=$(_dispwidth "${_SUB_NAMES[$i]}")
         ((w > namew)) && namew=$w
         w=$(_dispwidth "${_SUB_TRAFFICS[$i]}")
@@ -365,7 +366,8 @@ _sub_pick() {
             # shellcheck disable=SC2016
             preview_args=(--preview 'cat "$SUB_FZF_PREVIEW_DIR"/{1}' --preview-window='right:45%:wrap')
             local now
-            for i in "${!_SUB_NAMES[@]}"; do
+            _arr_indices _SUB_NAMES
+            for i in "${_ARR_IDX[@]}"; do
                 now=否
                 [ "${_SUB_NAMES[$i]}" = "$_SUB_CUR" ] && now=是
                 {
@@ -380,7 +382,8 @@ _sub_pick() {
             done
         fi
         selected=$(
-            for i in "${!_SUB_NAMES[@]}"; do
+            _arr_indices _SUB_NAMES
+            for i in "${_ARR_IDX[@]}"; do
                 marker=' '
                 [ "${_SUB_NAMES[$i]}" = "$_SUB_CUR" ] && marker='*'
                 printf '%s\t%s\t%s %s  %s  %s\n' \
@@ -416,7 +419,8 @@ _sub_pick() {
     idxw=${#idxw} # 序号位数
     # 序号列宽 + 标记列（空格偏移）后输出标题，与数据行对齐
     printf '  %*s   %s\n' "$((idxw + 2))" '' "$col_header" >&2
-    for i in "${!_SUB_NAMES[@]}"; do
+    _arr_indices _SUB_NAMES
+    for i in "${_ARR_IDX[@]}"; do
         marker=' '
         [ "${_SUB_NAMES[$i]}" = "$_SUB_CUR" ] && marker='*'
         tok="[$((i + 1))]"
@@ -659,11 +663,11 @@ _sub_del_locked() {
         return 1
     }
 
-    local path url
-    path=$(_sub_get "$name" path)
+    local cfg_path url
+    cfg_path=$(_sub_get "$name" path)
     url=$(_sub_get "$name" url)
 
-    /usr/bin/rm -f "$path"
+    /usr/bin/rm -f "$cfg_path"
     PROFILE_NAME=$name "$BIN_YQ" -i 'del(.profiles[] | select(.name == strenv(PROFILE_NAME)))' "$CLASH_PROFILES_META"
     _logging_sub "➖ 已删除订阅：[$name] $url"
     _okcat '🎉' "订阅已删除：[$name] $url"
@@ -681,8 +685,12 @@ _fmt_bytes() {
 
 # 解析 subscription-userinfo 原始串，输出：used<TAB>total<TAB>expire（bytes / epoch）
 _userinfo_fields() {
-    local s=${1//;/ } kv k v upload=0 download=0 total=0 expire=0
-    for kv in $s; do
+    # 按 ; 拆 key=value 对：bash 依赖未加引号分词，zsh 默认不分词
+    # → tr 将 ; 归一为换行，逐行 read（IFS=' ' 剥离 "; " 残留的前导空格）
+    local s kv k v upload=0 download=0 total=0 expire=0
+    s=$(printf '%s' "$1" | tr ';' '\n')
+    while IFS=' ' read -r kv; do
+        [ -z "$kv" ] && continue
         k=${kv%%=*}
         v=${kv#*=}
         [[ $v =~ ^[0-9]+$ ]] || continue
@@ -692,7 +700,7 @@ _userinfo_fields() {
         total) total=$v ;;
         expire) expire=$v ;;
         esac
-    done
+    done <<<"$s"
     printf '%s\t%s\t%s' "$((upload + download))" "$total" "$expire"
 }
 
@@ -747,7 +755,8 @@ EOF
     updw=$(_dispwidth "$UPD_H")
     trafw=$(_dispwidth "$TRAF_H")
     expw=$(_dispwidth "$EXP_H")
-    for i in "${!_SUB_NAMES[@]}"; do
+    _arr_indices _SUB_NAMES
+    for i in "${_ARR_IDX[@]}"; do
         w=$(_dispwidth "${_SUB_NAMES[$i]}")
         ((w > namew)) && namew=$w
         w=$(_dispwidth "${_SUB_UPDS[$i]:-—}")
@@ -767,7 +776,8 @@ EOF
         '链接'
 
     local marker
-    for i in "${!_SUB_NAMES[@]}"; do
+    _arr_indices _SUB_NAMES
+    for i in "${_ARR_IDX[@]}"; do
         marker=' '
         [ "${_SUB_NAMES[$i]}" = "$_SUB_CUR" ] && marker='*'
         upd=${_SUB_UPDS[$i]:-—}
@@ -818,22 +828,22 @@ _sub_use_locked() {
         return 1
     }
 
-    local path url
-    path=$(_sub_get "$name" path)
+    local cfg_path url
+    cfg_path=$(_sub_get "$name" path)
     url=$(_sub_get "$name" url)
 
-    [ -f "$path" ] && [ -s "$path" ] || {
-        _errorcat "订阅配置文件缺失或为空：$path"
+    [ -f "$cfg_path" ] && [ -s "$cfg_path" ] || {
+        _errorcat "订阅配置文件缺失或为空：$cfg_path"
         return 1
     }
-    _valid_sub_nodes "$path" || return 1
+    _valid_sub_nodes "$cfg_path" || return 1
 
     # 切换前备份 BASE：合并校验失败（rc=1）时连同运行配置一起回滚，避免 BASE 与 runtime 不一致
     cat "$CLASH_CONFIG_BASE" >"${CLASH_CONFIG_BASE}.bak" || {
         _errorcat "无法备份当前配置（磁盘已满？），已取消切换"
         return 1
     }
-    cat "$path" >"$CLASH_CONFIG_BASE"
+    cat "$cfg_path" >"$CLASH_CONFIG_BASE"
     _merge_config_restart
     rc=$?
     if [ "$rc" -eq 1 ]; then
@@ -983,9 +993,9 @@ _sub_update_one() {
         return 1
     }
 
-    local url path
+    local url cfg_path
     url=$(_sub_get "$name" url)
-    path=$(_sub_get "$name" path)
+    cfg_path=$(_sub_get "$name" path)
     _okcat "✈️ " "更新订阅：[$name] $url"
 
     _sub_download "$url" "$strategy" || {
@@ -995,11 +1005,11 @@ ${_SUB_DL_DEBUG_HINT:-转换日志：$BIN_SUBCONVERTER_LOG}"
         return 1
     }
 
-    _with_profiles_lock _sub_update_locked "$name" "$url" "$path" "$_SUB_DL_FILE" "$FETCH_USERINFO"
+    _with_profiles_lock _sub_update_locked "$name" "$url" "$cfg_path" "$_SUB_DL_FILE" "$FETCH_USERINFO"
 }
 
 _sub_update_locked() {
-    local name=$1 url=$2 path=$3 dl_file=$4 userinfo=$5
+    local name=$1 url=$2 cfg_path=$3 dl_file=$4 userinfo=$5
 
     # 下载期间该订阅可能已被并发删除，锁内复检
     _sub_has "$name" || {
@@ -1009,7 +1019,7 @@ _sub_update_locked() {
     }
 
     _logging_sub "✅ 订阅更新成功：[$name] $url"
-    /bin/mv -f "$dl_file" "$path"
+    /bin/mv -f "$dl_file" "$cfg_path"
 
     local now
     now=$(date +"%Y-%m-%d %H:%M:%S")
