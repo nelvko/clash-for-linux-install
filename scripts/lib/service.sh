@@ -4,11 +4,31 @@ service_manager=
 service_log_path=
 service_pid_path=
 
+_sudo() {
+    if _is_root; then
+        "$@"
+    else
+        sudo "$@"
+    fi
+}
+
 detect_service_manager() {
     [ -n "$service_manager" ] && return 0
     [ -z "$INIT_TYPE" ] && INIT_TYPE=$(readlink /proc/1/exe 2>/dev/null || echo "nohup")
     grep -qsE "docker|kubepods|containerd|podman|lxc" /proc/1/cgroup 2>/dev/null && INIT_TYPE='nohup'
-    _is_root || INIT_TYPE='nohup'
+
+    if ! _is_root; then
+        if [ -f "/etc/systemd/system/${CLASHCTL_KERNEL}.service" ]; then
+            INIT_TYPE="systemd"
+        elif [ -f "/etc/init.d/${CLASHCTL_KERNEL}" ]; then
+            INIT_TYPE="init"
+        elif [ -d "/etc/sv/${CLASHCTL_KERNEL}" ]; then
+            INIT_TYPE="runit"
+        else
+            INIT_TYPE='nohup'
+        fi
+    fi
+
     INIT_TYPE=$(basename "$INIT_TYPE")
 
     case "$INIT_TYPE" in
@@ -45,16 +65,16 @@ service_start() {
     detect_service_manager
     case "$service_manager" in
     systemd)
-        systemctl start "$CLASHCTL_KERNEL"
+        _sudo systemctl start "$CLASHCTL_KERNEL"
         ;;
     sysvinit)
-        service "$CLASHCTL_KERNEL" start
+        _sudo service "$CLASHCTL_KERNEL" start
         ;;
     openrc)
-        rc-service "$CLASHCTL_KERNEL" start
+        _sudo rc-service "$CLASHCTL_KERNEL" start
         ;;
     runit)
-        sv up "$CLASHCTL_KERNEL"
+        _sudo sv up "$CLASHCTL_KERNEL"
         ;;
     nohup | *)
         (
@@ -65,8 +85,12 @@ service_start() {
 }
 
 service_sudo_start() {
-    _is_root && service_start && return 0
     detect_service_manager
+    if [ "$service_manager" != "nohup" ]; then
+        service_start
+        return $?
+    fi
+    _is_root && service_start && return 0
     (
         sudo sh -c "nohup '$BIN_KERNEL' -d '$CLASH_RESOURCES_DIR' -f '$CLASH_CONFIG_RUNTIME' </dev/null > '$service_log_path' 2>&1 &"
         stty opost 2>/dev/null
@@ -74,6 +98,11 @@ service_sudo_start() {
 }
 
 service_sudo_stop() {
+    detect_service_manager
+    if [ "$service_manager" != "nohup" ]; then
+        service_stop
+        return $?
+    fi
     _is_root && service_stop && return 0
     sudo pkill -TERM -x "$CLASHCTL_KERNEL" 2>/dev/null
     sleep 0.2
@@ -85,16 +114,16 @@ service_stop() {
     detect_service_manager
     case "$service_manager" in
     systemd)
-        systemctl stop "$CLASHCTL_KERNEL"
+        _sudo systemctl stop "$CLASHCTL_KERNEL"
         ;;
     sysvinit)
-        service "$CLASHCTL_KERNEL" stop
+        _sudo service "$CLASHCTL_KERNEL" stop
         ;;
     openrc)
-        rc-service "$CLASHCTL_KERNEL" stop
+        _sudo rc-service "$CLASHCTL_KERNEL" stop
         ;;
     runit)
-        sv down "$CLASHCTL_KERNEL"
+        _sudo sv down "$CLASHCTL_KERNEL"
         ;;
     nohup | *)
         pkill -TERM -x "$CLASHCTL_KERNEL" 2>/dev/null
@@ -108,16 +137,16 @@ service_restart() {
     detect_service_manager
     case "$service_manager" in
     systemd)
-        systemctl restart "$CLASHCTL_KERNEL"
+        _sudo systemctl restart "$CLASHCTL_KERNEL"
         ;;
     sysvinit)
-        service "$CLASHCTL_KERNEL" restart
+        _sudo service "$CLASHCTL_KERNEL" restart
         ;;
     openrc)
-        rc-service "$CLASHCTL_KERNEL" restart
+        _sudo rc-service "$CLASHCTL_KERNEL" restart
         ;;
     runit)
-        sv restart "$CLASHCTL_KERNEL"
+        _sudo sv restart "$CLASHCTL_KERNEL"
         ;;
     nohup | *)
         service_stop >/dev/null 2>&1

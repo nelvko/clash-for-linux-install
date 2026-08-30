@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+if [ -n "$SUDO_USER" ]; then
+    export HOME=$(eval echo "~$SUDO_USER")
+fi
+
 CLASHCTL_SRC="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 . "$CLASHCTL_SRC/scripts/preflight.sh"
 . "$CLASHCTL_SRC/scripts/cmd/off.sh"
