@@ -164,8 +164,8 @@ _install_reexec() {
 # 主体包进 main 函数：管道/下载截断只拿到半截时，bash 解析未闭合函数直接报语法错误、零执行
 main() {
     umask 077
-    local home=${CLASHCTL_HOME:-} branch=${CLASHCTL_UPDATE_BRANCH:-$_BRANCH_DEFAULT}
-    local kernel=${CLASHCTL_KERNEL:-mihomo} sub_url=
+    local home=${CLASHCTL_HOME:-} branch=$_BRANCH_DEFAULT
+    local kernel=mihomo sub_url=
     local proxy=${GH_PROXY-} home_source=default
     local source_dir=${CLASHCTL_LOCAL_SOURCE:-$CLASHCTL_SRC}
     local subscription_file=${CLASHCTL_SUBSCRIPTION_FILE:-} install_arg legacy_candidate
@@ -1031,7 +1031,7 @@ Options:
 检测到旧版安装（~/clashctl 布局）时会询问是否自动迁移订阅与配置。
 
 环境变量：CLASHCTL_HOME、GH_PROXY（或用 --gh-proxy 旗标指定，旗标优先）、
-CLASHCTL_DOWNLOAD_TIMEOUT、
+CLASHCTL_UPDATE_GIT_URL、CLASHCTL_DOWNLOAD_TIMEOUT、
 VERSION_MIHOMO/YQ/SUBCONVERTER/UI（显式设置即钉版）、SUBCONVERTER_REPO、
 CLASHCTL_SUBSCRIPTION_FILE、CLASHCTL_ALLOW_UNIT_OVERWRITE=1、CLASHCTL_COLOR、NO_COLOR。
 
