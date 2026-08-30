@@ -85,7 +85,11 @@ set_system_proxy() {
 _dump_proxy_env_fish() {
     local v val
     for v in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY; do
-        val=${!v}
+        if [ -n "$ZSH_VERSION" ]; then
+            val=${(P)v}
+        else
+            val=${!v}
+        fi
         [ -z "$val" ] && continue
         val=${val//\\/\\\\}
         val=${val//\'/\\\'}
