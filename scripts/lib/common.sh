@@ -117,7 +117,7 @@ _errorcat() {
 _dispwidth() {
     local s=$1 w=0 i c cp
     for ((i = 0; i < ${#s}; i++)); do
-        c=${s:i:1}
+        c=${s:$i:1}
         printf -v cp '%d' "'$c"
         if ((cp == 0xFE0F)); then
             ((w += 1)) # 变体选择符：补足前一字符到宽
@@ -145,6 +145,20 @@ _pad() {
     pad=$((target - w))
     ((pad < 0)) && pad=0
     printf '%s%*s' "$s" "$pad" ''
+}
+
+# bash 数组 0 基、zsh 数组 1 基：填充 _ARR_IDX 为 $1 数组在当前 shell 下的全部索引
+# 用法：_arr_indices <数组名>; for i in "${_ARR_IDX[@]}"; do ... "${arr[$i]}" ...; done
+_ARR_IDX=()
+_arr_indices() {
+    _ARR_IDX=()
+    if [ -n "$ZSH_VERSION" ]; then
+        local _ai_n _ai_i
+        eval "_ai_n=\${#$1[@]}"
+        for ((_ai_i = 1; _ai_i <= _ai_n; _ai_i++)); do _ARR_IDX+=("$_ai_i"); done
+    else
+        eval "_ARR_IDX=(\"\${!$1[@]}\")"
+    fi
 }
 
 _set_env() {
