@@ -166,7 +166,7 @@ main() {
     umask 077
     local home=${CLASHCTL_HOME:-} branch=${CLASHCTL_UPDATE_BRANCH:-$_BRANCH_DEFAULT}
     local kernel=${CLASHCTL_KERNEL:-mihomo} sub_url=
-    local proxy=${GH_PROXY-https://gh-proxy.org} home_source=default
+    local proxy=${GH_PROXY-} home_source=default
     local source_dir=${CLASHCTL_LOCAL_SOURCE:-$CLASHCTL_SRC}
     local subscription_file=${CLASHCTL_SUBSCRIPTION_FILE:-} install_arg legacy_candidate
     _install_private_locals sub_url
@@ -1000,7 +1000,7 @@ _fetch_into() {
             -C "$destination"; then
         /usr/bin/rm -f -- "$archive"
         _ui_error '下载安装文件失败'
-        _ui_detail '排查' '检查网络，或设置 GH_PROXY=<加速前缀> 后重试'
+        _ui_detail '排查' '检查网络，或加 --gh-proxy <加速前缀> 重试（也可用 GH_PROXY 环境变量）'
         return 1
     fi
     /usr/bin/rm -f -- "$archive"
@@ -1018,8 +1018,8 @@ Usage:
 Options:
   --home <路径>             安装路径（默认 ~/.clashctl）
   --branch <分支>           安装分支及后续更新分支（默认 master）
-  --gh-proxy <地址>         依赖下载加速前缀（置空为直连；优先于 GH_PROXY
-                            环境变量，选择将持久化到 .env）
+  --gh-proxy <地址>         依赖下载加速前缀（默认直连；置空同样为直连，
+                            优先于 GH_PROXY 环境变量，选择将持久化到 .env）
   --source-dir <路径>       从明确指定的本地源码目录安装
   --subscription-file <文件> 从权限受限的单行文件读取初始订阅 URL
   --allow-legacy-layout     显式接管并升级无安装标记的旧版目录

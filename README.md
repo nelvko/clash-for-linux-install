@@ -38,7 +38,7 @@
     exit 1
   }
 
-  bash "$installer"
+  bash "$installer" --gh-proxy https://gh-proxy.org
 )
 ```
 
@@ -61,7 +61,7 @@ bash "$installer" --non-interactive --take-over-service
 - 接管同名服务时会保存定义、运行状态及各服务管理器的精确自启链接；恢复时若发现管理员在安装后修改过相关链接，会停止并保留快照与备份。
 - 可追加 `mihomo|clash` 选择内核（`clashctl install <内核>` 可安装或切换，多内核并存于 `bin/<内核>/` 与同名服务单元）；交互安装会隐藏读取初始订阅，自动化安装应使用 `--subscription-file`，避免 URL 留在 Shell 历史中。完整选项可将最后一行改为 `bash "$installer" --help` 查看。
 - 面板与订阅转换组件（zashboard/subconverter）在首次使用 `clashctl ui` / `clashctl sub add` 时按需下载，无需预装。
-- 上述下载地址使用了[加速前缀](https://gh-proxy.org/)，如失效请更换其他[可用链接](https://ghproxy.link/)；依赖下载源可通过 `--gh-proxy <地址>` 旗标或 `GH_PROXY` 环境变量配置（旗标优先，置空为直连，安装后会持久化到 `.env`）。
+- 上述下载地址使用了[加速前缀](https://gh-proxy.org/)，如失效请更换其他[可用链接](https://ghproxy.link/)；依赖下载默认直连，加速前缀经 `--gh-proxy <地址>` 旗标或 `GH_PROXY` 环境变量指定（旗标优先，置空为直连，安装后会持久化到 `.env`）。
 
 - 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
 

@@ -6,9 +6,9 @@ _versions_env_file="$(dirname -- "${BASH_SOURCE[0]}")/../../versions.env"
 [ -f "$_versions_env_file" ] && . "$_versions_env_file"
 unset -v _versions_env_file
 
-# 下载默认值（.env 物化前或环境变量未设时兜底；GH_PROXY 显式置空 = 直连）
+# 下载默认值（.env 物化前或环境变量未设时兜底）；GH_PROXY 默认不设 = 直连，
+# 需要加速时经 --gh-proxy 旗标 / 环境变量 / .env 显式指定
 [ -n "${SUBCONVERTER_REPO:-}" ] || SUBCONVERTER_REPO=asdlokj1qpi233/subconverter
-[ "${GH_PROXY+x}" = x ] || GH_PROXY=https://gh-proxy.org
 [ "${CLASHCTL_DOWNLOAD_TIMEOUT+x}" = x ] || CLASHCTL_DOWNLOAD_TIMEOUT=60
 
 # 用户态全部在 data/（gitignore 目录），resources/ 只保留跟踪的资源文件

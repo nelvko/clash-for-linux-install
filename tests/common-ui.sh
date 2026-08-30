@@ -172,4 +172,12 @@ run_preflight_probe verbose 1
 assert_contains "$WORK_DIR/verbose/curl-args" --progress-bar 'verbose dependency download'
 assert_not_contains "$WORK_DIR/verbose/curl-args" --silent 'verbose dependency download'
 
+# GH_PROXY 无隐式默认：未显式提供时保持未设（直连），不再默认走第三方镜像
+no_proxy_probe="$WORK_DIR/no-proxy.probe"
+env -u GH_PROXY CLASHCTL_HOME="$WORK_DIR/no-proxy-home" CLASHCTL_SRC="$REPO_DIR" \
+    bash -c '. "$1/scripts/lib/common.sh" >/dev/null 2>&1; printf "%s" "${GH_PROXY-unset}"' \
+    _ "$REPO_DIR" >"$no_proxy_probe" 2>/dev/null
+assert_eq 'unset' "$(<"$no_proxy_probe")" 'GH_PROXY has no implicit default'
+
 printf 'common-ui: ok\n'
+
