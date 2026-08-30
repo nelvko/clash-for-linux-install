@@ -261,7 +261,7 @@ _download_archive() {
         /usr/bin/rm -f -- "$part"
         _ui_error "下载失败：$label"
         _ui_detail "目标" "$target"
-        _ui_detail "重试" "检查网络或 GH_PROXY 后重新运行安装脚本"
+        _ui_detail "重试" "检查网络或用 --gh-proxy 指定镜像；续装：bash ${CLASHCTL_HOME:-$HOME/.clashctl}/install.sh（慢链路可调大 CLASHCTL_DOWNLOAD_TIMEOUT）"
         return 1
     fi
     if ! _archive_is_valid "$part"; then

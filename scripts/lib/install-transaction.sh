@@ -5,6 +5,12 @@
 # 服务脚本（service.sh/service-enablement.sh）的正交机制原样复用。
 # 消费方：scripts/cmd/install.sh（clashctl install）与 test/ 事务测试。
 
+# 失败出口的续装命令：空壳态从家内安装器继续（全新 curl 安装器会被
+# 「拒绝换源」保护拦下，此处直接给出可达路径）
+_install_continue_command() {
+    printf 'bash %q/install.sh' "${CLASHCTL_HOME:-$HOME/.clashctl}"
+}
+
 # 参数化服务查询：与 service.sh 的全局版（detect_service_manager 探测后使用
 # service_manager）不同，这里按传入的 manager/kernel 查询——服务事务恢复必须
 # 以 journal 记录的 manager 为准，不能重新探测。
@@ -1005,7 +1011,7 @@ _install_report_retained_recovery() {
     fi
     _ui_detail '事务快照' "$journal"
     [ -z "$backup" ] || _ui_detail '服务备份' "$backup"
-    _ui_detail '重试' '解决上述冲突后重新运行安装，安装器会先重试恢复'
+    _ui_detail '重试' "解决上述冲突后运行 $(_install_continue_command)，安装器会先重试恢复"
 }
 
 _install_restore_service() {
@@ -1129,6 +1135,7 @@ _install_restore_service() {
         return 1
     fi
     _ui_warn '安装未完成，已恢复安装前的服务定义、自启与运行状态'
+    _ui_detail '继续' "修复后运行 $(_install_continue_command)（已加载 clashctl 时可直接 clashctl install）"
     return 0
 }
 
