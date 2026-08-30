@@ -57,21 +57,21 @@ _node_api_base() {
 # 统一 curl 封装：--noproxy '*' 避免走系统代理；secret 非空时带 Bearer
 # 用法：_node_curl <METHOD> <PATH> [额外 curl 参数...]
 _node_curl() {
-    local method=$1 path=$2
+    local method=$1 api_path=$2
     shift 2
     local secret base auth=()
     base=$(_node_api_base)
     secret=$(_get_secret)
     [ -n "$secret" ] && auth=(-H "Authorization: Bearer $secret")
     curl -s --noproxy '*' --max-time "${CLASHCTL_API_TIMEOUT:-10}" \
-        -X "$method" "${auth[@]}" "${base}${path}" "$@"
+        -X "$method" "${auth[@]}" "${base}${api_path}" "$@"
 }
 
 # 路径段 URL 编码（组/节点名常含空格、中文、emoji）；LC_ALL=C 按字节百分号编码
 _node_urlencode() {
     local LC_ALL=C s=$1 out='' c i
     for ((i = 0; i < ${#s}; i++)); do
-        c=${s:i:1}
+        c=${s:$i:1}
         case $c in
         [a-zA-Z0-9._~-]) out+=$c ;;
         *)
@@ -336,14 +336,16 @@ EOF
     }
 
     local i w namew=0 noww=0
-    for i in "${!names[@]}"; do
+    _arr_indices names
+    for i in "${_ARR_IDX[@]}"; do
         w=$(_dispwidth "${names[$i]}")
         ((w > namew)) && namew=$w
         w=$(_dispwidth "${nows[$i]}")
         ((w > noww)) && noww=$w
     done
 
-    for i in "${!names[@]}"; do
+    _arr_indices names
+    for i in "${_ARR_IDX[@]}"; do
         printf '  %s → %s  [%s]\n' \
             "$(_pad "${names[$i]}" "$namew")" \
             "$(_pad "${nows[$i]}" "$noww")" \
@@ -378,13 +380,15 @@ _node_list_members() {
     done < <(_node_proxies)
 
     local i w namew=0
-    for i in "${!members[@]}"; do
+    _arr_indices members
+    for i in "${_ARR_IDX[@]}"; do
         w=$(_dispwidth "${members[$i]}")
         ((w > namew)) && namew=$w
     done
 
     local marker
-    for i in "${!members[@]}"; do
+    _arr_indices members
+    for i in "${_ARR_IDX[@]}"; do
         marker=' '
         [ "${members[$i]}" = "$now" ] && marker='*'
         printf '  %s %s  [%s]\n' \
@@ -448,12 +452,13 @@ _node_pick_group() {
     }
     # 仅一个组时自动选中
     [ ${#names[@]} -eq 1 ] && {
-        printf '%s\n' "${names[0]}"
+        printf '%s\n' "${names[@]}"
         return 0
     }
 
     local w namew=0 noww=0
-    for i in "${!names[@]}"; do
+    _arr_indices names
+    for i in "${_ARR_IDX[@]}"; do
         w=$(_dispwidth "${names[$i]}")
         ((w > namew)) && namew=$w
         w=$(_dispwidth "${nows[$i]:-—}")
@@ -465,7 +470,8 @@ _node_pick_group() {
         preview_dir=$(_node_fzf_preview_dir)
         if [ -n "$preview_dir" ]; then
             preview_args=(--preview "$(_node_fzf_preview_cmd)" --preview-window='right:45%:wrap')
-            for i in "${!names[@]}"; do
+            _arr_indices names
+            for i in "${_ARR_IDX[@]}"; do
                 {
                     printf '策略组\n'
                     printf '  名称：%s\n' "${names[$i]}"
@@ -491,7 +497,8 @@ _node_pick_group() {
             done
         fi
         selected=$(
-            for i in "${!names[@]}"; do
+            _arr_indices names
+            for i in "${_ARR_IDX[@]}"; do
                 printf '%s\t%s\t%s → %s  [%s]\n' \
                     "$((i + 1))" \
                     "${names[$i]}" \
@@ -521,7 +528,8 @@ _node_pick_group() {
     # 与 ls 一致：[序号] 名字 → 当前节点 [type]，按显示宽度对齐
     local tok idxw=${#names[@]}
     idxw=${#idxw} # 序号位数；[n] 整体左对齐补齐到 idxw+2
-    for i in "${!names[@]}"; do
+    _arr_indices names
+    for i in "${_ARR_IDX[@]}"; do
         tok="[$((i + 1))]"
         printf '  %-*s %s → %s  [%s]\n' \
             $((idxw + 2)) "$tok" \
@@ -556,7 +564,8 @@ _node_pick_proxy() {
     }
 
     local w namew=0
-    for i in "${!names[@]}"; do
+    _arr_indices names
+    for i in "${_ARR_IDX[@]}"; do
         w=$(_dispwidth "${names[$i]}")
         ((w > namew)) && namew=$w
     done
@@ -566,7 +575,8 @@ _node_pick_proxy() {
         preview_dir=$(_node_fzf_preview_dir)
         if [ -n "$preview_dir" ]; then
             preview_args=(--preview "$(_node_fzf_preview_cmd)" --preview-window='right:45%:wrap')
-            for i in "${!names[@]}"; do
+            _arr_indices names
+            for i in "${_ARR_IDX[@]}"; do
                 {
                     printf '节点\n'
                     printf '  名称：%s\n' "${names[$i]}"
@@ -575,7 +585,8 @@ _node_pick_proxy() {
             done
         fi
         selected=$(
-            for i in "${!names[@]}"; do
+            _arr_indices names
+            for i in "${_ARR_IDX[@]}"; do
                 printf '%s\t%s\t%s  [%s]\n' \
                     "$((i + 1))" \
                     "${names[$i]}" \
@@ -603,7 +614,8 @@ _node_pick_proxy() {
 
     local tok idxw=${#names[@]}
     idxw=${#idxw}
-    for i in "${!names[@]}"; do
+    _arr_indices names
+    for i in "${_ARR_IDX[@]}"; do
         tok="[$((i + 1))]"
         printf '  %-*s %s  [%s]\n' $((idxw + 2)) "$tok" "${names[$i]}" "${types[$i]}" >&2
     done
@@ -650,7 +662,8 @@ _node_pick_member() {
 
     local delayw=0 namew=0 w pad
     if [ "$with_delay" = true ]; then
-        for i in "${!members[@]}"; do
+        _arr_indices members
+        for i in "${_ARR_IDX[@]}"; do
             w=$(_dispwidth "${members[$i]}")
             ((w > namew)) && namew=$w
             delay_label=$(_node_delay_label "${delays[${members[$i]}]:-}")
@@ -673,7 +686,8 @@ _node_pick_member() {
         preview_dir=$(_node_fzf_preview_dir)
         if [ -n "$preview_dir" ]; then
             preview_args=(--preview "$(_node_fzf_preview_cmd)" --preview-window='right:45%:wrap')
-            for i in "${!members[@]}"; do
+            _arr_indices members
+            for i in "${_ARR_IDX[@]}"; do
                 {
                     printf '节点\n'
                     printf '  名称：%s\n' "${members[$i]}"
@@ -693,7 +707,8 @@ _node_pick_member() {
         fi
 
         selected=$(
-            for i in "${!members[@]}"; do
+            _arr_indices members
+            for i in "${_ARR_IDX[@]}"; do
                 marker=' '
                 [ "${members[$i]}" = "$now" ] && marker='*'
                 if [ "$with_delay" = true ]; then
@@ -731,7 +746,8 @@ _node_pick_member() {
 
     local marker tok idxw=${#members[@]}
     idxw=${#idxw} # 序号位数；[n] 整体左对齐补齐到 idxw+2，使括号紧凑且名字列对齐
-    for i in "${!members[@]}"; do
+    _arr_indices members
+    for i in "${_ARR_IDX[@]}"; do
         marker=' '
         [ "${members[$i]}" = "$now" ] && marker='*'
         tok="[$((i + 1))]"
