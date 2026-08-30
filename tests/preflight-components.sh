@@ -431,12 +431,69 @@ assert_eq '<html>old-ui</html>' "$(<"$CLASH_RESOURCES_DIR/dist/index.html")" \
     'extraction failure preserved Web UI'
 assert_no_stages
 
+# ── 系统 yq 复用：版本门（mikefarah v4 才兼容）与下载跳过 ──
+fake_bin="$WORK_DIR/fake-path-bin"
+mkdir -p -- "$fake_bin"
+
+make_fake_yq() {
+    printf '#!/usr/bin/env bash\necho "%s"\n' "$1" >"$fake_bin/yq"
+    chmod 0755 -- "$fake_bin/yq"
+}
+
+make_fake_yq 'yq (https://github.com/mikefarah/yq/) version v4.53.6'
+PATH="$fake_bin:$PATH" system_yq=$(_get_system_yq)
+assert_eq "$fake_bin/yq" "$system_yq" 'mikefarah v4 system yq is accepted'
+
+make_fake_yq 'yq 3.4.1'
+PATH="$fake_bin:$PATH" _get_system_yq 2>/dev/null &&
+    fail 'python-flavored system yq must be rejected'
+
+make_fake_yq 'yq (https://github.com/mikefarah/yq/) version v5.0.0'
+PATH="$fake_bin:$PATH" _get_system_yq 2>/dev/null &&
+    fail 'untested yq major version must be rejected'
+
+rm -f -- "$fake_bin/yq"
+
+# prepare_zip：系统 yq 可用且本地未装时跳过 yq 下载
+configure_home yq-skip
+make_fake_yq 'yq (https://github.com/mikefarah/yq/) version v4.53.6'
+_real_unzip_zip=$(declare -f unzip_zip)
+download_zip() {
+    printf '%s\n' "$*" >"$WORK_DIR/yq-skip-components"
+    case $* in *mihomo*) ZIP_MIHOMO=stub-mihomo.gz ;; esac
+    case $* in *yq*) ZIP_YQ=stub-yq.tgz ;; esac
+    return 0
+}
+unzip_zip() { return 0; }
+PATH="$fake_bin:$PATH" prepare_zip kernel yq
+assert_eq 'mihomo' "$(<"$WORK_DIR/yq-skip-components")" \
+    'compatible system yq skips the yq download'
+
+# 系统 yq 不兼容时照常下载
+make_fake_yq 'yq 3.4.1'
+PATH="$fake_bin:$PATH" prepare_zip kernel yq
+assert_eq 'mihomo yq' "$(<"$WORK_DIR/yq-skip-components")" \
+    'incompatible system yq still downloads yq'
+
+# 本地 bin/yq 已存在时不用系统副本（刷新语义不变）
+configure_home yq-local
+printf '#!/bin/sh\n' >"$BIN_BASE_DIR/yq"
+chmod 0755 -- "$BIN_BASE_DIR/yq"
+make_fake_yq 'yq (https://github.com/mikefarah/yq/) version v4.53.6'
+PATH="$fake_bin:$PATH" prepare_zip kernel yq
+assert_eq 'mihomo yq' "$(<"$WORK_DIR/yq-skip-components")" \
+    'existing local yq is refreshed rather than replaced by system copy'
+rm -f -- "$fake_bin/yq"
+unset -f download_zip
+eval "$_real_unzip_zip"
+
 # ── 部分组件集（provision_component 场景）：仅 UI 时其他组件不动 ──
 configure_home ui-only
 seed_existing_components
 stdout_file="$WORK_DIR/ui-only.stdout"
 stderr_file="$WORK_DIR/ui-only.stderr"
-ZIP_KERNEL= ZIP_YQ= ZIP_SUBCONVERTER= unzip_zip >"$stdout_file" 2>"$stderr_file" ||
+ZIP_KERNEL= ZIP_YQ= ZIP_SUBCONVERTER= ZIP_UI="$ARCHIVE_DIR/ui.zip" \
+    unzip_zip >"$stdout_file" 2>"$stderr_file" ||
     fail "ui-only provisioning failed: $(<"$stderr_file")"
 assert_eq old-kernel "$(<"$BIN_KERNEL")" 'ui-only provisioning keeps the kernel'
 assert_eq old-yq "$(<"$BIN_YQ")" 'ui-only provisioning keeps yq'

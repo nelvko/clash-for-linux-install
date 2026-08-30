@@ -36,7 +36,7 @@ prepare_zip() {
     # clashctl install 的无参编排只装 kernel+yq，subconverter/UI 由
     # clashctl ui / clashctl sub add 按需补装（provision_component）。
     local -a requested=("$@") normalized=() item
-    local kernel_zip
+    local kernel_zip system_yq
     case "${CLASHCTL_KERNEL}" in
     clash) kernel_zip=clash ;;
     *) kernel_zip=mihomo ;;
@@ -46,8 +46,18 @@ prepare_zip() {
     fi
     for item in "${requested[@]}"; do
         [ "$item" != kernel ] || item=$kernel_zip
+        # 系统 yq 兼容且本地未下载时复用系统副本，跳过下载（bin/yq 存在则照常刷新）
+        if [ "$item" = yq ] && [ ! -x "${BIN_BASE_DIR}/yq" ] &&
+            system_yq=$(_get_system_yq); then
+            _ui_info "复用系统 yq: $system_yq"
+            continue
+        fi
         normalized+=("$item")
     done
+    if [ ${#normalized[@]} -eq 0 ]; then
+        _ui_ok '依赖组件已就绪'
+        return 0
+    fi
 
     unset ZIP_KERNEL ZIP_YQ ZIP_SUBCONVERTER ZIP_UI
     download_zip "${normalized[@]}" || return 1
