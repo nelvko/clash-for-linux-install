@@ -431,6 +431,49 @@ assert_eq '<html>old-ui</html>' "$(<"$CLASH_RESOURCES_DIR/dist/index.html")" \
     'extraction failure preserved Web UI'
 assert_no_stages
 
+# ── 版本解析优先级：显式钉版 > 最新查询 > 内置钉版（v2 核心语义）──
+# 计数走文件：桩经 $( ) 子 shell 调用，变量副作用无法传回父 shell
+latest_query_log="$WORK_DIR/latest-queries"
+: >"$latest_query_log"
+_fetch_latest_tag() {
+    printf 'x' >>"$latest_query_log"
+    [ "${LATEST_QUERY_RC:-0}" -eq 0 ] && printf 'v1.2.3-latest\n' || return 1
+}
+resolve_out="$WORK_DIR/resolve.out"
+
+# 显式钉版：直接采用、不发起查询
+: >"$resolve_out"
+: >"$latest_query_log"
+VERSION_MIHOMO=v9.9.9-pin
+_resolve_version VERSION_MIHOMO MetaCubeX/mihomo >>"$resolve_out" 2>&1
+assert_eq v9.9.9-pin "$VERSION_MIHOMO" 'explicit pin wins and is kept'
+assert_eq 0 "$(wc -c <"$latest_query_log")" 'explicit pin skips the latest query'
+assert_contains "$resolve_out" '配置版本' 'pin source is labeled'
+
+# 未钉版：查询最新并采用
+: >"$resolve_out"
+: >"$latest_query_log"
+VERSION_MIHOMO=
+CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=0
+_resolve_version VERSION_MIHOMO MetaCubeX/mihomo >>"$resolve_out" 2>&1
+assert_eq v1.2.3-latest "$VERSION_MIHOMO" 'latest is used when unpinned'
+assert_eq 1 "$(wc -c <"$latest_query_log")" 'unpinned triggers exactly one latest query'
+assert_contains "$resolve_out" '最新版本' 'latest source is labeled'
+
+# 查询失败：回退内置钉版，且整批只警告一次
+: >"$resolve_out"
+: >"$latest_query_log"
+LATEST_QUERY_RC=1
+VERSION_MIHOMO= VERSION_YQ=
+CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=0
+_resolve_version VERSION_MIHOMO MetaCubeX/mihomo >>"$resolve_out" 2>&1
+_resolve_version VERSION_YQ mikefarah/yq >>"$resolve_out" 2>&1
+assert_eq "$DEFAULT_VERSION_MIHOMO" "$VERSION_MIHOMO" 'query failure falls back to built-in pin'
+assert_contains "$resolve_out" '内置钉版' 'fallback source is labeled'
+assert_eq 1 "$(grep -c '无法查询部分依赖' "$resolve_out")" \
+    'fallback warning fires exactly once per batch'
+unset LATEST_QUERY_RC
+
 # ── 系统 yq 复用：版本门（mikefarah v4 才兼容）与下载跳过 ──
 fake_bin="$WORK_DIR/fake-path-bin"
 mkdir -p -- "$fake_bin"
