@@ -7,7 +7,6 @@ Usage:
   clashctl COMMAND [OPTIONS]
 
 Commands:
-  install [内核]        安装/切换内核并初始化（mihomo|clash，默认 mihomo）
   on                    开启代理
   off                   关闭代理
   status                内核状态
