@@ -97,16 +97,9 @@ _fetch_latest_tag() {
 }
 
 _resolve_version() {
-    local varname=$1 repo=$2
-    local local_version="${!varname}"
+    local varname=$1 repo=$2 tag local_version
 
-    # 版本来源优先级：用户显式钉版（.env/环境变量）> 最新版本查询 > 内置钉版
-    if [ -n "$local_version" ]; then
-        _ui_detail "$repo" "$local_version（配置版本）"
-        return 0
-    fi
-
-    local tag
+    # 版本来源优先级：最新版本查询 > versions.env 内置钉版
     if tag=$(_fetch_latest_tag "$repo"); then
         printf -v "$varname" '%s' "$tag"
         _ui_detail "$repo" "$tag（最新版本）"
@@ -130,7 +123,7 @@ _resolve_version() {
     fi
 
     _ui_error "无法解析依赖版本：$repo"
-    _ui_detail "原因" "未配置版本、无内置钉版，且最新版本查询不可用"
+    _ui_detail "原因" "内置钉版缺失，且最新版本查询不可用"
     return 1
 }
 

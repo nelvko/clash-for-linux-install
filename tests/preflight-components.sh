@@ -431,7 +431,7 @@ assert_eq '<html>old-ui</html>' "$(<"$CLASH_RESOURCES_DIR/dist/index.html")" \
     'extraction failure preserved Web UI'
 assert_no_stages
 
-# ── 版本解析优先级：显式钉版 > 最新查询 > 内置钉版（v2 核心语义）──
+# ── 版本解析优先级：最新查询 > 内置钉版（用户钉版通道已移除）──
 # 计数走文件：桩经 $( ) 子 shell 调用，变量副作用无法传回父 shell
 latest_query_log="$WORK_DIR/latest-queries"
 : >"$latest_query_log"
@@ -440,15 +440,6 @@ _fetch_latest_tag() {
     [ "${LATEST_QUERY_RC:-0}" -eq 0 ] && printf 'v1.2.3-latest\n' || return 1
 }
 resolve_out="$WORK_DIR/resolve.out"
-
-# 显式钉版：直接采用、不发起查询
-: >"$resolve_out"
-: >"$latest_query_log"
-VERSION_MIHOMO=v9.9.9-pin
-_resolve_version VERSION_MIHOMO MetaCubeX/mihomo >>"$resolve_out" 2>&1
-assert_eq v9.9.9-pin "$VERSION_MIHOMO" 'explicit pin wins and is kept'
-assert_eq 0 "$(wc -c <"$latest_query_log")" 'explicit pin skips the latest query'
-assert_contains "$resolve_out" '配置版本' 'pin source is labeled'
 
 # 未钉版：查询最新并采用
 : >"$resolve_out"
