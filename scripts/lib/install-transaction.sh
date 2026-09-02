@@ -1358,7 +1358,7 @@ _install_complete() {
             _ui_detail '尝试加载' "$load_command"
         fi
     fi
-    [ "$subscription" != '未配置' ] || _ui_detail '添加订阅' 'clashctl sub add --use <URL>'
+    [ "$subscription" != '未配置' ] || _ui_detail '添加并启用订阅' 'clashctl sub add --use <URL>'
     _ui_detail '查看状态' 'clashctl status'
 }
 

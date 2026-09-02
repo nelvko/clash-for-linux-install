@@ -1194,7 +1194,7 @@ EOF
     _sub_load || return 1
 
     [ ${#_SUB_NAMES[@]} -eq 0 ] && {
-        _ui_info_out '暂无订阅，使用 clashctl sub add <url> 添加'
+        _ui_info_out '暂无订阅，使用 clashctl sub add --use <url> 添加并启用'
         return 0
     }
 

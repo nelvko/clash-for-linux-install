@@ -470,7 +470,7 @@ clashinstall() (
         subscription_status='本地配置'
         _ui_info '保留上次安装留下的本地配置'
     else
-        _ui_warn '未配置初始订阅；安装后可使用 clashctl sub add <URL> 添加'
+        _ui_warn '未配置初始订阅；安装后可使用 clashctl sub add --use <URL> 添加并启用'
     fi
 
     _ui_step '验证并完成安装'
