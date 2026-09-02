@@ -217,7 +217,7 @@ clashupdate_git() {
 
     # 重载当前 shell 的函数与 .env（其余已开终端不受影响）
     _update_reload_shell '更新' || return 1
-    _UPDATE_TERMINAL_RESULT='更新完成。当前 Shell 已自动加载新版本；其余已开终端重开生效'
+    _UPDATE_TERMINAL_RESULT='更新完成，当前 Shell 已自动加载新版本。'
     return 0
 }
 
@@ -427,7 +427,7 @@ clashupdate_archive() {
     ) || return 1
 
     _update_reload_shell '更新' || return 1
-    _UPDATE_TERMINAL_RESULT='更新完成。当前 Shell 已自动加载新版本；其余已开终端重开生效'
+    _UPDATE_TERMINAL_RESULT='更新完成，当前 Shell 已自动加载新版本。'
     return 0
 }
 
