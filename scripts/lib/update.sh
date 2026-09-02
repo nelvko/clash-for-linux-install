@@ -305,6 +305,7 @@ _update_runtime_refresh() {
                 _errorcat '代理服务未能恢复运行，请检查代理内核日志'
                 return 1
             }
+            _ui_ok_out '代理服务已恢复运行'
         fi
         return 0
     fi
@@ -318,6 +319,7 @@ _update_runtime_refresh() {
         _errorcat '配置已生成，但服务重启失败，请检查代理内核日志'
         return 1
     fi
+    _ui_ok_out '运行配置已变更，服务已重载'
     return 0
 }
 

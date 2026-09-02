@@ -205,8 +205,10 @@ clashupdate_git() {
         fi
         _update_release_lock
         _ui_ok_out "版本：${prev:0:7} → ${fetch_head:0:7}"
-        if [ -f "$CLASH_CONFIG_MIXIN" ]; then
-            _ui_warn "mixin.yaml 保留用户版本，上游模板改进需手动对照 ${CLASH_RESOURCES_DIR}/mixin.yaml.example"
+        if [ -f "$CLASH_CONFIG_MIXIN" ] &&
+            git -C "$CLASHCTL_HOME" diff --name-only "$prev" "$fetch_head" --
+                resources/mixin.yaml.example 2>/dev/null | grep -q .; then
+            _ui_warn "mixin.yaml 保留用户版本，上游模板本次有更新，可对照 ${CLASH_RESOURCES_DIR}/mixin.yaml.example"
         fi
         exit 0
     )
@@ -215,7 +217,7 @@ clashupdate_git() {
 
     # 重载当前 shell 的函数与 .env（其余已开终端不受影响）
     _update_reload_shell '更新' || return 1
-    _UPDATE_TERMINAL_RESULT='更新完成。建议执行 exec bash 或新开终端加载新函数'
+    _UPDATE_TERMINAL_RESULT='更新完成。当前 Shell 已自动加载新版本；其余已开终端重开生效'
     return 0
 }
 
@@ -365,6 +367,8 @@ clashupdate_archive() {
 
         # 替换代码面（data/、.env、bin/、dist/ 不在清单内）
         _ui_step '部署更新文件'
+        mixin_example_before=$(sha256sum -- "$CLASH_RESOURCES_DIR/mixin.yaml.example" 2>/dev/null ||
+            printf 'none')
         for item in "${_UPDATE_ARCHIVE_PATHS[@]}"; do
             [ -e "${tmp:?}/${item}" ] || continue
             /usr/bin/rm -rf -- "${CLASHCTL_HOME:?}/${item}"
@@ -415,10 +419,15 @@ clashupdate_archive() {
         _update_release_lock
         _ui_info_out "备份：$backup"
         _ui_info_out "版本：${rev:-unknown} → ${remote:-unknown}"
+        mixin_example_after=$(sha256sum -- "$CLASH_RESOURCES_DIR/mixin.yaml.example" 2>/dev/null ||
+            printf 'none')
+        if [ -f "$CLASH_CONFIG_MIXIN" ] && [ "$mixin_example_before" != "$mixin_example_after" ]; then
+            _ui_warn "mixin.yaml 保留用户版本，上游模板本次有更新，可对照 ${CLASH_RESOURCES_DIR}/mixin.yaml.example"
+        fi
     ) || return 1
 
     _update_reload_shell '更新' || return 1
-    _UPDATE_TERMINAL_RESULT='更新完成。建议执行 exec bash 或新开终端加载新函数'
+    _UPDATE_TERMINAL_RESULT='更新完成。当前 Shell 已自动加载新版本；其余已开终端重开生效'
     return 0
 }
 
