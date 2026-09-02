@@ -205,9 +205,7 @@ clashupdate_git() {
         fi
         _update_release_lock
         _ui_ok_out "版本：${prev:0:7} → ${fetch_head:0:7}"
-        if [ -f "$CLASH_CONFIG_MIXIN" ] &&
-            git -C "$CLASHCTL_HOME" diff --name-only "$prev" "$fetch_head" --
-                resources/mixin.yaml.example 2>/dev/null | grep -q .; then
+        if [ -f "$CLASH_CONFIG_MIXIN" ] && git -C "$CLASHCTL_HOME" diff --name-only "$prev" "$fetch_head" -- resources/mixin.yaml.example 2>/dev/null | grep -q .; then
             _ui_warn "mixin.yaml 保留用户版本，上游模板本次有更新，可对照 ${CLASH_RESOURCES_DIR}/mixin.yaml.example"
         fi
         exit 0
