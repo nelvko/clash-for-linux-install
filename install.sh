@@ -460,14 +460,16 @@ main() {
     _require_empty_home "$home" || return 1
 
     if [ "$_INSTALL_HOME_STATE" = resume ]; then
-        # 旧版原地接管（--allow-legacy-layout）：resources/ 里是用户数据而非仓库
-        # 模板，刷新会整目录替换——先把数据就地迁入 data/（新版的标准位置）
-        if [ -f "$home/resources/profiles.yaml" ] && [ ! -f "$home/data/profiles.yaml" ]; then
+        # 旧版原地接管（--allow-legacy-layout，旗标见 _require_empty_home）：
+        # resources/ 里是用户数据，刷新会整目录替换——先把数据就地迁入 data/
+        if [ "${_INSTALL_LEGACY_TAKEOVER:-0}" = 1 ]; then
             _ui_step '迁移旧版数据到 data/'
             /usr/bin/install -d -m 0700 "$home/data" "$home/data/profiles" || return 1
+            local legacy_item
             for legacy_item in config.yaml mixin.yaml profiles.yaml; do
-                [ -f "$home/resources/$legacy_item" ] &&
-                    /usr/bin/install -m 0600 "$home/resources/$legacy_item"                         "$home/data/$legacy_item" || return 1
+                [ -f "$home/resources/$legacy_item" ] || continue
+                /usr/bin/install -m 0600 "$home/resources/$legacy_item" \
+                    "$home/data/$legacy_item" || return 1
             done
             if [ -d "$home/resources/profiles" ]; then
                 cp -a -- "$home/resources/profiles/." "$home/data/profiles/" || return 1
@@ -941,20 +943,20 @@ _already_installed() {
 }
 
 _install_report_incomplete_home() {
-    local home=${_INSTALL_TARGET_HOME:-${CLASHCTL_HOME:-}}
-    [ "${_INSTALL_INCOMPLETE_SUMMARY_SHOWN:-0}" != 1 ] || return 0
-    [ "${_INSTALL_HOME_STATE:-}" = resume ] || return 0
-    [ -n "$home" ] && [ -d "$home" ] && [ ! -L "$home" ] || return 0
-    [ ! -e "$home/.env" ] && [ ! -L "$home/.env" ] || return 0
-    _install_marker_validate "$home" >/dev/null 2>&1 || return 0
-    _install_layout_is_trusted "$home" >/dev/null 2>&1 || return 0
-
-    _ui_blank
-    _ui_error '安装未完成；安装目录和运行数据已保留'
-    _ui_detail '目录' "$home"
-    _ui_detail '继续原安装' '审核目录内的 install.sh 后，直接运行它；安装器会重新校验该目录'
-    _ui_detail '全新安装' '先备份 data/ 和 archives/（如需），确认备份后删除整个安装目录，再重新安装'
+    local home=${_INSTALL_TARGET_HOME:-${CLASHCTL_HOME:-}} quoted
+    [ "${_INSTALL_INCOMPLETE_SUMMARY_SHOWN:-0}" = 0 ] || return 0
+    [ -n "$home" ] || return 0
+    _install_marker_validate "$home" || return 0
+    _install_layout_is_trusted "$home" || return 0
+    [ -f "$home/.env" ] && return 0
     _INSTALL_INCOMPLETE_SUMMARY_SHOWN=1
+    printf -v quoted 'bash %q --branch %q' "$home/install.sh" \
+        "${CLASHCTL_UPDATE_BRANCH:-$_BRANCH_DEFAULT}"
+    _ui_blank
+    _ui_warn "本次未能完成安装，目录和已有数据已保留: $home"
+    _ui_detail '继续安装' "$quoted"
+    _ui_detail '全新安装' "备份需要的文件后删除 $home，再重新运行安装命令"
+    return 0
 }
 
 # 空壳自动续装的源刷新：把未完成安装的程序文件换成本次安装器拉到的
@@ -1134,6 +1136,9 @@ _require_empty_home() {
             _already_installed "$home"
             return 1
         fi
+        # 旧版原地接管专属旗标：resources/ 里是用户数据。v2 空壳的 resources/
+        # 只是仓库种子模板，文件特征与旧版完全重叠，只能靠本旗标区分
+        _INSTALL_LEGACY_TAKEOVER=1
         _INSTALL_HOME_STATE=resume
         return 0
     fi
