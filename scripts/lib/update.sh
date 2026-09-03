@@ -7,7 +7,7 @@ _UPDATE_REPO=nelvko/clash-for-linux-install
 
 _update_require_install() {
     if [ ! -d "$CLASHCTL_HOME" ] || [ ! -f "${CLASHCTL_HOME}/.env" ]; then
-        _errorcat "未检测到已安装的 clashctl（${CLASHCTL_HOME}），请先运行 install.sh 安装"
+        _errorcat "未检测到已安装的 clashctl（${CLASHCTL_HOME}），请先运行 clashctl install 完成初始化"
         return 1
     fi
     return 0

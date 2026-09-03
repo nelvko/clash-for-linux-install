@@ -32,18 +32,18 @@ valid_required() {
 }
 
 prepare_zip() {
-    # 组件集合可由参数指定（kernel 关键字映射为当前内核）；缺省全套。
-    # clashctl install 的无参编排只装 kernel+yq，subconverter/UI 由
-    # clashctl ui / clashctl sub add 按需补装（provision_component）。
+    # 组件集合显式传参（kernel 关键字映射为当前内核）。clashctl install 的
+    # 无参编排传 kernel yq；subconverter/UI 由 provision_component 按需补装。
     local -a requested=("$@") normalized=() item
     local kernel_zip system_yq
     case "${CLASHCTL_KERNEL}" in
     clash) kernel_zip=clash ;;
     *) kernel_zip=mihomo ;;
     esac
-    if [ ${#requested[@]} -eq 0 ]; then
-        requested=(kernel yq subconverter ui)
-    fi
+    (($#)) || {
+        _ui_error 'prepare_zip 需要显式组件列表'
+        return 1
+    }
     for item in "${requested[@]}"; do
         [ "$item" != kernel ] || item=$kernel_zip
         # 系统 yq 兼容且本地未下载时复用系统副本，跳过下载（bin/yq 存在则照常刷新）

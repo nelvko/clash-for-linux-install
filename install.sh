@@ -210,12 +210,18 @@ main() {
     local proxy=${GH_PROXY-} home_source=default
     local source_dir=${CLASHCTL_LOCAL_SOURCE:-$CLASHCTL_SRC}
     local subscription_file=${CLASHCTL_SUBSCRIPTION_FILE:-} install_arg legacy_candidate
+    case $subscription_file in
+    http://* | https://* | file://*)
+        _ui_error 'CLASHCTL_SUBSCRIPTION_FILE 需要文件路径而非 URL（URL 不进环境）'
+        _ui_detail '自动化' '将 URL 写入权限为 0600 的单行文件后改用 --subscription-file'
+        return 1
+        ;;
+    esac
     _install_private_locals sub_url
     [ -z "${CLASHCTL_HOME:-}" ] || home_source=CLASHCTL_HOME
     # 未指定安装路径时：脚本自身就在一个已标记的安装目录里（典型：按提示
     # 重跑目录内 install.sh 续装）→ 以脚本目录为安装目录，续装命令免 --home
-    if [ -z "$home" ] && [ "${home_source:-}" != --home ] &&
-        _install_marker_validate "$_INSTALL_SCRIPT_DIR"; then
+    if [ -z "$home" ] && _install_marker_validate "$_INSTALL_SCRIPT_DIR"; then
         home=$_INSTALL_SCRIPT_DIR
         home_source=script-dir
     fi
@@ -379,6 +385,8 @@ main() {
         home_branch=$(git -C "$home" rev-parse --abbrev-ref HEAD 2>/dev/null) &&
             [ -n "$home_branch" ] && [ "$home_branch" != HEAD ] &&
             branch=$home_branch
+        [ "$branch" = "${home_branch:-}" ] ||
+            _ui_warn "未能读取安装目录的现有分支，按默认分支 $branch 继续"
     fi
     _install_validate_input '安装路径' "$home" || return 1
     _install_validate_input '分支名称' "$branch" || return 1
@@ -452,11 +460,26 @@ main() {
     _require_empty_home "$home" || return 1
 
     if [ "$_INSTALL_HOME_STATE" = resume ]; then
+        # 旧版原地接管（--allow-legacy-layout）：resources/ 里是用户数据而非仓库
+        # 模板，刷新会整目录替换——先把数据就地迁入 data/（新版的标准位置）
+        if [ -f "$home/resources/profiles.yaml" ] && [ ! -f "$home/data/profiles.yaml" ]; then
+            _ui_step '迁移旧版数据到 data/'
+            /usr/bin/install -d -m 0700 "$home/data" "$home/data/profiles" || return 1
+            for legacy_item in config.yaml mixin.yaml profiles.yaml; do
+                [ -f "$home/resources/$legacy_item" ] &&
+                    /usr/bin/install -m 0600 "$home/resources/$legacy_item"                         "$home/data/$legacy_item" || return 1
+            done
+            if [ -d "$home/resources/profiles" ]; then
+                cp -a -- "$home/resources/profiles/." "$home/data/profiles/" || return 1
+                chmod 0600 -- "$home/data/profiles"/*.yaml 2>/dev/null || true
+            fi
+            _ui_ok "旧版数据已迁入 $home/data"
+        fi
         if [ "${CLASHCTL_SRC:-}" != "$home" ]; then
             # 空壳自动续装：先把程序文件刷到本次安装器的最新版，失败才降级
             # 为原地续装指引（离线时可跑旧代码完成）
             if ! _install_refresh_source "$home" "$branch" "$proxy"; then
-                _ui_warn '未能刷新程序文件，可按下方指引用现有文件续装'
+                _ui_warn '未能刷新程序文件（目录可能已部分更新），可按下方指引用现有文件续装'
                 _install_refuse_incomplete_source_change \
                     "$home" "$branch" "$kernel" "$subscription_file"
                 return 1
@@ -934,15 +957,6 @@ _install_report_incomplete_home() {
     _INSTALL_INCOMPLETE_SUMMARY_SHOWN=1
 }
 
-# clashctl 命令是否已对用户可用：当前 shell 已加载函数，或 rc 托管块已写入。
-# 空壳态 apply_rc 尚未执行——此时指路 clashctl install 是死路，须指安装脚本。
-_install_clashctl_integrated() {
-    declare -F clashctl >/dev/null 2>&1 && return 0
-    command -v clashctl >/dev/null 2>&1 && return 0
-    grep -Fqs '# >>> clashctl >>>' "${HOME}/.bashrc" 2>/dev/null && return 0
-    [ -f "${HOME}/.config/fish/conf.d/clashctl.fish" ]
-}
-
 # 空壳自动续装的源刷新：把未完成安装的程序文件换成本次安装器拉到的
 # 最新版本，用户数据（data/）、下载缓存（archives/）、标记、事务 journal、
 # bin/ 一律保留。git 家走 fetch+checkout（同 clashctl update 机制，天然
@@ -987,6 +1001,7 @@ _install_refresh_source() {
             url="https://github.com/${_REPO}.git"
             [ -n "$proxy" ] && url="${proxy%/}/${url}"
         }
+        refresh_origin_before=$(git -C "$home" remote get-url origin 2>/dev/null || printf '')
         if git -C "$home" remote set-url origin "$url" &&
             git -C "$home" -c gc.auto=0 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 \
                 fetch -q --depth 50 origin -- "$branch" &&
@@ -995,6 +1010,8 @@ _install_refresh_source() {
             _ui_ok '程序文件已刷新至最新'
             return 0
         fi
+        [ -z "$refresh_origin_before" ] ||
+            git -C "$home" remote set-url origin "$refresh_origin_before" 2>/dev/null || :
         _ui_warn 'Git 刷新未完成安装失败，尝试重新下载'
     fi
 
@@ -1009,11 +1026,21 @@ _install_refresh_source() {
 
 # 按清单把 stage 的程序文件替换进 home（用户数据/缓存/标记/journal不动）
 _install_refresh_apply() {
-    local home=$1 stage=$2 item refresh_rc=0
+    local home=$1 stage=$2 item incoming refresh_rc=0
     for item in "${_INSTALL_REFRESH_PATHS[@]}"; do
         [ -e "$stage/$item" ] || continue
+        # 先拷入同目录暂存名再交换，避免拷贝中途失败留下空洞
+        incoming="${home}/${item}.clashctl-incoming.$$"
+        cp -a -- "$stage/$item" "$incoming" || {
+            rm -rf -- "$incoming"
+            refresh_rc=1
+            continue
+        }
         rm -rf -- "$home/$item"
-        cp -a -- "$stage/$item" "$home/$item" || refresh_rc=1
+        /bin/mv -f -- "$incoming" "$home/$item" || {
+            refresh_rc=1
+            continue
+        }
     done
     _install_discard_stage "$stage" || true
     [ "$refresh_rc" -eq 0 ] || return 1
@@ -1041,12 +1068,7 @@ _install_refuse_incomplete_source_change() {
     _ui_error "上次安装没有完成，本次已停止（未做任何修改）"
     _ui_detail '安装目录' "$home"
     _ui_detail '现状' '程序文件已就位，内核与服务尚未安装'
-    if _install_clashctl_integrated; then
-        _ui_detail '继续安装（推荐）' 'clashctl install'
-        _ui_detail '或' "$resume_command"
-    else
-        _ui_detail '继续安装（推荐）' "$resume_command"
-    fi
+    _ui_detail '继续安装（推荐）' "$resume_command"
     _ui_detail '重新开始' "备份需要的文件后删除 $home，再重新运行安装命令"
     _INSTALL_INCOMPLETE_SUMMARY_SHOWN=1
 }

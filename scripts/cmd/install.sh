@@ -223,6 +223,12 @@ clashinstall() (
                 _ui_error '--subscription-file 缺少文件路径'
                 return 1
             }
+            case $1 in
+            http://* | https://* | file://*)
+                _ui_error '--subscription-file 需要文件路径而非 URL（URL 不进命令行）'
+                return 1
+                ;;
+            esac
             subscription_file=$1
             ;;
         --subscription-file=*)
@@ -253,6 +259,12 @@ clashinstall() (
             _ci_help
             return 0
             ;;
+        http://* | https://* | file://*)
+            _ui_error '不再支持把订阅链接直接放入命令行，以免写入 Shell 历史或进程参数'
+            _ui_detail '自动化' '将 URL 写入权限为 0600 的单行文件，再使用 --subscription-file'
+            _ui_detail '交互安装' '省略订阅参数，稍后在隐藏输入提示中填写'
+            return 1
+            ;;
         *)
             _ui_error '存在未知参数；参数内容未回显'
             _ci_help >&2
@@ -281,8 +293,9 @@ clashinstall() (
 
     kernel=${kernel:-${CLASHCTL_KERNEL:-mihomo}}
     branch=${branch:-${CLASHCTL_UPDATE_BRANCH:-master}}
-    [ "${CLASHCTL_NON_INTERACTIVE:-}" != 1 ] || [ "${CI+x}" != x ] ||
+    if [ "${CLASHCTL_NON_INTERACTIVE:-}" = 1 ] || [ "${CI+x}" = x ]; then
         _ui_info '非交互环境：缺少订阅时将跳过初始订阅'
+    fi
     trap '_ci_exit_guard $?' EXIT
 
     export CLASHCTL_HOME CLASHCTL_KERNEL="$kernel" CLASHCTL_UPDATE_BRANCH="$branch"
@@ -328,7 +341,7 @@ clashinstall() (
 
     if [ -n "$subscription_file" ]; then
         sub_url=$(_ci_read_subscription_file "$subscription_file") || return 1
-    elif [ -z "$sub_url" ] && [ "${CLASHCTL_NON_INTERACTIVE:-}" != 1 ] &&
+    elif [ "${CLASHCTL_NON_INTERACTIVE:-}" != 1 ] &&
         [ "${CI+x}" != x ] && [ -t 0 ] && [ -t 2 ]; then
         sub_url=$(_ci_read_subscription) || return 1
         [ -z "$sub_url" ] || _ui_info '已接收初始订阅（链接不会写入安装输出）'

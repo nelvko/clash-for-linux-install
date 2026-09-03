@@ -419,7 +419,7 @@ _start_convert() {
         _ui_info '订阅转换组件未安装，正在按需下载…'
         _ci_provision subconverter || {
             _errorcat "subconverter 安装失败：$BIN_SUBCONVERTER_DIR"
-            _errorcat "可运行 clashctl install 补全全部组件后重试"
+            _errorcat "请稍后重试本命令；网络受限可在 .env 配置 GH_PROXY"
             return 1
         }
     fi

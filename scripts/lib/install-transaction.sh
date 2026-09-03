@@ -449,7 +449,6 @@ _install_impact_scan() {
         _ui_detail '非交互授权' '添加 --take-over-service'
         _ui_detail '保留目录' "$home"
         _ui_detail '继续安装' '使用相同参数重试；安装器会复用可信的未完成目录'
-        _INSTALL_INCOMPLETE_SUMMARY_SHOWN=1
     else
         if [ "$enablement_only" -eq 1 ]; then
             _ui_info '安装已取消；残留服务状态未被修改'
@@ -463,7 +462,6 @@ _install_impact_scan() {
             _ui_detail '继续安装' '重新运行安装命令，并在确认后接管服务'
         fi
         _ui_detail '放弃安装' '确认目录内无所需数据后，可删除上述未完成安装目录'
-        _INSTALL_INCOMPLETE_SUMMARY_SHOWN=1
     fi
     return 1
 }

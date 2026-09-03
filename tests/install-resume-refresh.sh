@@ -182,10 +182,8 @@ rc=0
 HOME="$rc_fake_user" main --home "$rc_home" --branch iu --non-interactive \
     >"$WORK_DIR/rc.stdout" 2>"$WORK_DIR/rc.stderr" || rc=$?
 assert_eq 1 "$rc" 'rc-integrated rejection still refuses'
-assert_contains "$WORK_DIR/rc.stderr" '继续安装（推荐）: clashctl install' \
-    'rc-integrated rejection recommends the short command'
-assert_contains "$WORK_DIR/rc.stderr" '或: bash' \
-    'rc-integrated rejection keeps the script path as secondary fallback'
+assert_contains "$WORK_DIR/rc.stderr" '继续安装（推荐）: bash' \
+    'rejection always recommends the in-home script'
 grep -Fqs '# >>> clashctl >>>' "$WORK_DIR/rc.stderr" && fail 'marker leaked into output'
 
 # ── 智能默认：目录内 install.sh 免 --home 续装 ──

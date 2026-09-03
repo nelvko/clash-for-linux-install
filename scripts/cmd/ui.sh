@@ -6,7 +6,7 @@ clashui() {
         _ui_info '面板资源未安装，正在按需下载…'
         _ci_provision ui || {
             _ui_error '面板资源下载失败'
-            _ui_detail '重试' 'clashctl install（补全全部组件）或稍后再试 clashctl ui'
+            _ui_detail '重试' '稍后再试 clashctl ui；网络受限可在 .env 配置 GH_PROXY'
             return 1
         }
     fi

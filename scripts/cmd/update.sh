@@ -298,7 +298,7 @@ clashupdate_rollback() {
     fi
 
     _update_reload_shell '回退' || return 1
-    _UPDATE_TERMINAL_RESULT='回退完成。建议新开终端加载旧函数'
+    _UPDATE_TERMINAL_RESULT='回退完成。当前 Shell 已自动加载旧版本；其余已开终端重开生效'
     return 0
 }
 
