@@ -212,6 +212,13 @@ main() {
     local subscription_file=${CLASHCTL_SUBSCRIPTION_FILE:-} install_arg legacy_candidate
     _install_private_locals sub_url
     [ -z "${CLASHCTL_HOME:-}" ] || home_source=CLASHCTL_HOME
+    # 未指定安装路径时：脚本自身就在一个已标记的安装目录里（典型：按提示
+    # 重跑目录内 install.sh 续装）→ 以脚本目录为安装目录，续装命令免 --home
+    if [ -z "$home" ] && [ "${home_source:-}" != --home ] &&
+        _install_marker_validate "$_INSTALL_SCRIPT_DIR"; then
+        home=$_INSTALL_SCRIPT_DIR
+        home_source=script-dir
+    fi
 
     if [ -n "${CLASHCTL_SUB_URL:-}" ]; then
         _ui_error '不再支持通过 CLASHCTL_SUB_URL 传递订阅链接，以免泄漏到子进程环境'
@@ -498,6 +505,7 @@ _install_plan() {
     case $home_source in
     default) home_source=默认 ;;
     CLASHCTL_HOME) home_source=CLASHCTL_HOME ;;
+    script-dir) home_source=脚本目录 ;;
     --home) home_source='--home' ;;
     esac
     [ "$(id -u)" -ne 0 ] || privilege=root
@@ -909,10 +917,10 @@ _install_clashctl_integrated() {
 _install_refuse_incomplete_source_change() {
     local home=$1 branch=$2 kernel=$3 subscription_file=${4:-}
     local argument quoted resume_command
-    local -a resume_args=(--home "$home" --branch "$branch")
+    local -a resume_args=(--branch "$branch")
     [ -z "$subscription_file" ] ||
         resume_args+=(--subscription-file "$subscription_file")
-    resume_args+=("$kernel")
+    [ "$kernel" = mihomo ] || resume_args+=("$kernel")
     printf -v resume_command 'bash %q' "$home/install.sh"
     for argument in "${resume_args[@]}"; do
         printf -v quoted '%q' "$argument"
@@ -921,7 +929,8 @@ _install_refuse_incomplete_source_change() {
 
     _ui_blank
     _ui_error "上次安装没有完成，本次已停止（未做任何修改）"
-    _ui_detail '目录' "$home"
+    _ui_detail '安装目录' "$home"
+    _ui_detail '现状' '程序文件已就位，内核与服务尚未安装'
     if _install_clashctl_integrated; then
         _ui_detail '继续安装（推荐）' 'clashctl install'
         _ui_detail '或' "$resume_command"
@@ -974,7 +983,7 @@ _require_empty_home() {
         fi
         _INSTALL_HOME_STATE=resume
         [ "${_INSTALL_FRESH_HANDOFF:-0}" = 1 ] ||
-            _ui_warn "检测到未完成的安装: $home"
+            _ui_warn "检测到未完成的安装"
         return 0
     fi
 

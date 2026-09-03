@@ -181,5 +181,27 @@ assert_contains "$WORK_DIR/rc.stderr" '或: bash' \
     'rc-integrated rejection keeps the script path as secondary fallback'
 grep -Fqs '# >>> clashctl >>>' "$WORK_DIR/rc.stderr" && fail 'marker leaked into output'
 
+# ── 智能默认：目录内 install.sh 免 --home 续装 ──
+smart_home="$WORK_DIR/smart-home"
+mkdir -p -- "$smart_home"
+make_layout "$smart_home" smartver
+_install_marker_write "$smart_home" "$smart_home" || fail 'could not mark smart home'
+smart_handoff_home='' smart_handoff_kernel='' smart_handoff_branch=''
+_install_handoff_to_clashctl() {
+    smart_handoff_home=$1 smart_handoff_kernel=$2 smart_handoff_branch=$3
+}
+unset CLASHCTL_HOME CLASHCTL_LOCAL_SOURCE CLASHCTL_INSTALL_SESSION CLASHCTL_NON_INTERACTIVE
+export CLASHCTL_SRC=
+_INSTALL_SCRIPT_DIR=$smart_home
+_install_plan() { :; }
+_require_empty_home() { _INSTALL_HOME_STATE=resume; }
+rc=0
+main --branch iu >"$WORK_DIR/smart.stdout" 2>"$WORK_DIR/smart.stderr" || rc=$?
+_INSTALL_SCRIPT_DIR=$REPO_DIR
+assert_eq 0 "$rc" 'script-dir marker defaults home without --home'
+assert_eq "$smart_home" "$smart_handoff_home" 'script-dir home becomes the install target'
+assert_eq iu "$smart_handoff_branch" 'branch still honored'
+_INSTALL_SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+
 printf '%s\n' 'install-resume-refresh: ok'
 
