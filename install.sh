@@ -926,7 +926,9 @@ _install_clashctl_integrated() {
 _install_refuse_incomplete_source_change() {
     local home=$1 branch=$2 kernel=$3 subscription_file=${4:-}
     local argument quoted resume_command
-    local -a resume_args=(--branch "$branch")
+    # 默认分支省略（裸续装经智能分支自动解析）；非默认分支必须显式携带
+    local -a resume_args=()
+    [ "$branch" = "$_BRANCH_DEFAULT" ] || resume_args+=(--branch "$branch")
     [ -z "$subscription_file" ] ||
         resume_args+=(--subscription-file "$subscription_file")
     [ "$kernel" = mihomo ] || resume_args+=("$kernel")

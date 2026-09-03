@@ -228,5 +228,26 @@ assert_eq 0 "$rc" 'explicit branch resume completes'
 assert_eq master "$br_handoff_branch" 'explicit --branch overrides the home git branch'
 _INSTALL_SCRIPT_DIR=$REPO_DIR
 
+
+# ── 默认分支省略：master 家的续装命令是裸命令 ──
+m_home="$WORK_DIR/master-home"
+mkdir -p -- "$m_home"
+make_layout "$m_home" mver
+_install_marker_write "$m_home" "$m_home" || fail 'could not mark master home'
+git -C "$m_home" init -q -b master && git -C "$m_home" add -A >/dev/null 2>&1 &&
+    git -C "$m_home" -c user.email=t@t -c user.name=t commit -qm seed >/dev/null 2>&1
+unset CLASHCTL_HOME CLASHCTL_LOCAL_SOURCE CLASHCTL_INSTALL_SESSION CLASHCTL_NON_INTERACTIVE
+export CLASHCTL_SRC=
+rc=0
+CLASHCTL_SRC= main --home "$m_home" \
+    >"$WORK_DIR/m.stdout" 2>"$WORK_DIR/m.stderr" || rc=$?
+assert_eq 1 "$rc" 'master home still refuses a fresh-source install'
+assert_contains "$WORK_DIR/m.stderr" '继续安装（推荐）: bash '"$m_home"'/install.sh' \
+    'master home recommends the bare continuation command'
+if grep -Fqs -- '--branch' "$WORK_DIR/m.stderr"; then
+    fail 'master home continuation should omit --branch'
+fi
+_INSTALL_SCRIPT_DIR=$REPO_DIR
+
 printf '%s\n' 'install-resume-refresh: ok'
 
