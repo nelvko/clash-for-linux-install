@@ -897,6 +897,15 @@ _install_report_incomplete_home() {
     _INSTALL_INCOMPLETE_SUMMARY_SHOWN=1
 }
 
+# clashctl 命令是否已对用户可用：当前 shell 已加载函数，或 rc 托管块已写入。
+# 空壳态 apply_rc 尚未执行——此时指路 clashctl install 是死路，须指安装脚本。
+_install_clashctl_integrated() {
+    declare -F clashctl >/dev/null 2>&1 && return 0
+    command -v clashctl >/dev/null 2>&1 && return 0
+    grep -Fqs '# >>> clashctl >>>' "${HOME}/.bashrc" 2>/dev/null && return 0
+    [ -f "${HOME}/.config/fish/conf.d/clashctl.fish" ]
+}
+
 _install_refuse_incomplete_source_change() {
     local home=$1 branch=$2 kernel=$3 subscription_file=${4:-}
     local argument quoted resume_command
@@ -913,8 +922,12 @@ _install_refuse_incomplete_source_change() {
     _ui_blank
     _ui_error "上次安装没有完成，本次已停止（未做任何修改）"
     _ui_detail '目录' "$home"
-    _ui_detail '继续安装（推荐）' "$resume_command"
-    _ui_detail '或' '已加载 clashctl 命令时，直接运行 clashctl install'
+    if _install_clashctl_integrated; then
+        _ui_detail '继续安装（推荐）' 'clashctl install'
+        _ui_detail '或' "$resume_command"
+    else
+        _ui_detail '继续安装（推荐）' "$resume_command"
+    fi
     _ui_detail '重新开始' "备份需要的文件后删除 $home，再重新运行安装命令"
     _INSTALL_INCOMPLETE_SUMMARY_SHOWN=1
 }

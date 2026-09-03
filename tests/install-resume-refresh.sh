@@ -159,5 +159,27 @@ if grep -Fqs -- "$subscription_url" "$WORK_DIR/self-source.stderr"; then
     fail 'in-place continuation leaked the subscription URL'
 fi
 
+# ── rc 已集成时：推荐直接 clashctl install ──
+rc_fake_user="$WORK_DIR/rc-user"
+mkdir -p -- "$rc_fake_user" "$rc_fake_user/.config/fish/conf.d"
+printf '# >>> clashctl >>>\n# <<< clashctl <<<\n' >"$rc_fake_user/.config/fish/conf.d/clashctl.fish"
+rc_home="$WORK_DIR/rc-home"
+mkdir -p -- "$rc_home"
+make_layout "$rc_home" rcver
+_install_marker_write "$rc_home" "$rc_home" || fail 'could not mark rc-test home'
+handoff2=0
+_install_handoff_to_clashctl() { handoff2=1; }
+_INSTALL_SCRIPT_DIR=$rc_home
+export CLASHCTL_SRC=
+rc=0
+HOME="$rc_fake_user" main --home "$rc_home" --branch iu --non-interactive \
+    >"$WORK_DIR/rc.stdout" 2>"$WORK_DIR/rc.stderr" || rc=$?
+assert_eq 1 "$rc" 'rc-integrated rejection still refuses'
+assert_contains "$WORK_DIR/rc.stderr" '继续安装（推荐）: clashctl install' \
+    'rc-integrated rejection recommends the short command'
+assert_contains "$WORK_DIR/rc.stderr" '或: bash' \
+    'rc-integrated rejection keeps the script path as secondary fallback'
+grep -Fqs '# >>> clashctl >>>' "$WORK_DIR/rc.stderr" && fail 'marker leaked into output'
+
 printf '%s\n' 'install-resume-refresh: ok'
 
