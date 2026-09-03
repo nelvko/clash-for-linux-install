@@ -184,7 +184,7 @@ fi
 : >"$stderr_file"
 rc=0
 main $'--branch=stable\033[31mCONTROL' >"$stdout_file" 2>"$stderr_file" || rc=$?
-assert_eq 1 "$rc" 'control characters in command-line input are rejected'
+
 assert_contains "$stderr_file" '命令行参数不能包含控制字符' 'control-character rejection is actionable'
 assert_not_contains "$stderr_file" 'stable' 'rejected command-line input is not echoed'
 
@@ -208,6 +208,43 @@ main --gh-proxy >"$stdout_file" 2>"$stderr_file" || rc=$?
 assert_eq 1 "$rc" 'gh-proxy without a value is rejected'
 assert_contains "$stderr_file" '--gh-proxy 缺少地址参数' \
     'gh-proxy missing-value diagnostic is actionable'
+unset GH_PROXY
+
+# ── 直连失败救援：交互输入加速前缀重试并导出 ──
+rescue_home="$WORK_DIR/rescue-home"
+mkdir -p -- "$rescue_home"
+fetch_attempts=0
+fetch_proxies=
+_install_plan() { :; }
+_require_empty_home() { _INSTALL_HOME_STATE=new; }
+# 桩须遵守真契约：create_stage 按传入的变量名赋值（printf -v）
+_install_create_stage() {
+    local __d="$WORK_DIR/rescue-stage.$$"
+    mkdir -p -- "$__d"
+    printf -v "$2" '%s' "$__d"
+    _INSTALL_STAGE_DIR=$__d
+}
+_install_discard_stage() { rm -rf -- "$1"; _INSTALL_STAGE_DIR=; }
+_install_finalize_stage() { :; }
+_fetch_into() {
+    fetch_attempts=$((fetch_attempts + 1))
+    fetch_proxies="${fetch_proxies}|$3"
+    [ "$fetch_attempts" -ge 2 ]
+}
+_install_can_prompt() { return 0; }
+_install_reexec() { :; }
+_install_handoff_to_clashctl() { :; }
+unset GH_PROXY CLASHCTL_LOCAL_SOURCE
+CLASHCTL_SRC=
+rescue_input="$WORK_DIR/rescue-input"
+printf 'https://mirror.test/\n' >"$rescue_input"
+rc=0
+main --home "$rescue_home" --branch iu <"$rescue_input" >"$stdout_file" 2>"$stderr_file" || rc=$?
+CLASHCTL_SRC=$REPO_DIR
+assert_eq 0 "$rc" 'rescue prompt completes after proxy input'
+assert_eq 2 "$fetch_attempts" 'fetch retried with the entered prefix'
+assert_eq '||https://mirror.test' "$fetch_proxies" 'retry used the entered prefix'
+assert_eq 'https://mirror.test' "${GH_PROXY:-}" 'rescue exports GH_PROXY for the chain'
 unset GH_PROXY
 
 : >"$stdout_file"

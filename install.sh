@@ -151,6 +151,47 @@ _install_validate_input() {
 }
 
 
+# 取源 + 交互救援：直连失败时现场询问加速前缀并重试（仅交互环境；CI/
+# 非交互保持快速失败与 --gh-proxy 文案指引）。输入的前缀经校验后 export，
+# stage-2 组件下载全链路继承并随收尾物化 .env（与旗标语义一致）。
+_install_fetch_home() {
+    local home=$1 branch=$2 proxy=$3 stage answer
+    while :; do
+        _install_create_stage "$home" stage || return 1
+        if _fetch_into "$stage" "$branch" "$proxy" &&
+            _install_finalize_stage "$stage" "$home"; then
+            return 0
+        fi
+        _install_discard_stage "$stage" || true
+        _install_can_prompt || return 1
+        _ui_blank
+        _ui_warn '获取安装文件失败：GitHub 直连受限或网络不可用'
+        if _ui_color_enabled 2; then
+            printf '\033[35m[ ? ]\033[0m 加速前缀重试（如 https://gh-proxy.org/，回车重试直连，Ctrl-C 退出）: ' >&2
+        else
+            printf '[ ? ] 加速前缀重试（如 https://gh-proxy.org/，回车重试直连，Ctrl-C 退出）: ' >&2
+        fi
+        IFS= read -r answer || {
+            printf '\n' >&2
+            return 1
+        }
+        case $answer in
+        '') ;;
+        https://* | http://*)
+            if _install_has_control_chars "$answer"; then
+                _ui_error '加速前缀不能包含控制字符'
+                continue
+            fi
+            proxy=${answer%/}
+            export GH_PROXY=$proxy
+            ;;
+        *)
+            _ui_error '加速前缀需以 http:// 或 https:// 开头'
+            ;;
+        esac
+    done
+}
+
 _install_reexec() {
     # 全新落位后的交接：stage-2 识别为自身续装，无需再提示「未完成安装」
     export _INSTALL_FRESH_HANDOFF=1
@@ -393,15 +434,10 @@ main() {
     unset CLASHCTL_SUBSCRIPTION_FILE CLASHCTL_SUB_URL
 
     if [ -z "$CLASHCTL_SRC" ]; then
-        local download_stage
-        _install_create_stage "$home" download_stage || return 1
-        if ! _fetch_into "$download_stage" "$branch" "$proxy" ||
-            ! _install_finalize_stage "$download_stage" "$home"; then
-            _install_discard_stage "$download_stage" || true
-            return 1
-        fi
+        _install_fetch_home "$home" "$branch" "$proxy" || return 1
         export CLASHCTL_LOCAL_SOURCE=$home
         _install_reexec "${home}/install.sh" "$home" "$branch" "$kernel" "$subscription_file"
+        return 0
     fi
 
     if [ "${CLASHCTL_SRC}" != "$home" ]; then
@@ -409,8 +445,8 @@ main() {
         _install_create_stage "$home" source_stage || return 1
         _ui_step '准备安装文件'
         if command -v git >/dev/null 2>&1 && [ -d "${CLASHCTL_SRC}/.git" ]; then
-            local -a clone_args=(-q)
-            [ ! -t 2 ] || [ "${_INSTALL_VERBOSE:-}" != 1 ] || clone_args+=(--progress)
+            local -a clone_args=()
+            if [ -t 2 ]; then clone_args+=(--progress); else clone_args+=(-q); fi
             git clone "${clone_args[@]}" "$CLASHCTL_SRC" "$source_stage" || {
                 _ui_error '复制本地 Git 仓库失败'
                 _install_discard_stage "$source_stage" || true
@@ -430,6 +466,7 @@ main() {
         _ui_ok '安装文件已就绪'
         export CLASHCTL_LOCAL_SOURCE=$home
         _install_reexec "${home}/install.sh" "$home" "$branch" "$kernel" "$subscription_file"
+        return 0
     fi
 
     export CLASHCTL_HOME="$home"
@@ -990,7 +1027,7 @@ _fetch_into() {
         return 1
     }
     local -a curl_args=(--show-error --fail --location --max-time "${CLASHCTL_DOWNLOAD_TIMEOUT:-60}" --retry 1)
-    if [ -t 2 ] && [ "${_INSTALL_VERBOSE:-}" = 1 ]; then
+    if [ -t 2 ]; then
         curl_args+=(--progress-bar)
     else
         curl_args+=(--silent)
