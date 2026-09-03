@@ -7,6 +7,7 @@ Usage:
   clashctl COMMAND [OPTIONS]
 
 Commands:
+  install [内核]        安装或切换内核；安装中断后重跑可补全
   on                    开启代理
   off                   关闭代理
   status                内核状态
