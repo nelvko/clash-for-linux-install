@@ -306,6 +306,13 @@ main() {
                 _ui_error '--subscription-file 缺少文件路径'
                 return 1
             }
+            case $1 in
+            http://* | https://* | file://*)
+                _ui_error '--subscription-file 需要文件路径而非 URL（URL 不进命令行）'
+                _ui_detail '自动化' '将 URL 写入权限为 0600 的单行文件后再传入'
+                return 1
+                ;;
+            esac
             subscription_file=$1
             ;;
         --subscription-file=*)
@@ -314,6 +321,13 @@ main() {
                 _ui_error '--subscription-file 缺少文件路径'
                 return 1
             }
+            case $subscription_file in
+            http://* | https://* | file://*)
+                _ui_error '--subscription-file 需要文件路径而非 URL（URL 不进命令行）'
+                _ui_detail '自动化' '将 URL 写入权限为 0600 的单行文件后再传入'
+                return 1
+                ;;
+            esac
             ;;
         --allow-legacy-layout) _INSTALL_ALLOW_LEGACY_LAYOUT=1 ;;
         --take-over-service) CLASHCTL_ALLOW_UNIT_OVERWRITE=1 ;;

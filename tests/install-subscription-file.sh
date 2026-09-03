@@ -36,7 +36,11 @@ assert_env_name_absent() {
     fi
 }
 
-export CLASHCTL_INSTALL_SOURCE_ONLY=1 CLASHCTL_COLOR=never
+# 隔离默认安装目标：用例曾依赖「拒绝换源」兜底防止写真实家；自动续装
+# 上线后该兜底消失，任何无 --home 的 main 调用都可能动 ~/.clashctl
+ISOLATED_HOME="$WORK_DIR/isolated-home"
+mkdir -p -- "$ISOLATED_HOME"
+export CLASHCTL_INSTALL_SOURCE_ONLY=1 CLASHCTL_COLOR=never CLASHCTL_HOME="$ISOLATED_HOME"
 # shellcheck source=../install.sh
 . "$REPO_DIR/install.sh"
 # shellcheck source=../scripts/lib/install-transaction.sh
