@@ -1244,12 +1244,14 @@ _write_install_env() {
         return 1
     }
     export CLASHCTL_ENV_PATH=$tmp
-    _set_env CLASHCTL_KERNEL "$kernel" || rc=1
     [ -z "$branch" ] || _set_env CLASHCTL_UPDATE_BRANCH "$branch" || rc=1
     [ "${GH_PROXY+x}" != x ] || _set_env GH_PROXY "$GH_PROXY" || rc=1
     [ "${CLASHCTL_DOWNLOAD_TIMEOUT+x}" != x ] ||
         _set_env CLASHCTL_DOWNLOAD_TIMEOUT "$CLASHCTL_DOWNLOAD_TIMEOUT" || rc=1
     _set_envs || rc=1
+    # 显式内核选择必须在 _set_envs 之后写入：_set_envs 用当前环境值覆写
+    # 同键，而环境值在长流程中可能被 .env 重新加载污染（切内核被写回旧值）
+    _set_env CLASHCTL_KERNEL "$kernel" || rc=1
     if [ "${CLASHCTL_SERVICE_CONFLICT:-}" = 1 ] || [ "$exact_enablement" -eq 1 ]; then
         _set_env CLASHCTL_REPLACED_SERVICE_MANAGER "$CLASHCTL_SERVICE_MANAGER" || rc=1
         _set_env CLASHCTL_REPLACED_SERVICE_SOURCE "$CLASHCTL_SERVICE_SOURCE" || rc=1

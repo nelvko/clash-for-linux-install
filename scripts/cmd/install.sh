@@ -308,6 +308,13 @@ clashinstall() (
         _ui_error '加载安装预检模块失败'
         return 1
     }
+    # preflight 的 source 链会加载 .env，其中物化的 CLASHCTL_KERNEL 会覆盖
+    # 本次命令行选择，且 lib 已按旧值算好 BIN_* 路径族——source 后必须
+    # 同时重申内核并重算 BIN_KERNEL，否则切内核全程跑旧二进制
+    # （previous_kernel 记自 .env 加载前的本命令导出值，供切换前停旧服务）
+    previous_kernel=$CLASHCTL_KERNEL
+    export CLASHCTL_KERNEL="$kernel"
+    BIN_KERNEL="${BIN_BASE_DIR}/$kernel/$kernel"
     detect_service_manager
     install_manager=$service_manager
 
@@ -401,6 +408,19 @@ clashinstall() (
         _ui_ok '已保留现有 Web 访问密钥'
     fi
     _ui_ok '运行配置校验通过'
+
+    if [ -n "${previous_kernel:-}" ] && [ "$previous_kernel" != "$kernel" ] &&
+        [ "$install_manager" = nohup ]; then
+        local previous_pid="${CLASH_DATA_DIR}/${previous_kernel}.pid"
+        if [ -f "$previous_pid" ] && _service_process_record_load "$previous_pid"; then
+            _ui_info "切换前停止 ${previous_kernel} 服务"
+            _service_process_stop_recorded "$previous_pid" || {
+                _ui_error "无法停止现有 ${previous_kernel} 服务，拒绝切换"
+                return 1
+            }
+            /usr/bin/rm -f -- "$previous_pid"
+        fi
+    fi
 
     _ui_step "配置 ${install_manager} 服务"
     _install_begin_service_transaction || return 1

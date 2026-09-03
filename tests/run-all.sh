@@ -13,6 +13,8 @@ failed=()
 for t in "$TESTS_DIR"/*.sh; do
     name=$(basename -- "$t" .sh)
     [ "$name" != run-all ] || continue
+    # e2e 需 gcc/本地端口/可选真 systemd，非默认套件；显式跑：CLASHCTL_E2E=1 bash tests/e2e.sh
+    [ "$name" != e2e ] || continue
     if [ "$#" -gt 0 ]; then
         matched=0
         for filter in "$@"; do

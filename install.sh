@@ -464,6 +464,15 @@ main() {
         # resources/ 里是用户数据，刷新会整目录替换——先把数据就地迁入 data/
         if [ "${_INSTALL_LEGACY_TAKEOVER:-0}" = 1 ]; then
             _ui_step '迁移旧版数据到 data/'
+            # 旧 bin/ 是平铺文件（bin/mihomo 为文件），与新布局 bin/<内核>/
+            # 目录冲突；内核本就要重下，旧 bin 挪为 .bak 不参与安装
+            if [ -e "$home/bin" ] && [ ! -d "$home/bin/$kernel" ]; then
+                mv -f -- "$home/bin" \
+                    "$home/bin.clashctl-legacy.$(date +%s)" || {
+                    _ui_error '旧版 bin 目录无法挪开'
+                    return 1
+                }
+            fi
             /usr/bin/install -d -m 0700 "$home/data" "$home/data/profiles" || return 1
             local legacy_item
             for legacy_item in config.yaml mixin.yaml profiles.yaml; do
