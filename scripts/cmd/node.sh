@@ -802,16 +802,16 @@ _node_print_delays() {
         while IFS=$'\t' read -r _ name disp; do
             if [ "$disp" = timeout ]; then
                 color=#f92f60
-                text=$(printf '  ✗ %-26s 超时' "$name")
+                text=$(printf '%-26s 超时' "$name")
             elif [ "$disp" -lt 200 ]; then
                 color=#26de81
-                text=$(printf '  ● %-26s %sms' "$name" "$disp")
+                text=$(printf '%-26s %sms' "$name" "$disp")
             elif [ "$disp" -lt 500 ]; then
                 color=#fed330
-                text=$(printf '  ● %-26s %sms' "$name" "$disp")
+                text=$(printf '%-26s %sms' "$name" "$disp")
             else
                 color=#fd79a8
-                text=$(printf '  ● %-26s %sms' "$name" "$disp")
+                text=$(printf '%-26s %sms' "$name" "$disp")
             fi
             _color_log "$color" "$text"
         done
