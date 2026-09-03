@@ -206,7 +206,7 @@ _install_reexec() {
 main() {
     umask 077
     local home=${CLASHCTL_HOME:-} branch=$_BRANCH_DEFAULT
-    local kernel=mihomo sub_url=
+    local kernel=mihomo sub_url= branch_explicit=0 home_branch=
     local proxy=${GH_PROXY-} home_source=default
     local source_dir=${CLASHCTL_LOCAL_SOURCE:-$CLASHCTL_SRC}
     local subscription_file=${CLASHCTL_SUBSCRIPTION_FILE:-} install_arg legacy_candidate
@@ -262,7 +262,7 @@ main() {
                 _ui_error '--branch 缺少分支参数'
                 return 1
             }
-            branch=$1
+            branch=$1 branch_explicit=1
             ;;
         --branch=*)
             branch=${1#*=}
@@ -270,6 +270,7 @@ main() {
                 _ui_error '--branch 缺少分支参数'
                 return 1
             }
+            branch_explicit=1
             ;;
         --gh-proxy)
             shift
@@ -357,6 +358,14 @@ main() {
         break
     done
     [ -n "$home" ] || home="${HOME}/.clashctl"
+    # 未显式指定分支时：沿用未完成安装 git 仓库的现有分支——续装不漂移
+    # 更新通道（显式 --branch > 家的分支 > master 默认）
+    if [ "${branch_explicit:-0}" != 1 ] && command -v git >/dev/null 2>&1 &&
+        [ -d "$home/.git" ]; then
+        home_branch=$(git -C "$home" rev-parse --abbrev-ref HEAD 2>/dev/null) &&
+            [ -n "$home_branch" ] && [ "$home_branch" != HEAD ] &&
+            branch=$home_branch
+    fi
     _install_validate_input '安装路径' "$home" || return 1
     _install_validate_input '分支名称' "$branch" || return 1
     _install_validate_input '订阅输入文件' "$subscription_file" || return 1

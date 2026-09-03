@@ -203,5 +203,30 @@ assert_eq "$smart_home" "$smart_handoff_home" 'script-dir home becomes the insta
 assert_eq iu "$smart_handoff_branch" 'branch still honored'
 _INSTALL_SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 
+
+# ── 智能分支：未显式 --branch 时沿用家的 git 分支，显式则覆盖 ──
+br_home="$WORK_DIR/branch-home"
+mkdir -p -- "$br_home"
+make_layout "$br_home" brver
+_install_marker_write "$br_home" "$br_home" || fail 'could not mark branch home'
+git -C "$br_home" init -q -b iu && git -C "$br_home" add -A >/dev/null 2>&1 &&
+    git -C "$br_home" -c user.email=t@t -c user.name=t commit -qm seed >/dev/null 2>&1
+br_handoff_branch=''
+_install_handoff_to_clashctl() { br_handoff_branch=$3; }
+_install_plan() { :; }
+_require_empty_home() { _INSTALL_HOME_STATE=resume; }
+unset CLASHCTL_HOME CLASHCTL_LOCAL_SOURCE CLASHCTL_INSTALL_SESSION CLASHCTL_NON_INTERACTIVE
+export CLASHCTL_SRC=
+_INSTALL_SCRIPT_DIR=$br_home
+rc=0
+main >"$WORK_DIR/br-default.stdout" 2>"$WORK_DIR/br-default.stderr" || rc=$?
+assert_eq 0 "$rc" 'bare resume on a git home completes'
+assert_eq iu "$br_handoff_branch" 'bare resume keeps the home git branch (no drift to master)'
+rc=0
+main --branch master >"$WORK_DIR/br-explicit.stdout" 2>"$WORK_DIR/br-explicit.stderr" || rc=$?
+assert_eq 0 "$rc" 'explicit branch resume completes'
+assert_eq master "$br_handoff_branch" 'explicit --branch overrides the home git branch'
+_INSTALL_SCRIPT_DIR=$REPO_DIR
+
 printf '%s\n' 'install-resume-refresh: ok'
 
