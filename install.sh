@@ -911,13 +911,11 @@ _install_refuse_incomplete_source_change() {
     done
 
     _ui_blank
-    _ui_error '检测到未完成安装；拒绝用另一份程序文件自动覆盖'
+    _ui_error "上次安装没有完成，本次已停止（未做任何修改）"
     _ui_detail '目录' "$home"
-    _ui_detail '原因' '目录中可能保留配置、日志或待恢复的服务事务，自动覆盖可能造成数据丢失'
-    _ui_detail '当前状态' '未刷新、搬移或删除现有内容'
-    _ui_detail '推荐处理' "先备份 $home/data 和 $home/archives（如需），确认备份后删除整个 $home，再重试"
-    _ui_detail '原版本续装' "$resume_command"
-    _ui_detail '注意' '原版本可能重复上次失败；仅在审核目录内脚本并确认继续使用时选择'
+    _ui_detail '继续安装（推荐）' "$resume_command"
+    _ui_detail '或' '已加载 clashctl 命令时，直接运行 clashctl install'
+    _ui_detail '重新开始' "备份需要的文件后删除 $home，再重新运行安装命令"
     _INSTALL_INCOMPLETE_SUMMARY_SHOWN=1
 }
 
@@ -963,7 +961,7 @@ _require_empty_home() {
         fi
         _INSTALL_HOME_STATE=resume
         [ "${_INSTALL_FRESH_HANDOFF:-0}" = 1 ] ||
-            _ui_warn "检测到可信的未完成安装: $home"
+            _ui_warn "检测到未完成的安装: $home"
         return 0
     fi
 

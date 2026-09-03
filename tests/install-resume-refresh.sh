@@ -81,15 +81,15 @@ assert_eq 0 "$fetch_called" 'network bootstrap rejects before downloading'
 assert_eq "$before" "$(snapshot_tree "$home")" 'network rejection preserves incomplete home'
 assert_no_stage "$home" 'network rejection'
 assert_contains "$WORK_DIR/network.stderr" \
-    '拒绝用另一份程序文件自动覆盖' 'network rejection explains the boundary'
-assert_contains "$WORK_DIR/network.stderr" '当前状态: 未刷新、搬移或删除现有内容' \
+    '上次安装没有完成，本次已停止' 'network rejection explains the boundary'
+assert_contains "$WORK_DIR/network.stderr" '未做任何修改' \
     'network rejection reports that the home was preserved'
-assert_contains "$WORK_DIR/network.stderr" '原版本续装:' \
+assert_contains "$WORK_DIR/network.stderr" '继续安装（推荐）:' \
     'network rejection provides an in-place continuation command'
-assert_contains "$WORK_DIR/network.stderr" '推荐处理:' \
+assert_contains "$WORK_DIR/network.stderr" '重新开始' \
     'network rejection provides backup and reinstall guidance'
-assert_contains "$WORK_DIR/network.stderr" '原版本可能重复上次失败' \
-    'network rejection warns about retrying the old installer'
+assert_contains "$WORK_DIR/network.stderr" '重新开始' \
+    'network rejection offers a clean restart option'
 
 external="$WORK_DIR/external/source"
 mkdir -p -- "$external"
@@ -103,7 +103,7 @@ assert_eq 1 "$rc" 'external source rejects source replacement'
 assert_eq "$before" "$(snapshot_tree "$home")" 'external rejection preserves incomplete home'
 assert_no_stage "$home" 'external source rejection'
 assert_contains "$WORK_DIR/external.stderr" \
-    '拒绝用另一份程序文件自动覆盖' 'external rejection explains the boundary'
+    '上次安装没有完成，本次已停止' 'external rejection explains the boundary'
 
 subscription_file="$WORK_DIR/subscription input.url"
 subscription_url='https://subscription.invalid/api?token=resume-secret'
@@ -151,7 +151,7 @@ assert_eq "$before" "$(snapshot_tree "$home")" \
 assert_contains "$WORK_DIR/self-source.stderr" \
     '使用未完成目录内已验证的程序文件继续安装' \
     'in-place continuation reports the selected source'
-if grep -Fqs -- '拒绝用另一份程序文件自动覆盖' \
+if grep -Fqs -- '上次安装没有完成，本次已停止' \
     "$WORK_DIR/self-source.stderr"; then
     fail 'in-place continuation was rejected as a source replacement'
 fi
