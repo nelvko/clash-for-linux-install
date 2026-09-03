@@ -77,7 +77,7 @@ rc=0
 main --home "$home" --branch iu --non-interactive \
     >"$WORK_DIR/network.stdout" 2>"$WORK_DIR/network.stderr" || rc=$?
 assert_eq 1 "$rc" 'network bootstrap rejects source replacement'
-assert_eq 0 "$fetch_called" 'network bootstrap rejects before downloading'
+assert_eq 1 "$fetch_called" 'refresh path attempts a download before falling back'
 assert_eq "$before" "$(snapshot_tree "$home")" 'network rejection preserves incomplete home'
 assert_no_stage "$home" 'network rejection'
 assert_contains "$WORK_DIR/network.stderr" \
@@ -94,16 +94,23 @@ assert_contains "$WORK_DIR/network.stderr" '重新开始' \
 external="$WORK_DIR/external/source"
 mkdir -p -- "$external"
 make_layout "$external" new
-before=$(snapshot_tree "$home")
+ext_handoff=0
+_install_handoff_to_clashctl() { ext_handoff=1; }
+before_data=$(snapshot_tree "$home/data" 2>/dev/null || true)
 unset CLASHCTL_INSTALL_SESSION CLASHCTL_NON_INTERACTIVE
 rc=0
 main --home "$home" --source-dir "$external" --branch iu --non-interactive \
     >"$WORK_DIR/external.stdout" 2>"$WORK_DIR/external.stderr" || rc=$?
-assert_eq 1 "$rc" 'external source rejects source replacement'
-assert_eq "$before" "$(snapshot_tree "$home")" 'external rejection preserves incomplete home'
-assert_no_stage "$home" 'external source rejection'
-assert_contains "$WORK_DIR/external.stderr" \
-    '上次安装没有完成，本次已停止' 'external rejection explains the boundary'
+assert_eq 0 "$rc" 'external source auto-refreshes and continues'
+assert_eq 1 "$ext_handoff" 'external refresh reaches the clashctl handoff'
+assert_contains "$WORK_DIR/external.stderr" '程序文件已刷新至最新' \
+    'external refresh reports the update'
+grep -Fqs 'new-install' "$home/install.sh" ||
+    fail 'external refresh copied the new program files'
+if [ -e "$home/data" ] && [ "$(snapshot_tree "$home/data")" != "$before_data" ]; then
+    fail 'external refresh must preserve user data'
+fi
+assert_no_stage "$home" 'external source refresh'
 
 subscription_file="$WORK_DIR/subscription input.url"
 subscription_url='https://subscription.invalid/api?token=resume-secret'
@@ -148,8 +155,7 @@ assert_eq "$subscription_file" "$handoff_subfile" \
     'handoff preserves the subscription-file option'
 assert_eq "$before" "$(snapshot_tree "$home")" \
     'in-place continuation preserves private data until clashctl install runs'
-assert_contains "$WORK_DIR/self-source.stderr" \
-    '使用未完成目录内已验证的程序文件继续安装' \
+assert_contains "$WORK_DIR/self-source.stderr" '继续未完成的安装' \
     'in-place continuation reports the selected source'
 if grep -Fqs -- '上次安装没有完成，本次已停止' \
     "$WORK_DIR/self-source.stderr"; then
@@ -167,9 +173,10 @@ rc_home="$WORK_DIR/rc-home"
 mkdir -p -- "$rc_home"
 make_layout "$rc_home" rcver
 _install_marker_write "$rc_home" "$rc_home" || fail 'could not mark rc-test home'
+# 脚本目录不在家里（在线重跑形态）→ 刷新失败 → 降级拒绝文案按 rc 集成分流
 handoff2=0
 _install_handoff_to_clashctl() { handoff2=1; }
-_INSTALL_SCRIPT_DIR=$rc_home
+unset CLASHCTL_HOME CLASHCTL_LOCAL_SOURCE CLASHCTL_INSTALL_SESSION CLASHCTL_NON_INTERACTIVE
 export CLASHCTL_SRC=
 rc=0
 HOME="$rc_fake_user" main --home "$rc_home" --branch iu --non-interactive \

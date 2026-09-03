@@ -438,13 +438,19 @@ main() {
     _require_empty_home "$home" || return 1
 
     if [ "$_INSTALL_HOME_STATE" = resume ]; then
-        if [ -z "$CLASHCTL_SRC" ] || [ "$CLASHCTL_SRC" != "$home" ]; then
-            _install_refuse_incomplete_source_change \
-                "$home" "$branch" "$kernel" "$subscription_file"
-            return 1
+        if [ "${CLASHCTL_SRC:-}" != "$home" ]; then
+            # 空壳自动续装：先把程序文件刷到本次安装器的最新版，失败才降级
+            # 为原地续装指引（离线时可跑旧代码完成）
+            if ! _install_refresh_source "$home" "$branch" "$proxy"; then
+                _ui_warn '未能刷新程序文件，可按下方指引用现有文件续装'
+                _install_refuse_incomplete_source_change \
+                    "$home" "$branch" "$kernel" "$subscription_file"
+                return 1
+            fi
+            CLASHCTL_SRC=$home
         fi
         [ "${_INSTALL_FRESH_HANDOFF:-0}" = 1 ] ||
-            _ui_info "使用未完成目录内已验证的程序文件继续安装: $home"
+            _ui_info "继续未完成的安装: $home"
     fi
 
     unset CLASHCTL_SUBSCRIPTION_FILE CLASHCTL_SUB_URL
@@ -921,6 +927,85 @@ _install_clashctl_integrated() {
     command -v clashctl >/dev/null 2>&1 && return 0
     grep -Fqs '# >>> clashctl >>>' "${HOME}/.bashrc" 2>/dev/null && return 0
     [ -f "${HOME}/.config/fish/conf.d/clashctl.fish" ]
+}
+
+# 空壳自动续装的源刷新：把未完成安装的程序文件换成本次安装器拉到的
+# 最新版本，用户数据（data/）、下载缓存（archives/）、标记、事务 journal、
+# bin/ 一律保留。git 家走 fetch+checkout（同 clashctl update 机制，天然
+# 不降级）；无 git 或 git 失败时回落 stage 取源+按清单替换；两者皆败返回
+# 非零（调用方降级为原地续装指引）。
+_INSTALL_REFRESH_PATHS=(
+    install.sh
+    uninstall.sh
+    scripts
+    resources
+    versions.env
+    .env.example
+)
+
+_install_refresh_source() {
+    local home=$1 branch=$2 proxy=$3 url item stage refresh_rc=0
+
+    _ui_step '刷新未完成安装的程序文件'
+    # --source-dir 指定了本地源：直接从本地拷入 stage（不经网络）
+    if [ -n "${CLASHCTL_SRC:-}" ] && [ "$CLASHCTL_SRC" != "$home" ]; then
+        _install_create_stage "$home" stage || return 1
+        if command -v git >/dev/null 2>&1 && [ -d "${CLASHCTL_SRC}/.git" ]; then
+            git clone -q -- "${CLASHCTL_SRC}" "$stage" ||
+                {
+                    _install_discard_stage "$stage" || true
+                    return 1
+                }
+        else
+            cp -a -- "${CLASHCTL_SRC}/." "$stage"/ ||
+                {
+                    _install_discard_stage "$stage" || true
+                    return 1
+                }
+        fi
+        _install_refresh_apply "$home" "$stage" || return 1
+        return 0
+    fi
+    if [ -d "$home/.git" ] && command -v git >/dev/null 2>&1 &&
+        [ -n "$(git -C "$home" remote 2>/dev/null)" ]; then
+        url=${CLASHCTL_UPDATE_GIT_URL:-}
+        [ -n "$url" ] || {
+            url="https://github.com/${_REPO}.git"
+            [ -n "$proxy" ] && url="${proxy%/}/${url}"
+        }
+        if git -C "$home" remote set-url origin "$url" &&
+            git -C "$home" -c gc.auto=0 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 \
+                fetch -q --depth 50 origin -- "$branch" &&
+            git -C "$home" checkout -q -B "$branch" FETCH_HEAD; then
+            _install_layout_is_trusted "$home" || return 1
+            _ui_ok '程序文件已刷新至最新'
+            return 0
+        fi
+        _ui_warn 'Git 刷新未完成安装失败，尝试重新下载'
+    fi
+
+    _install_create_stage "$home" stage || return 1
+    if ! _fetch_into "$stage" "$branch" "$proxy"; then
+        _install_discard_stage "$stage" || true
+        return 1
+    fi
+    _install_refresh_apply "$home" "$stage" || return 1
+    return 0
+}
+
+# 按清单把 stage 的程序文件替换进 home（用户数据/缓存/标记/journal不动）
+_install_refresh_apply() {
+    local home=$1 stage=$2 item refresh_rc=0
+    for item in "${_INSTALL_REFRESH_PATHS[@]}"; do
+        [ -e "$stage/$item" ] || continue
+        rm -rf -- "$home/$item"
+        cp -a -- "$stage/$item" "$home/$item" || refresh_rc=1
+    done
+    _install_discard_stage "$stage" || true
+    [ "$refresh_rc" -eq 0 ] || return 1
+    _install_layout_is_trusted "$home" || return 1
+    _ui_ok '程序文件已刷新至最新'
+    return 0
 }
 
 _install_refuse_incomplete_source_change() {
