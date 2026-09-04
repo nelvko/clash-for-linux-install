@@ -487,13 +487,20 @@ main() {
             _ui_ok "旧版数据已迁入 $home/data"
         fi
         if [ "${CLASHCTL_SRC:-}" != "$home" ]; then
-            # 空壳自动续装：先把程序文件刷到本次安装器的最新版，失败才降级
-            # 为原地续装指引（离线时可跑旧代码完成）
+            # 空壳自动续装：先把程序文件刷到本次安装器的最新版；失败时若能确认
+            # 目录现有文件与请求的来源/分支同血统，则原地降级续装（离线可完成），
+            # 否则拒绝并给代理指引——避免「刷新失败→拒绝→续装又刷新」死循环
             if ! _install_refresh_source "$home" "$branch" "$proxy"; then
-                _ui_warn '未能刷新程序文件（目录可能已部分更新），可按下方指引用现有文件续装'
-                _install_refuse_incomplete_source_change \
-                    "$home" "$branch" "$kernel" "$subscription_file"
-                return 1
+                if _install_layout_is_trusted "$home" &&
+                    _install_source_lineage_matches "$home" "$branch" "$proxy"; then
+                    _ui_warn '未能刷新程序文件，改用目录中现有文件续装（版本非最新）'
+                    _ui_detail '更新' '网络恢复后可运行 clashctl update 获取最新'
+                else
+                    _ui_warn '未能刷新程序文件，且无法确认现有文件与请求的来源/分支一致'
+                    _install_refuse_incomplete_source_change \
+                        "$home" "$branch" "$kernel" "$subscription_file"
+                    return 1
+                fi
             fi
             CLASHCTL_SRC=$home
         fi
@@ -982,6 +989,28 @@ _INSTALL_REFRESH_PATHS=(
     .env.example
 )
 
+# 刷新失败时的原地续装安全门：目录现有文件的来源/分支须与本次请求同血统。
+# 只有 git 形态的家可确认（remote URL + 当前分支）；归档装的家无血统记录，
+# 宁可拒绝也不静默装错分支。代理前缀不同视为等价（同一上游）。
+_install_source_lineage_matches() {
+    local home=$1 branch=$2 proxy=$3 url current_url current_branch
+    command -v git >/dev/null 2>&1 || return 1
+    [ -d "$home/.git" ] || return 1
+    current_branch=$(git -C "$home" rev-parse --abbrev-ref HEAD 2>/dev/null) || return 1
+    [ "$current_branch" = "$branch" ] || return 1
+    current_url=$(git -C "$home" remote get-url origin 2>/dev/null) || return 1
+    url=${CLASHCTL_UPDATE_GIT_URL:-}
+    if [ -n "$url" ]; then
+        [ "$current_url" = "$url" ]
+        return
+    fi
+    case $current_url in
+    "https://github.com/${_REPO}.git") return 0 ;;
+    "${proxy%/}/https://github.com/${_REPO}.git") return 0 ;;
+    esac
+    return 1
+}
+
 _install_refresh_source() {
     local home=$1 branch=$2 proxy=$3 url item stage refresh_rc=0
 
@@ -1015,7 +1044,7 @@ _install_refresh_source() {
         refresh_origin_before=$(git -C "$home" remote get-url origin 2>/dev/null || printf '')
         if git -C "$home" remote set-url origin "$url" &&
             git -C "$home" -c gc.auto=0 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 \
-                fetch -q --depth 50 origin -- "$branch" &&
+                -c http.connectTimeout=15 fetch -q --depth 50 origin -- "$branch" &&
             git -C "$home" checkout -q -B "$branch" FETCH_HEAD; then
             _install_layout_is_trusted "$home" || return 1
             _ui_ok '程序文件已刷新至最新'
@@ -1080,6 +1109,8 @@ _install_refuse_incomplete_source_change() {
     _ui_detail '安装目录' "$home"
     _ui_detail '现状' '程序文件已就位，内核与服务尚未安装'
     _ui_detail '继续安装（推荐）' "$resume_command"
+    [ -n "${GH_PROXY:-}" ] ||
+        _ui_detail '网络受限' '在上述命令尾追加 --gh-proxy <加速前缀>（如 https://ghfast.top/）'
     _ui_detail '重新开始' "备份需要的文件后删除 $home，再重新运行安装命令"
     _INSTALL_INCOMPLETE_SUMMARY_SHOWN=1
 }
@@ -1174,7 +1205,8 @@ _fetch_into() {
         }
         local -a clone_args=(-q --depth 50 --single-branch --branch "$branch")
         [ ! -t 2 ] || [ "${_INSTALL_VERBOSE:-}" != 1 ] || clone_args+=(--progress)
-        git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "${clone_args[@]}" -- "$url" "$destination" && {
+        git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 -c http.connectTimeout=15 \
+            clone "${clone_args[@]}" -- "$url" "$destination" && {
             git -C "$destination" config gc.auto 0
             _ui_ok '安装文件已下载'
             return 0

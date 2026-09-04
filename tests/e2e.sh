@@ -250,8 +250,28 @@ s4_refresh_fail_fallback() {
     local rc=$?
     [ "$rc" -ne 0 ] && ok "s4: 刷新失败中止(rc=$rc)" || no s4 "异常成功"
     has "$root/io.err" '继续安装' && ok "s4: 续装指引" || no s4 "无指引"
+    has "$root/io.err" '网络受限' && ok "s4: 代理提示" || no s4 "无代理提示"
     [ -f "$root/home/.env" ] && no s4 "不应物化 .env" || ok "s4: 未物化 .env"
     [ -d "$root/home/data" ] && no s4 "不应误迁移" || ok "s4: 无迁移"
+}
+
+s16_refresh_fail_degrade() { # 同血统刷新失败：原地降级续装，不再死循环拒绝
+    local root
+    root=$(new_env s16)
+    make_empty_shell "$root/home"
+    # 断源（镜像挪走）但 CLASHCTL_UPDATE_GIT_URL 与 home origin 一致 → 血统可确认
+    mv "$WORK/mirror" "$WORK/mirror-hidden"
+    env -i PATH="$WORK/bin:$PATH" HOME="$root/user" CLASHCTL_UPDATE_GIT_URL="$WORK/mirror" \
+        INIT_TYPE=nohup CLASHCTL_COLOR=never TERM=dumb \
+        bash "$WORK/online/install.sh" --home "$root/home" --branch iu --non-interactive \
+        >"$root/io.out" 2>"$root/io.err" </dev/null || true
+    mv "$WORK/mirror-hidden" "$WORK/mirror"
+    has "$root/io.err" '改用目录中现有文件续装' &&
+        ok "s16: 原地降级续装" || no s16 "未降级续装"
+    has "$root/io.err" '本次已停止' &&
+        no s16 "同血统却拒绝" || ok "s16: 不再拒绝"
+    [ -f "$root/home/.env" ] && ok "s16: 降级后完成安装" || no s16 "降级后未完成"
+    stop_all_sandboxes
 }
 
 s5_legacy_takeover() {
@@ -480,7 +500,7 @@ setup_offline || fail "离线基件构建失败(gcc/python 缺失?)"
 ALL="s1_fresh_install s2_resume_inplace s3_resume_online_refresh s4_refresh_fail_fallback
 s5_legacy_takeover s6_v2_shell_no_migration s7_idempotent s8_switch_kernel
 s9_uninstall_full s10_uninstall_shell s11_update s12_systemd_real s13_failed_switch_restore
-s14_systemd_switch s15_pending_journal_guidance"
+s14_systemd_switch s15_pending_journal_guidance s16_refresh_fail_degrade"
 SELECT=${*:-$ALL}
 for scen in $SELECT; do
     say "$scen"
