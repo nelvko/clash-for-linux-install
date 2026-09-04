@@ -86,8 +86,20 @@ detect_service_manager() {
     }
 }
 
-_service_nohup_start_locked() {
-    local pid expected_argv
+# 切换服务上下文到指定内核：CLASHCTL_KERNEL 变更后 pid/log 路径必须重派生。
+# detect_service_manager 对已识别环境幂等早退、不会重算路径，故先清再测。
+# 注意保持纯粹：不得在此作废自启链接快照变量（CLASHCTL_SERVICE_ENABLE_*）——
+# 事务期间的 journal 重写依赖这些快照字段（runit 载入侧强校验非空）。
+_service_context_apply() { # $1=kernel
+    local kernel=$1
+    export CLASHCTL_KERNEL="$kernel"
+    BIN_KERNEL="${BIN_BASE_DIR}/$kernel/$kernel"
+    service_manager=
+    service_pid_path=
+    detect_service_manager
+}
+
+_service_nohup_start_locked() {    local pid expected_argv
     expected_argv=$(_service_process_values_argv_hex \
         "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME") || return 1
     if _service_process_record_pid "$service_pid_path" >/dev/null 2>&1; then

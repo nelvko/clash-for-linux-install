@@ -183,6 +183,11 @@ _ci_provision() {
     )
 }
 
+# 尽力读取事务快照所属内核（仅用于恢复指引；快照可能损坏，解析失败返回空）
+_ci_journal_kernel() {
+    sed -n 's/^CLASHCTL_SERVICE_JOURNAL_KERNEL=//p' "$1" 2>/dev/null | head -1
+}
+
 _ci_help() {
     cat <<'EOF'
 Usage:
@@ -286,6 +291,22 @@ clashinstall() (
     # 此处经加载器运行，信任边界是加载链本身，不再重复校验。
 
     if [ -z "$kernel" ] && [ -f "$CLASHCTL_HOME/.env" ]; then
+        if [ -f "${CLASHCTL_HOME}/.service-transaction" ]; then
+            # 崩溃残留的挂起事务比"已完成"更紧要：无参重入必须先指路恢复，
+            # 否则用户会以为一切正常而代理其实已被停掉
+            local pending_kernel
+            pending_kernel=$(_ci_journal_kernel "${CLASHCTL_HOME}/.service-transaction")
+            _ui_warn '检测到未完成的服务事务，需先完成恢复'
+            case $pending_kernel in
+            mihomo | clash)
+                _ui_detail '恢复' "运行 clashctl install ${pending_kernel}"
+                ;;
+            *)
+                _ui_detail '快照' "${CLASHCTL_HOME}/.service-transaction"
+                ;;
+            esac
+            return 1
+        fi
         _ui_info "clashctl 已完成初始化（当前内核: ${CLASHCTL_KERNEL:-未知}）"
         _ui_info '切换或新增内核: clashctl install <mihomo|clash>'
         return 0
@@ -323,6 +344,16 @@ clashinstall() (
         _install_journal_load "${CLASHCTL_HOME}/.service-transaction" || {
             _ui_error '服务事务快照无效，拒绝继续安装'
             _ui_detail '快照' "${CLASHCTL_HOME}/.service-transaction"
+            local pending_kernel
+            pending_kernel=$(_ci_journal_kernel "${CLASHCTL_HOME}/.service-transaction")
+            case $pending_kernel in
+            mihomo | clash)
+                if [ "$pending_kernel" != "$kernel" ]; then
+                    _ui_detail '恢复' "快照属于内核 ${pending_kernel}；运行 clashctl install ${pending_kernel} 完成恢复"
+                fi
+                ;;
+            esac
+            _ui_detail '处理' '若确认无需保留未完成事务，可删除上述快照文件后重试安装'
             return 1
         }
         INIT_TYPE=$CLASHCTL_SERVICE_MANAGER
@@ -380,6 +411,13 @@ clashinstall() (
     # 无参编排只装内核+yq；subconverter/UI 由 clashctl ui / clashctl sub add 按需补装
     prepare_zip kernel yq || return 1
 
+    # 服务事务与停旧内核先于端口探测：旧内核服务仍占端口时，探测会把自家
+    # 端口误判为外来冲突并随机改写 mixin；停旧置于组件下载之后，下载仍走旧代理
+    _install_begin_service_transaction || return 1
+    if [ -n "${previous_kernel:-}" ] && [ "$previous_kernel" != "$kernel" ]; then
+        _install_switch_stop_previous "$kernel" "$previous_kernel" || return 1
+    fi
+
     _ui_step '初始化运行配置'
     _merge_config || return 1
     _detect_proxy_port || return 1
@@ -409,21 +447,7 @@ clashinstall() (
     fi
     _ui_ok '运行配置校验通过'
 
-    if [ -n "${previous_kernel:-}" ] && [ "$previous_kernel" != "$kernel" ] &&
-        [ "$install_manager" = nohup ]; then
-        local previous_pid="${CLASH_DATA_DIR}/${previous_kernel}.pid"
-        if [ -f "$previous_pid" ] && _service_process_record_load "$previous_pid"; then
-            _ui_info "切换前停止 ${previous_kernel} 服务"
-            _service_process_stop_recorded "$previous_pid" || {
-                _ui_error "无法停止现有 ${previous_kernel} 服务，拒绝切换"
-                return 1
-            }
-            /usr/bin/rm -f -- "$previous_pid"
-        fi
-    fi
-
     _ui_step "配置 ${install_manager} 服务"
-    _install_begin_service_transaction || return 1
     if ! _install_stop_existing_service; then
         _install_abort_service_transaction || true
         return 1
@@ -520,6 +544,14 @@ clashinstall() (
     _CI_TRANSACTION_COMMITTED=1
     local transaction_state=complete
     _install_end_service_transaction || transaction_state=incomplete
+    # 切换已提交：旧内核服务保持可切回，但其自启必须退位，避免重启后双内核争用
+    # 端口。置于事务清理之后：retire 含多次 systemctl 往返，若放在 journal 删除
+    # 之前，硬崩窗口内的重入会把已提交的切换整体回滚。已知残留窗口（end 与
+    # retire 之间崩溃 → 旧内核自启未退位，重启争端口）记 BACKLOG 待 journal
+    # 提交旗标方案闭环
+    if [ -n "${previous_kernel:-}" ] && [ "$previous_kernel" != "$kernel" ]; then
+        _install_switch_retire_previous "$install_manager" "$previous_kernel" || true
+    fi
 
     _install_finish "$install_manager" "$subscription_status" "$transaction_state"
 )

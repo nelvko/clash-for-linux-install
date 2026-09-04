@@ -291,6 +291,7 @@ _install_impact_scan() {
     CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET=
     CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL=
     CLASHCTL_SERVICE_ENABLEMENT_INSTALLED=
+    CLASHCTL_SERVICE_PREV_KERNEL=
     CLASHCTL_SERVICE_ENABLEMENT_STATE=disabled
     CLASHCTL_SERVICE_ENABLEMENT_LINKS=
     export CLASHCTL_SERVICE_MANAGER CLASHCTL_SERVICE_TARGET CLASHCTL_SERVICE_TARGET_EXISTED
@@ -299,6 +300,7 @@ _install_impact_scan() {
     export CLASHCTL_SERVICE_ENABLE_LINK CLASHCTL_SERVICE_ENABLE_KIND CLASHCTL_SERVICE_ENABLE_TARGET
     export CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET
     export CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL CLASHCTL_SERVICE_ENABLEMENT_INSTALLED
+    export CLASHCTL_SERVICE_PREV_KERNEL
     export CLASHCTL_SERVICE_ENABLEMENT_STATE CLASHCTL_SERVICE_ENABLEMENT_LINKS
 
     if [ -d "$legacy" ] && [ "$legacy" != "$home" ]; then
@@ -479,6 +481,7 @@ _install_journal_write() {
         "${CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET:-}"
         "${CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL:-}"
         "${CLASHCTL_SERVICE_ENABLEMENT_INSTALLED:-}"
+        "${CLASHCTL_SERVICE_PREV_KERNEL:-}"
     )
     for value in "${values[@]}"; do
         if _install_has_control_chars "$value"; then
@@ -493,7 +496,7 @@ _install_journal_write() {
         return 1
     }
     {
-        printf 'CLASHCTL_SERVICE_JOURNAL_VERSION=2\n'
+        printf 'CLASHCTL_SERVICE_JOURNAL_VERSION=3\n'
         printf 'CLASHCTL_SERVICE_JOURNAL_KERNEL=%s\n' "$CLASHCTL_KERNEL"
         printf 'CLASHCTL_SERVICE_MANAGER=%s\n' "${CLASHCTL_SERVICE_MANAGER:-}"
         printf 'CLASHCTL_SERVICE_TARGET=%s\n' "${CLASHCTL_SERVICE_TARGET:-}"
@@ -510,6 +513,7 @@ _install_journal_write() {
         printf 'CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET=%s\n' "${CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET:-}"
         printf 'CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL=%s\n' "${CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL:-}"
         printf 'CLASHCTL_SERVICE_ENABLEMENT_INSTALLED=%s\n' "${CLASHCTL_SERVICE_ENABLEMENT_INSTALLED:-}"
+        printf 'CLASHCTL_SERVICE_PREV_KERNEL=%s\n' "${CLASHCTL_SERVICE_PREV_KERNEL:-}"
     } >"$tmp" || {
         /usr/bin/rm -f -- "$tmp"
         return 1
@@ -543,6 +547,7 @@ _install_journal_load() {
         CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET
         CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL
         CLASHCTL_SERVICE_ENABLEMENT_INSTALLED
+        CLASHCTL_SERVICE_PREV_KERNEL
     )
     local -A parsed=() seen=()
 
@@ -567,7 +572,8 @@ _install_journal_load() {
             CLASHCTL_SERVICE_BACKUP|CLASHCTL_SERVICE_BACKUP_CREATED|CLASHCTL_SERVICE_WAS_ACTIVE|\
             CLASHCTL_SERVICE_WAS_ENABLED|CLASHCTL_SERVICE_CONFLICT|CLASHCTL_SERVICE_ENABLE_LINK|\
             CLASHCTL_SERVICE_ENABLE_KIND|CLASHCTL_SERVICE_ENABLE_TARGET|CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET|\
-            CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL|CLASHCTL_SERVICE_ENABLEMENT_INSTALLED)
+            CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL|CLASHCTL_SERVICE_ENABLEMENT_INSTALLED|\
+CLASHCTL_SERVICE_PREV_KERNEL)
             [ "${seen[$key]:-0}" -eq 0 ] || return 1
             printf '%s' "$value" | LC_ALL=C grep -q '[[:cntrl:]]' && return 1
             parsed[$key]=$value
@@ -580,8 +586,13 @@ _install_journal_load() {
     for key in "${journal_keys[@]}"; do
         [ "${seen[$key]:-0}" -eq 1 ] || return 1
     done
-    [ "${parsed[CLASHCTL_SERVICE_JOURNAL_VERSION]}" = 2 ] || return 1
+    [ "${parsed[CLASHCTL_SERVICE_JOURNAL_VERSION]}" = 3 ] || return 1
     [ "${parsed[CLASHCTL_SERVICE_JOURNAL_KERNEL]}" = "$CLASHCTL_KERNEL" ] || return 1
+    case ${parsed[CLASHCTL_SERVICE_PREV_KERNEL]} in
+    '' | mihomo | clash) ;;
+    *) return 1 ;;
+    esac
+    [ "${parsed[CLASHCTL_SERVICE_PREV_KERNEL]}" != "$CLASHCTL_KERNEL" ] || return 1
     manager=${parsed[CLASHCTL_SERVICE_MANAGER]}
     case $manager in systemd | sysvinit | openrc | runit | nohup) ;; *) return 1 ;; esac
     for key in CLASHCTL_SERVICE_TARGET_EXISTED CLASHCTL_SERVICE_BACKUP_CREATED \
@@ -1012,6 +1023,76 @@ _install_report_retained_recovery() {
     _ui_detail '重试' "解决上述冲突后运行 $(_install_continue_command)，安装器会先重试恢复"
 }
 
+# ── 切换内核的服务处置 ──────────────────────────────────────────
+# 三个入口共享同一约定：临时把 CLASHCTL_KERNEL/BIN_KERNEL 切到目标内核并
+# detect_service_manager 重派生 pid 路径，退出前恢复原上下文，调用方无感。
+
+_install_switch_stop_previous() { # $1=新内核 $2=旧内核：旧服务在运行则记账后停止
+    local kernel=$1 previous_kernel=$2 active=0 rc=0
+    _service_context_apply "$previous_kernel"
+    service_is_active >/dev/null 2>&1 && active=1
+    _service_context_apply "$kernel"
+    [ "$active" -eq 1 ] || return 0
+    # 先记账后停止；记账必须在新内核上下文进行——journal 的 KERNEL/TARGET/
+    # enablement 字段全部描述新内核事务，混入旧内核身份会形成崩溃后任何
+    # 重入路径都拒载的自相矛盾快照
+    export CLASHCTL_SERVICE_PREV_KERNEL="$previous_kernel"
+    if ! _install_journal_write; then
+        _ui_error '无法记录切换前的服务状态，安装中止'
+        return 1
+    fi
+    _ui_info "切换前停止 ${previous_kernel} 服务"
+    _service_context_apply "$previous_kernel"
+    if ! _is_root && _service_privileged_marker_exists; then
+        # rootless Tun 特权态：进程由特权 helper 运行，用户态 stop 查不到
+        # pid 记录会静默 no-op，端口被旧内核继续占用
+        service_sudo_stop >/dev/null 2>&1 || rc=1
+    else
+        service_stop >/dev/null 2>&1 || rc=1
+    fi
+    if [ "$rc" -ne 0 ]; then
+        _ui_error "无法停止现有 ${previous_kernel} 服务，拒绝切换"
+    fi
+    _service_context_apply "$kernel"
+    return "$rc"
+}
+
+_install_switch_restore_previous() { # $1=旧内核：恢复被切换停止的旧内核服务（事务回滚段调用）
+    local previous_kernel=$1
+    local current_kernel=${CLASHCTL_KERNEL:-}
+    _service_context_apply "$previous_kernel"
+    local rc=0
+    if ! _is_root && _service_privileged_marker_exists; then
+        # rootless Tun 特权态：进程经特权 helper 运行，用户态拉起会 bind 失败
+        service_sudo_start >/dev/null 2>&1 || true
+    else
+        service_start >/dev/null 2>&1 || true
+    fi
+    service_is_active >/dev/null 2>&1 || rc=1
+    _service_context_apply "$current_kernel"
+    return "$rc"
+}
+
+_install_switch_retire_previous() { # $1=manager $2=旧内核：切换提交后停用旧内核自启
+    local manager=$1 previous_kernel=$2
+    local current_kernel=${CLASHCTL_KERNEL:-}
+    _install_enablement_supported "$manager" || return 0
+    # 仅在此作废自启链接快照变量：runit 的 is_enabled/disable 优先读环境里的
+    # ENABLE_LINK（指向新内核事务的链接），不清会操作错内核；retire 之后不再
+    # 写 journal，作废不影响快照一致性
+    unset CLASHCTL_SERVICE_ENABLE_LINK CLASHCTL_SERVICE_ENABLE_KIND \
+        CLASHCTL_SERVICE_ENABLE_TARGET CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET
+    _service_context_apply "$previous_kernel"
+    if service_is_enabled >/dev/null 2>&1; then
+        if service_disable >/dev/null 2>&1 && ! service_is_enabled >/dev/null 2>&1; then
+            _ui_info "已停用 ${previous_kernel} 的开机自启（多内核并存，定义保留可切回）"
+        else
+            _ui_warn "无法停用 ${previous_kernel} 的开机自启；重启后可能与当前内核争用端口"
+        fi
+    fi
+    _service_context_apply "$current_kernel"
+}
+
 _install_restore_service() {
     local source=${CLASHCTL_SERVICE_SOURCE:-} failures=0 exact_enablement=0 definition_restored=0
     local enablement_rc=0
@@ -1105,6 +1186,14 @@ _install_restore_service() {
         _ui_error '恢复安装前的停止状态失败'
         failures=1
     fi
+    if [ -n "${CLASHCTL_SERVICE_PREV_KERNEL:-}" ]; then
+        if _install_switch_restore_previous "$CLASHCTL_SERVICE_PREV_KERNEL"; then
+            _ui_ok "已重新启动切换前的 ${CLASHCTL_SERVICE_PREV_KERNEL} 服务"
+        else
+            _ui_error "重新启动切换前的 ${CLASHCTL_SERVICE_PREV_KERNEL} 服务失败"
+            failures=1
+        fi
+    fi
     if [ "$failures" -ne 0 ]; then
         _install_report_retained_recovery '原服务状态未能完整恢复'
         return 1
@@ -1133,7 +1222,7 @@ _install_restore_service() {
         return 1
     fi
     _ui_warn '安装未完成，已恢复安装前的服务定义、自启与运行状态'
-    _ui_detail '继续' "修复后运行 $(_install_continue_command)（已加载 clashctl 时可直接 clashctl install）"
+    _ui_detail '继续' "修复后运行 $(_install_continue_command)（已加载 clashctl 时可直接 clashctl install ${CLASHCTL_KERNEL}）"
     return 0
 }
 

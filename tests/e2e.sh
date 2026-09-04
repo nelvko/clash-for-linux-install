@@ -13,6 +13,20 @@ PASS=0
 FAIL=0
 FAILED_CASES=
 
+# 互斥锁：setup_offline 会 rm -rf $WORK，两个实例并发必互踩（已实测一次）。
+# 实现须用 flock -o 的 exec 包裹：锁 fd 在本进程内关闭，后台假内核不会继承
+# （bash 对 {var}> 自动分配的 fd 同样不带 CLOEXEC，被中断的孤儿内核会持锁
+# 到天荒地老）；flock 父进程随脚本退出自动放锁
+if [ -z "${CLASHCTL_E2E_LOCKED:-}" ]; then
+    if ! flock -n "${WORK}.lock" true 2>/dev/null; then
+        printf 'FAIL: 另一 e2e 实例正在运行或残留假内核持有锁（%s）\n      确认无实例后: fuser -k 9090/tcp 清理残留假内核再重试\n' "$WORK" >&2
+        exit 1
+    fi
+    export CLASHCTL_E2E_LOCKED=1
+    exec flock -n -o "${WORK}.lock" bash "${BASH_SOURCE[0]}" "$@"
+    exit 1
+fi
+
 say() { printf '\n━━ %s ━━\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 ok() { PASS=$((PASS + 1)); printf 'PASS %s\n' "$1"; }
@@ -296,6 +310,28 @@ s8_switch_kernel() {
     [ -x "$root/home/bin/clash/clash" ] && ok "s8: 第二内核落位" || no s8 "clash 未落位"
     grep -Fqs 'CLASHCTL_KERNEL=clash' "$root/home/.env" &&
         ok "s8: 激活指针切换" || no s8 "指针未切换"
+    has "$root/cli.err" '端口冲突' &&
+        no s8 "旧内核占端口被误判外来冲突" || ok "s8: 端口无误判"
+    grep -Eqs 'external-controller: .*:9090' "$root/home/data/runtime.yaml" &&
+        ok "s8: 控制器端口未漂移" || no s8 "控制器端口漂移"
+    stop_all_sandboxes
+}
+
+s13_failed_switch_restore() { # 失败切换：中止须恢复旧内核服务与激活指针
+    local root
+    root=$(new_env s13)
+    mkdir -p "$root/user"
+    run_install "$root" --home "$root/home" --branch iu --non-interactive >/dev/null || true
+    [ -f "$root/home/.env" ] || { no s13 "前置安装失败"; return; }
+    printf 'file://%s/no-such-sub.yaml\n' "$WORK" >"$WORK/bad-sub.url"
+    chmod 0600 "$WORK/bad-sub.url"
+    run_clashctl "$root" nohup install clash --subscription-file "$WORK/bad-sub.url" || true
+    grep -Fqs 'CLASHCTL_KERNEL=mihomo' "$root/home/.env" &&
+        ok "s13: 指针未切换" || no s13 "失败切换却改了指针"
+    has "$root/cli.err" '已重新启动切换前的 mihomo 服务' &&
+        ok "s13: 旧内核服务已恢复" || no s13 "旧内核未恢复"
+    timeout 3 /usr/bin/curl -sf http://127.0.0.1:9090/version >/dev/null 2>&1 &&
+        ok "s13: 恢复后控制器应答" || no s13 "恢复后控制器无应答"
     stop_all_sandboxes
 }
 
@@ -373,11 +409,78 @@ s12_systemd_real() {
     stop_all_sandboxes
 }
 
+s14_systemd_switch() { # 真 systemd 切内核：停旧泛化 + retire 自启的实证面
+    [ "$(id -u)" -eq 0 ] && command -v systemctl >/dev/null || { ok "s14: 跳过(非root)"; return; }
+    local root unit_old unit_new wants_old bak=
+    unit_old=/etc/systemd/system/mihomo.service
+    unit_new=/etc/systemd/system/clash.service
+    wants_old=/etc/systemd/system/multi-user.target.wants/mihomo.service
+    [ -e "$unit_old" ] && { cp -a "$unit_old" "$WORK/unit-mihomo.bak"; bak=1; }
+    root=$(new_env s14)
+    mkdir -p "$root/user"
+    env -i PATH="$WORK/bin:$PATH" HOME="$root/user" \
+        CLASHCTL_UPDATE_GIT_URL="$MIRROR_URL" CLASHCTL_COLOR=never TERM=dumb \
+        bash "$WORK/online/install.sh" --home "$root/home" --branch iu --non-interactive \
+        --take-over-service >"$root/io.out" 2>"$root/io.err" </dev/null || true
+    [ -f "$root/home/.env" ] || { no s14 "前置安装失败"; return; }
+    env -i PATH="$WORK/bin:$PATH" HOME="$root/user" CLASHCTL_HOME="$root/home" \
+        CLASHCTL_COLOR=never TERM=dumb \
+        bash -c '. "$1/scripts/cmd/clashctl.sh"; shift; clashctl "$@"' \
+        _ "$root/home" install clash >"$root/cli.out" 2>"$root/cli.err" </dev/null || true
+    grep -Fqs 'CLASHCTL_KERNEL=clash' "$root/home/.env" &&
+        ok "s14: 指针切换" || no s14 "指针未切换"
+    systemctl is-active clash >/dev/null 2>&1 &&
+        ok "s14: clash 单元运行" || no s14 "clash 单元未运行"
+    systemctl is-active mihomo >/dev/null 2>&1 &&
+        no s14 "旧单元仍在运行" || ok "s14: 旧单元已停"
+    systemctl is-enabled mihomo >/dev/null 2>&1 &&
+        no s14 "旧单元自启未退位" || ok "s14: 旧单元自启已退位"
+    [ -e "$unit_old" ] && [ ! -e "$wants_old" ] &&
+        ok "s14: 旧单元定义保留可切回" || no s14 "旧单元定义异常"
+    has "$root/cli.err" '端口冲突' &&
+        no s14 "systemd 切换误判端口冲突" || ok "s14: 端口无误判"
+    # 清场：卸载当前内核，非激活内核单元按设计不属卸载范围，手动补清
+    env -i PATH="$WORK/bin:$PATH" HOME="$root/user" CLASHCTL_HOME="$root/home" \
+        INIT_TYPE=nohup bash "$root/home/uninstall.sh" --yes >"$root/uni.out" 2>"$root/uni.err" </dev/null || true
+    if [ "$bak" = 1 ]; then
+        cp -a "$WORK/unit-mihomo.bak" "$unit_old"
+    else
+        rm -f -- "$unit_old" "$unit_new"
+    fi
+    systemctl daemon-reload
+    stop_all_sandboxes
+}
+
+s15_pending_journal_guidance() { # 崩溃残留事务：无参/异内核重入须指路，不得谎报完成
+    local root
+    root=$(new_env s15)
+    mkdir -p "$root/user"
+    run_install "$root" --home "$root/home" --branch iu --non-interactive >/dev/null || true
+    [ -f "$root/home/.env" ] || { no s15 "前置安装失败"; return; }
+    # 构造崩溃残留态：chmod -x 运行中的 mihomo 二进制 → 切换失败回滚时
+    # 旧内核重启必败 → journal 保留（.env 仍指 mihomo，journal KERNEL=clash）
+    chmod 0644 "$root/home/bin/mihomo/mihomo"
+    printf 'file://%s/no-such-sub.yaml\n' "$WORK" >"$WORK/bad-sub.url"
+    chmod 0600 "$WORK/bad-sub.url"
+    run_clashctl "$root" nohup install clash --subscription-file "$WORK/bad-sub.url" || true
+    [ -f "$root/home/.service-transaction" ] &&
+        ok "s15: 残留快照在盘" || { no s15 "快照未保留(构造失败)"; return; }
+    run_clashctl "$root" nohup install || true
+    { has "$root/cli.err" '未完成的服务事务' && has "$root/cli.err" 'clashctl install clash'; } &&
+        ok "s15: 无参重入指路恢复" || no s15 "无参重入未指路或谎报完成"
+    run_clashctl "$root" nohup install mihomo || true
+    { has "$root/cli.err" '快照属于内核 clash' && has "$root/cli.err" 'clashctl install clash'; } &&
+        ok "s15: 异内核重入提示归属" || no s15 "异内核重入无归属指引"
+    chmod 0755 "$root/home/bin/mihomo/mihomo" 2>/dev/null || true
+    stop_all_sandboxes
+}
+
 # ── 主循环 ─────────────────────────────────────────────────
 setup_offline || fail "离线基件构建失败(gcc/python 缺失?)"
 ALL="s1_fresh_install s2_resume_inplace s3_resume_online_refresh s4_refresh_fail_fallback
 s5_legacy_takeover s6_v2_shell_no_migration s7_idempotent s8_switch_kernel
-s9_uninstall_full s10_uninstall_shell s11_update s12_systemd_real"
+s9_uninstall_full s10_uninstall_shell s11_update s12_systemd_real s13_failed_switch_restore
+s14_systemd_switch s15_pending_journal_guidance"
 SELECT=${*:-$ALL}
 for scen in $SELECT; do
     say "$scen"
