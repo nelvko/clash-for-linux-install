@@ -79,6 +79,46 @@ _install_marker_write "$complete" "$complete"
 assert_rejected 'completed installation' _require_empty_home "$complete"
 [ -d "$complete" ] || fail 'completed installation was modified during detection'
 
+# 新版已装（含 update.sh）：指引更新、新增内核与重装
+current="$WORK_DIR/current install"
+make_layout "$current"
+: >"$current/scripts/cmd/update.sh"
+: >"$current/.env"
+_install_marker_write "$current" "$current"
+_require_empty_home "$current" >"$WORK_DIR/current.stdout" 2>"$WORK_DIR/current.stderr" &&
+    fail 'completed current installation was accepted'
+grep -Fqs 'clashctl 已安装' "$WORK_DIR/current.stderr" ||
+    fail 'completed current installation lacks the installed message'
+grep -Fqs 'clashctl update' "$WORK_DIR/current.stderr" ||
+    fail 'completed current installation lacks the update hint'
+grep -Fqs '新增内核' "$WORK_DIR/current.stderr" ||
+    fail 'completed current installation does not advertise the extra-kernel option'
+
+# 已装 + 事务快照残留（切换中途崩溃）：指回恢复，不再引导 update/重装
+pending="$WORK_DIR/pending transaction"
+make_layout "$pending"
+: >"$pending/scripts/cmd/update.sh"
+: >"$pending/.env"
+printf 'CLASHCTL_SERVICE_JOURNAL_KERNEL=clash\n' >"$pending/.service-transaction"
+_install_marker_write "$pending" "$pending"
+_require_empty_home "$pending" >"$WORK_DIR/pending.stdout" 2>"$WORK_DIR/pending.stderr" &&
+    fail 'installation with a pending service transaction was accepted'
+grep -Fqs '未完成的服务事务' "$WORK_DIR/pending.stderr" ||
+    fail 'pending transaction is not surfaced by the already-installed gate'
+grep -Fqs 'clashctl install clash' "$WORK_DIR/pending.stderr" ||
+    fail 'pending transaction guidance omits the journal kernel'
+grep -Fqs '重装' "$WORK_DIR/pending.stderr" &&
+    fail 'pending transaction guidance still suggests reinstall'
+grep -Fqs 'clashctl update' "$WORK_DIR/pending.stderr" &&
+    fail 'pending transaction guidance suggests update over recovery'
+
+# 快照损坏（内核不可解析）：退化为通用恢复指引
+printf 'CLASHCTL_SERVICE_JOURNAL_VERSION=3\n' >"$pending/.service-transaction"
+_require_empty_home "$pending" >"$WORK_DIR/pending2.stdout" 2>"$WORK_DIR/pending2.stderr" &&
+    fail 'corrupted pending transaction was accepted'
+grep -Fqs '运行 clashctl install（按提示完成或回滚）' "$WORK_DIR/pending2.stderr" ||
+    fail 'corrupted snapshot lacks the generic recovery guidance'
+
 target="$WORK_DIR/atomic target"
 mkdir -- "$target"
 stage=

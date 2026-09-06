@@ -465,6 +465,92 @@ assert_eq 1 "$(grep -c '无法查询部分依赖' "$resolve_out")" \
     'fallback warning fires exactly once per batch'
 unset LATEST_QUERY_RC
 
+# ── _fetch_latest_tag 双通道回退：设 GH_PROXY 时代理优先、直连兜底 ──
+# （上方测试用桩覆盖了真函数；子 shell 重源 preflight.sh 恢复，PATH 前置假 curl。
+#   加速前缀对 api.github.com 支持不一：ghfast.top 403、gh-proxy.org 200，故须都试）
+tag_curl_dir="$WORK_DIR/tag-curl-bin"
+mkdir -p -- "$tag_curl_dir"
+cat >"$tag_curl_dir/curl" <<'SCRIPT'
+#!/usr/bin/env bash
+# 假 curl：按 URL 前缀区分通道；BODY 为空代表该通道失败（--fail 语义）
+url=${*: -1}
+printf '%s\n' "$url" >>"${TAG_URL_LOG:?}"
+case $url in
+"$TAG_PROXY_PREFIX"*)
+    [ -n "${TAG_PROXY_BODY:-}" ] || exit 22
+    printf '%s' "$TAG_PROXY_BODY"
+    ;;
+https://api.github.com/*)
+    [ -n "${TAG_DIRECT_BODY:-}" ] || exit 22
+    printf '%s' "$TAG_DIRECT_BODY"
+    ;;
+*)
+    exit 0
+    ;;
+esac
+SCRIPT
+chmod +x "$tag_curl_dir/curl"
+tag_url_log="$WORK_DIR/tag-urls"
+tag_query() {
+    (
+        # BODY 等变量须显式导出：假 curl 是独立进程，只看得见环境变量
+        export PATH="$tag_curl_dir:$PATH" TAG_URL_LOG=$tag_url_log \
+            TAG_PROXY_PREFIX=https://ghfast.top/ \
+            TAG_PROXY_BODY=${TAG_PROXY_BODY-} TAG_DIRECT_BODY=${TAG_DIRECT_BODY-}
+        # shellcheck source=../scripts/preflight.sh
+        . "$REPO_DIR/scripts/preflight.sh"
+        _fetch_latest_tag "$1"
+    )
+}
+tag_body='{"tag_name": "v1.2.3", "name": "release"}'
+
+# 未设代理：仅直连一次
+: >"$tag_url_log"
+unset GH_PROXY TAG_PROXY_BODY
+TAG_DIRECT_BODY=$tag_body
+assert_eq v1.2.3 "$(tag_query mikefarah/yq)" 'direct channel resolves the latest tag'
+assert_eq 1 "$(wc -l <"$tag_url_log")" 'without proxy exactly one URL is queried'
+case $(<"$tag_url_log") in
+https://api.github.com/*) ;;
+*) fail 'tag query without proxy did not hit api.github.com directly' ;;
+esac
+
+# 代理支持 api：代理优先命中即止（不再试直连）
+: >"$tag_url_log"
+export GH_PROXY=https://ghfast.top/
+TAG_PROXY_BODY='{"tag_name": "v9.9.9"}' TAG_DIRECT_BODY=$tag_body
+assert_eq v9.9.9 "$(tag_query MetaCubeX/mihomo)" 'proxy channel resolves the latest tag'
+assert_eq 1 "$(wc -l <"$tag_url_log")" 'proxy hit stops before trying direct'
+case $(<"$tag_url_log") in
+https://ghfast.top/*) ;;
+*) fail 'tag query with proxy did not try the proxy channel first' ;;
+esac
+
+# 代理不支持 api（403 → --fail 非零）：回退直连
+: >"$tag_url_log"
+TAG_PROXY_BODY= TAG_DIRECT_BODY=$tag_body
+assert_eq v1.2.3 "$(tag_query MetaCubeX/mihomo)" \
+    'direct fallback resolves the tag when the proxy rejects api.github.com'
+assert_eq 2 "$(wc -l <"$tag_url_log")" 'proxy failure falls through to direct'
+case $(<"$tag_url_log") in
+https://ghfast.top/*$'\n'https://api.github.com/*) ;;
+*) fail 'tag query did not try proxy first then direct' ;;
+esac
+
+# 代理 200 但正文无 tag_name：视作失败继续直连（不采纳空结果）
+: >"$tag_url_log"
+TAG_PROXY_BODY='{"message": "rate limited"}' TAG_DIRECT_BODY=$tag_body
+assert_eq v1.2.3 "$(tag_query MetaCubeX/mihomo)" \
+    'unparseable proxy body falls through to direct'
+assert_eq 2 "$(wc -l <"$tag_url_log")" 'unparseable proxy body retries over direct'
+
+# 双通道皆败：返回非零（调用方回退内置钉版）
+TAG_PROXY_BODY= TAG_DIRECT_BODY=
+tag_rc=0 tag_out=$(tag_query MetaCubeX/mihomo) || tag_rc=$?
+[ "$tag_rc" -ne 0 ] || fail 'tag query succeeded with both channels failing'
+[ -z "$tag_out" ] || fail 'failed tag query still printed a tag'
+unset GH_PROXY TAG_PROXY_BODY TAG_DIRECT_BODY
+
 # ── 系统 yq 复用：版本门（mikefarah v4 才兼容）与下载跳过 ──
 fake_bin="$WORK_DIR/fake-path-bin"
 mkdir -p -- "$fake_bin"

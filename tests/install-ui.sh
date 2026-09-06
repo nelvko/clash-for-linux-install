@@ -73,6 +73,14 @@ fi
 [ "$prompt_line" -lt "$prepare_line" ] ||
     fail 'initial subscription prompt runs after dependency preparation'
 
+gate_line=$(awk '/^    _require_empty_home "\$home" \|\| return 1$/{ print NR; exit }' "$REPO_DIR/install.sh")
+plan_line=$(awk '/^        _install_plan /{ print NR; exit }' "$REPO_DIR/install.sh")
+if [ -z "$gate_line" ] || [ -z "$plan_line" ]; then
+    fail 'installer gate/plan anchors were not found'
+fi
+[ "$gate_line" -lt "$plan_line" ] ||
+    fail 'installation plan is displayed before the target-directory gate rejects'
+
 stdout_file="$WORK_DIR/stdout"
 stderr_file="$WORK_DIR/stderr"
 

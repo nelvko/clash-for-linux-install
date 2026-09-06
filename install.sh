@@ -450,14 +450,15 @@ main() {
         ;;
     esac
 
+    # 先验证目标目录，再展示计划、询问或执行任何接管操作——被拒绝的安装
+    # 不应先看到一份注定不执行的「安装计划」。
+    _require_empty_home "$home" || return 1
+
     if [ "${CLASHCTL_INSTALL_SESSION:-}" != 1 ]; then
         _install_plan "$home" "$home_source" "$kernel" "$branch" \
             "$subscription_file" "$source_dir"
         export CLASHCTL_INSTALL_SESSION=1
     fi
-
-    # 先验证目标目录，再询问或执行任何接管操作。
-    _require_empty_home "$home" || return 1
 
     if [ "$_INSTALL_HOME_STATE" = resume ]; then
         # 旧版原地接管（--allow-legacy-layout，旗标见 _require_empty_home）：
@@ -946,14 +947,26 @@ _install_migrate_legacy_data() {
 }
 
 _already_installed() {
-    local home=$1
+    local home=$1 pending_kernel
     if [ ! -f "$home/scripts/cmd/update.sh" ]; then
         _ui_error "检测到不支持在线更新的旧版安装: $home"
         _ui_detail '操作前备份' "$home/resources/{config,mixin,profiles}.yaml 和 profiles/"
         _ui_detail '卸载命令' "bash $home/uninstall.sh"
+    elif [ -f "$home/.service-transaction" ]; then
+        # 事务中途崩溃（.env 已在、journal 未清）：此刻 update/重装都会破坏恢复
+        # 现场，指回 clashctl install——它会按快照给出内核级完成/回滚指引
+        pending_kernel=$(sed -n 's/^CLASHCTL_SERVICE_JOURNAL_KERNEL=//p' \
+            "$home/.service-transaction" 2>/dev/null | head -1)
+        _ui_error "clashctl 已安装，且存在未完成的服务事务: $home"
+        case $pending_kernel in
+        mihomo | clash) _ui_detail '恢复' "运行 clashctl install $pending_kernel" ;;
+        *) _ui_detail '恢复' '运行 clashctl install（按提示完成或回滚）' ;;
+        esac
+        _ui_detail '事务快照' "$home/.service-transaction"
     else
         _ui_error "clashctl 已安装: $home"
         _ui_detail '更新' 'clashctl update'
+        _ui_detail '新增内核' 'clashctl install <mihomo|clash>（多内核并存，可随时切换）'
         _ui_detail '重装' "先执行 bash $home/uninstall.sh"
     fi
 }

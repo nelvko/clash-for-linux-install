@@ -1,7 +1,8 @@
 #!/bin/env bash
-# E2E 全流程自验证循环：安装/续装/迁移/切换/更新/卸载 × 12 场景。
+# E2E 全流程自验证循环：安装/续装/迁移/切换/更新/卸载 × 16 场景。
 # 离线确定性：本地 git 镜像源 + 假 api.github.com 应答 + file:// 订阅 + 假内核
-# （自定义 HTTP 服务器充当 external-controller）。真 systemd 场景带 unit 备份恢复。
+# （自定义 HTTP 服务器充当 external-controller）。真 systemd 场景带 unit 备份恢复；
+# 宿主机若有真实 mihomo.service，套件期间按快照静默、退出逐项恢复（见 foreign_*）。
 # 用法：CLASHCTL_E2E=1 bash tests/e2e.sh [场景名…]（缺省全跑；root 跑 systemd 场景）
 set -u
 CLASHCTL_E2E=1
@@ -193,7 +194,62 @@ stop_all_sandboxes() {
         kill "$pid" 2>/dev/null || true
     done
     fuser -k 9090/tcp >/dev/null 2>&1 || true
+    foreign_unit_quiet
     return 0
+}
+
+# ── 宿主机外部 mihomo 单元治理 ──────────────────────────────
+# 用户开发机上可能装着真 clashctl（enabled + Restart=always 的 mihomo.service，
+# 监听 *:9090）。e2e 须独占 9090，且不得改变宿主机服务状态：套件开始按快照
+# 静默、场景边界镇压（s12/s14 接管场景的卸载「恢复原单元」会把宿主服务拉起，
+# 实测毒化后续全部场景的前置安装）、退出（含中断）按快照逐项恢复。
+# 快照置于 WORK 之外：setup_offline 会 rm -rf $WORK，中断后的下一轮仍可恢复。
+FOREIGN_SNAP=$WORK.foreign-unit
+foreign_systemd_ok() { [ "$(id -u)" -eq 0 ] && command -v systemctl >/dev/null 2>&1; }
+
+foreign_unit_snapshot() {
+    foreign_systemd_ok || return 0
+    [ -e /etc/systemd/system/mihomo.service ] || return 0
+    mkdir -p "$FOREIGN_SNAP"
+    cp -a /etc/systemd/system/mihomo.service "$FOREIGN_SNAP/mihomo.service"
+    systemctl is-active mihomo >/dev/null 2>&1 && {
+        touch "$FOREIGN_SNAP/was-active"
+        printf '[INFO] e2e 期间临时停止宿主机 mihomo.service，退出时恢复原状态\n' >&2
+    }
+    systemctl is-enabled mihomo >/dev/null 2>&1 && touch "$FOREIGN_SNAP/was-enabled"
+    systemctl stop mihomo >/dev/null 2>&1 || true
+}
+
+foreign_unit_quiet() {
+    foreign_systemd_ok || return 0
+    systemctl stop mihomo >/dev/null 2>&1 || true
+}
+
+foreign_unit_restore() {
+    foreign_systemd_ok || return 0
+    [ -d "$FOREIGN_SNAP" ] || return 0
+    if [ -e "$FOREIGN_SNAP/mihomo.service" ]; then
+        systemctl stop mihomo >/dev/null 2>&1 || true
+        cp -a "$FOREIGN_SNAP/mihomo.service" /etc/systemd/system/mihomo.service
+        systemctl daemon-reload
+        if [ -e "$FOREIGN_SNAP/was-enabled" ]; then
+            systemctl enable mihomo >/dev/null 2>&1 || true
+        else
+            systemctl disable mihomo >/dev/null 2>&1 || true
+        fi
+        [ -e "$FOREIGN_SNAP/was-active" ] &&
+            systemctl start mihomo >/dev/null 2>&1 || true
+    fi
+    rm -rf "$FOREIGN_SNAP"
+}
+
+# 9090 独占预检：清掉上一轮残留假内核后仍被占 → 快速失败，不产出成串迷因失败
+port_9090_ensure_free() {
+    fuser -k 9090/tcp >/dev/null 2>&1 || true
+    sleep 1
+    if fuser 9090/tcp >/dev/null 2>&1; then
+        fail "端口 9090 被非本套件进程占用（pid $(fuser 9090/tcp 2>/dev/null | tr -s ' ')），请先处理再跑 e2e"
+    fi
 }
 
 complete_asserts() { # $1=root $2=tag：完整安装的通用断言
@@ -497,6 +553,16 @@ s15_pending_journal_guidance() { # 崩溃残留事务：无参/异内核重入�
 
 # ── 主循环 ─────────────────────────────────────────────────
 setup_offline || fail "离线基件构建失败(gcc/python 缺失?)"
+foreign_unit_snapshot
+port_9090_ensure_free
+foreign_unit_restore_and_replay() { # $1=信号名：恢复宿主状态后按原信号终止
+    foreign_unit_restore
+    trap - "$1"
+    kill -s "$1" "$$" 2>/dev/null
+}
+trap foreign_unit_restore EXIT
+trap 'foreign_unit_restore_and_replay TERM' TERM
+trap 'foreign_unit_restore_and_replay INT' INT
 ALL="s1_fresh_install s2_resume_inplace s3_resume_online_refresh s4_refresh_fail_fallback
 s5_legacy_takeover s6_v2_shell_no_migration s7_idempotent s8_switch_kernel
 s9_uninstall_full s10_uninstall_shell s11_update s12_systemd_real s13_failed_switch_restore

@@ -85,15 +85,25 @@ provision_component() {
     unzip_zip || return 1
 }
 
+# 最新版查询与下载同走 GH_PROXY 通道（有代理时代理优先，直连兜底）：
+# 加速前缀对 api.github.com 的支持不一（如 ghfast.top 403、gh-proxy.org 200），
+# 代理通道失败必须再试直连；直连本身 connect 超时快速失败，避免受限网络长磨。
 _fetch_latest_tag() {
-    local repo=$1
-    local body
-    body=$(curl -sSL --fail --max-time 10 --retry 1 -H 'Accept: application/vnd.github+json' \
-        "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null) || return 1
-    local tag
-    tag=$(printf '%s' "$body" | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 |
-        sed -E 's/.*"([^"]+)"[[:space:]]*$/\1/')
-    [ -n "$tag" ] && printf '%s\n' "$tag"
+    local repo=$1 url body tag
+    local direct_url="https://api.github.com/repos/${repo}/releases/latest"
+    local -a urls=("$direct_url")
+    [ -z "${GH_PROXY:-}" ] || urls=("${GH_PROXY%/}/$direct_url" "$direct_url")
+    for url in "${urls[@]}"; do
+        body=$(curl -sSL --fail --connect-timeout 4 --max-time 12 --retry 1 \
+            -H 'Accept: application/vnd.github+json' "$url" 2>/dev/null) || continue
+        tag=$(printf '%s' "$body" | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 |
+            sed -E 's/.*"([^"]+)"[[:space:]]*$/\1/')
+        [ -n "$tag" ] && {
+            printf '%s\n' "$tag"
+            return 0
+        }
+    done
+    return 1
 }
 
 _resolve_version() {
