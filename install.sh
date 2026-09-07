@@ -612,45 +612,10 @@ _install_plan() {
     _ui_blank
 }
 
+# GNU coreutils realpath -m：物理解析已存在前缀、容忍不存在的尾段，
+# 与仓库既有的 GNU 依赖面（stat -c/find -mindepth/mktemp 模板）一致
 _install_absolute_path() {
-    local path=$1 component normalized=/ separator='' probe suffix='' physical
-    local -a components=() stack=()
-
-    case $path in
-    /*) ;;
-    *) path="${PWD}/${path}" ;;
-    esac
-    IFS=/ read -r -a components <<<"$path"
-    for component in "${components[@]}"; do
-        case $component in
-        '' | .) ;;
-        ..)
-            if [ ${#stack[@]} -gt 0 ]; then
-                unset 'stack[${#stack[@]}-1]'
-            fi
-            ;;
-        *) stack+=("$component") ;;
-        esac
-    done
-    for component in "${stack[@]}"; do
-        normalized+="${separator}${component}"
-        separator=/
-    done
-
-    probe=$normalized
-    while [ ! -d "$probe" ]; do
-        [ "$probe" != / ] || return 1
-        component=${probe##*/}
-        suffix="/${component}${suffix}"
-        probe=${probe%/*}
-        [ -n "$probe" ] || probe=/
-    done
-    physical=$(cd -P -- "$probe" && pwd -P) || return 1
-    if [ "$physical" = / ]; then
-        printf '/%s\n' "${suffix#/}"
-    else
-        printf '%s%s\n' "$physical" "$suffix"
-    fi
+    realpath -m -- "$1"
 }
 
 _install_owned_directory() {
