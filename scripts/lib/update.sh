@@ -46,7 +46,7 @@ _update_git_url() {
     local url=${CLASHCTL_UPDATE_GIT_URL:-}
     [ -n "$url" ] || {
         url="https://github.com/${_UPDATE_REPO}.git"
-        [ -n "${GH_PROXY:-}" ] && url="${GH_PROXY%/}/${url}"
+        url=$(gh_proxy_url "$url")
     }
     printf '%s\n' "$url"
 }
@@ -145,7 +145,7 @@ _update_remote_sha() {
     sha=$(curl -s --max-time 10 --retry 1 -H 'Accept: application/vnd.github.sha' "$api" 2>/dev/null)
     if ! [[ $sha =~ ^[0-9a-f]{40}$ ]] && [ -n "${GH_PROXY:-}" ]; then
         sha=$(curl -s --max-time 10 --retry 1 -H 'Accept: application/vnd.github.sha' \
-            "${GH_PROXY%/}/${api}" 2>/dev/null)
+            "$(gh_proxy_url "$api")" 2>/dev/null)
     fi
     [[ $sha =~ ^[0-9a-f]{40}$ ]] && printf '%s\n' "$sha"
     return 0
@@ -493,7 +493,7 @@ _update_fetch_archive() {
 
     /usr/bin/install -d "$dst" || return 1
     url="https://codeload.github.com/${_UPDATE_REPO}/tar.gz/refs/heads/${branch}"
-    url="${GH_PROXY:+${GH_PROXY%/}/}${url}"
+    url=$(gh_proxy_url "$url")
     _ui_step '下载更新归档'
     curl -sSL --fail --max-time "${CLASHCTL_DOWNLOAD_TIMEOUT:-60}" --retry 1 "$url" |
         tar -xzf - --strip-components=1 -C "$dst"

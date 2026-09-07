@@ -92,7 +92,7 @@ _fetch_latest_tag() {
     local repo=$1 url body tag
     local direct_url="https://api.github.com/repos/${repo}/releases/latest"
     local -a urls=("$direct_url")
-    [ -z "${GH_PROXY:-}" ] || urls=("${GH_PROXY%/}/$direct_url" "$direct_url")
+    [ -z "${GH_PROXY:-}" ] || urls=("$(gh_proxy_url "$direct_url")" "$direct_url")
     for url in "${urls[@]}"; do
         body=$(curl -sSL --fail --connect-timeout 4 --max-time 12 --retry 1 \
             -H 'Accept: application/vnd.github+json' "$url" 2>/dev/null) || continue
@@ -222,7 +222,8 @@ _cache_token() {
 
 _download_archive() {
     local label=$1 url=$2 target=$3
-    local download_url="${GH_PROXY:+${GH_PROXY%/}/}${url}"
+    local download_url
+    download_url=$(gh_proxy_url "$url")
     local part="${target}.part"
     local -a curl_args=(
         --show-error
@@ -898,7 +899,7 @@ revoke_rc() {
 
     if [ -n "$SHELL_RC_FISH" ] && [ -e "$SHELL_RC_FISH" ]; then
         if head -n 1 -- "$SHELL_RC_FISH" 2>/dev/null |
-            grep -Fqx '# clashctl shell-rc (managed by install.sh, do not edit)'; then
+            grep -Fqx "$CLASHCTL_FISH_MANAGED_MARKER"; then
             /usr/bin/rm -f -- "$SHELL_RC_FISH" || {
                 _ui_error "无法清理 Fish 配置"
                 _ui_detail "文件" "$SHELL_RC_FISH"

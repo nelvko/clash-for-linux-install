@@ -23,6 +23,8 @@ CLASH_CONFIG_DEBUG_RAW="${CLASH_DATA_DIR}/last-failed.raw"
 CLASH_RESOURCES_DIR="${CLASHCTL_HOME}/resources"
 
 BIN_BASE_DIR="${CLASHCTL_HOME}/bin"
+# fish 托管块首行标记：写入/识别/清理共用（preflight.sh 的 revoke 同引此量）
+CLASHCTL_FISH_MANAGED_MARKER='# clashctl shell-rc (managed by install.sh, do not edit)'
 # 每内核一目录（bin/mihomo/mihomo、bin/sing-box/sing-box…），支持多内核并存；
 # CLASHCTL_KERNEL 是激活指针，已装集合以 bin/ 子目录为准。
 # bin_kernel_path 是该路径的唯一派生点：CLASHCTL_KERNEL 变更后必须经此重派生
@@ -59,6 +61,7 @@ BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
 BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
 
 CLASH_PROFILES_DIR="${CLASH_DATA_DIR}/profiles"
+
 CLASH_PROFILES_META="${CLASH_DATA_DIR}/profiles.yaml"
 CLASH_PROFILES_LOG="${CLASH_DATA_DIR}/profiles.log"
 CLASH_PROFILES_LOCK="${CLASH_DATA_DIR}/profiles.lock"
@@ -66,6 +69,18 @@ CLASH_PROFILES_LOCK="${CLASH_DATA_DIR}/profiles.lock"
 CLASHCTL_CMD_DIR="${CLASHCTL_HOME}/scripts/cmd"
 
 CLASHCTL_CRON_TAG="# clashctl-auto-update"
+
+# GH_PROXY 加速前缀拼接的唯一入口：设置代理时输出 "<代理>/<url>"，未设置时
+# 原样返回。勿在别处手写 ${GH_PROXY%/}/ 前缀（install.sh 根脚本 pre-source
+# 阶段除外——它用 --gh-proxy 旗标值，且尚无本文件可加载）
+gh_proxy_url() {
+    local url=$1
+    if [ -n "${GH_PROXY:-}" ]; then
+        printf '%s/%s\n' "${GH_PROXY%/}" "$url"
+    else
+        printf '%s\n' "$url"
+    fi
+}
 
 _is_port_used() {
     local port=${1:-} sockets
@@ -516,7 +531,7 @@ _write_fish_rc() {
     if [ -e "$SHELL_RC_FISH" ] || [ -L "$SHELL_RC_FISH" ]; then
         [ ! -L "$SHELL_RC_FISH" ] &&
             head -n 1 -- "$SHELL_RC_FISH" 2>/dev/null |
-            grep -Fqx '# clashctl shell-rc (managed by install.sh, do not edit)' || return 3
+            grep -Fqx "$CLASHCTL_FISH_MANAGED_MARKER" || return 3
     fi
 
     local fish_dir
@@ -527,7 +542,7 @@ _write_fish_rc() {
     local tmp
     tmp=$(mktemp "${fish_dir}/.clashctl.fish.XXXXXX") || return 1
     {
-        printf "# clashctl shell-rc (managed by install.sh, do not edit)\n"
+        printf '%s\n' "$CLASHCTL_FISH_MANAGED_MARKER"
         printf "set -gx CLASHCTL_HOME '%s'\n\n" "$fish_quoted"
         cat -- "$CLASHCTL_CMD_DIR/clashctl.fish"
     } >"$tmp" || {
