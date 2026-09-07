@@ -32,6 +32,8 @@ assert_not_contains() {
 export CLASHCTL_KERNEL=mihomo CLASHCTL_UNINSTALL_SOURCE_ONLY=1 CLASHCTL_COLOR=never
 # shellcheck source=../uninstall.sh
 . "$REPO_DIR/uninstall.sh"
+# shellcheck source=../scripts/lib/install-transaction.sh
+. "$REPO_DIR/scripts/lib/install-transaction.sh"
 
 test_managed_shell_cleanup() {
     local home="$WORK_DIR/shell-home" rc="$WORK_DIR/shell-home/.bashrc"
@@ -93,11 +95,10 @@ _uninstall_legacy_cron() {
 }
 
 setup_install() {
-    local name=$1
+    local name=$1 backup="$WORK_DIR/$name/original.service.backup"
     CLASHCTL_HOME="$WORK_DIR/$name/home"
     CLASHCTL_SRC=$REPO_DIR
-    CLASHCTL_REPLACED_SERVICE_BACKUP="$WORK_DIR/$name/original.service.backup"
-    export CLASHCTL_HOME CLASHCTL_SRC CLASHCTL_REPLACED_SERVICE_BACKUP
+    export CLASHCTL_HOME CLASHCTL_SRC
     mkdir -p -- "$CLASHCTL_HOME/scripts/lib" "$CLASHCTL_HOME/scripts/cmd"
     : >"$CLASHCTL_HOME/.env"
     : >"$CLASHCTL_HOME/install.sh"
@@ -112,7 +113,29 @@ setup_install() {
         printf 'CLASHCTL_INSTALLATION_UID=%s\n' "$(id -u)"
     } >"$CLASHCTL_HOME/.clashctl-installation"
     chmod 0600 "$CLASHCTL_HOME/.clashctl-installation"
-    printf 'original service\n' >"$CLASHCTL_REPLACED_SERVICE_BACKUP"
+    printf 'original service\n' >"$backup"
+    # 已提交接管快照（经真实写入器生成；uninstall_replaced_service_preflight
+    # 等下游在本文件均被桩替，字段只需自洽）
+    CLASHCTL_SERVICE_MANAGER=systemd
+    CLASHCTL_SERVICE_SOURCE=
+    CLASHCTL_SERVICE_TARGET=
+    CLASHCTL_SERVICE_TARGET_EXISTED=0
+    CLASHCTL_SERVICE_BACKUP=$backup
+    CLASHCTL_SERVICE_BACKUP_CREATED=0
+    CLASHCTL_SERVICE_WAS_ACTIVE=0
+    CLASHCTL_SERVICE_WAS_ENABLED=0
+    CLASHCTL_SERVICE_CONFLICT=0
+    CLASHCTL_SERVICE_ENABLE_LINK=
+    CLASHCTL_SERVICE_ENABLE_KIND=absent
+    CLASHCTL_SERVICE_ENABLE_TARGET=
+    CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET=
+    CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL=
+    CLASHCTL_SERVICE_ENABLEMENT_INSTALLED=
+    CLASHCTL_SERVICE_PREV_KERNEL=
+    _install_journal_write_to "$CLASHCTL_HOME/.service-replaced" ||
+        fail 'cannot write replaced-service snapshot fixture'
+    unset CLASHCTL_SERVICE_MANAGER CLASHCTL_SERVICE_SOURCE CLASHCTL_SERVICE_TARGET
+    unset CLASHCTL_SERVICE_BACKUP CLASHCTL_SERVICE_WAS_ACTIVE CLASHCTL_SERVICE_WAS_ENABLED
     SERVICE_RESULT=0
     SHELL_RESULT=0
     CRON_RESULT=0
@@ -203,33 +226,18 @@ test_restore_preflight_failure_blocks_confirmation_and_mutation() {
     assert_contains "$stderr" '卸载尚未开始' 'failed preflight reports the unchanged boundary'
 }
 
-test_clean_install_snapshot_uses_uninstall_language() {
+test_clean_install_snapshot_runs_preflight_with_restore_language() {
     setup_install clean-snapshot
-    /usr/bin/rm -f -- "$CLASHCTL_REPLACED_SERVICE_BACKUP"
-    CLASHCTL_REPLACED_SERVICE_BACKUP=
-    CLASHCTL_REPLACED_SERVICE_SOURCE=
-    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT=clashctl-service-enablement-v1
-    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE=disabled
-    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS=
-    CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE=0
-    CLASHCTL_REPLACED_SERVICE_WAS_ENABLED=0
-    export CLASHCTL_REPLACED_SERVICE_BACKUP CLASHCTL_REPLACED_SERVICE_SOURCE
-    export CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT
-    export CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS
-    export CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE CLASHCTL_REPLACED_SERVICE_WAS_ENABLED
     local stderr="$WORK_DIR/clean-snapshot/stderr"
 
     main --yes >"$WORK_DIR/clean-snapshot/stdout" 2>"$stderr"
     assert_eq 1 "$RESTORE_PREFLIGHT_CALLS" \
-        'clean install exact snapshot is checked before uninstall'
-    assert_contains "$stderr" '检查服务卸载条件' \
-        'clean install preflight uses uninstall language'
-    assert_contains "$stderr" '服务定义、自启快照和卸载目标已通过检查' \
-        'clean install snapshot validation is reported'
-    assert_not_contains "$stderr" '原服务' \
-        'clean install does not claim that an original service will be restored'
+        'clean install snapshot is checked before uninstall'
+    assert_contains "$stderr" '检查原服务恢复条件' \
+        'snapshot preflight reports the restore boundary'
+    assert_contains "$stderr" '原服务定义、自启快照和恢复目标已通过检查' \
+        'snapshot validation is reported'
 }
-
 test_late_cleanup_failure_preserves_recovery_material() {
     setup_install cleanup-failure
     SHELL_RESULT=1
@@ -303,7 +311,7 @@ test_legacy_directory_rejected
 test_noninteractive_requires_confirmation
 test_service_failure_preserves_everything
 test_restore_preflight_failure_blocks_confirmation_and_mutation
-test_clean_install_snapshot_uses_uninstall_language
+test_clean_install_snapshot_runs_preflight_with_restore_language
 test_late_cleanup_failure_preserves_recovery_material
 test_unavailable_cron_uses_partial_summary
 test_unreadable_cron_preserves_installation

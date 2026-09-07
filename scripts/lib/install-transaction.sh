@@ -468,8 +468,8 @@ _install_impact_scan() {
     return 1
 }
 
-_install_journal_write() {
-    local journal="${CLASHCTL_HOME}/.service-transaction" tmp value
+_install_journal_write_to() {
+    local journal=$1 tmp value
     local -a values=(
         "$CLASHCTL_KERNEL"
         "${CLASHCTL_SERVICE_MANAGER:-}"
@@ -522,7 +522,12 @@ _install_journal_write() {
         /usr/bin/rm -f -- "$tmp"
         return 1
     }
-    CLASHCTL_SERVICE_JOURNAL=$journal
+    return 0
+}
+
+_install_journal_write() {
+    _install_journal_write_to "${CLASHCTL_HOME}/.service-transaction" || return 1
+    CLASHCTL_SERVICE_JOURNAL="${CLASHCTL_HOME}/.service-transaction"
     export CLASHCTL_SERVICE_JOURNAL
 }
 
@@ -822,22 +827,36 @@ _install_cleanup_enablement_manifests() {
 }
 
 _install_end_service_transaction() {
-    local rc=0 journal_removed=0 snapshots_removed=0 value
+    local rc=0 journal_removed=0 snapshots_removed=0 value retain=0 replaced_written=0
     local journal=${CLASHCTL_SERVICE_JOURNAL:-${CLASHCTL_HOME}/.service-transaction}
     local backup=${CLASHCTL_SERVICE_BACKUP:-}
-    if ! /usr/bin/rm -f -- "$journal" 2>/dev/null; then
-        rc=1
-    else
-        journal_removed=1
+    local replaced="${CLASHCTL_HOME}/.service-replaced"
+    # 接管过服务（或重装自家单元）的事务：journal 内容转存为 .service-replaced，
+    # 卸载时据此恢复原服务；manifest 与备份随之保留。未接管则全部清理，并把
+    # 上一轮可能残留的 .service-replaced 一并清掉（旧 .env 键族会被重建冲掉，
+    # 快照文件必须显式移除，否则卸载会按已失效的备份行动）
+    _install_retain_enablement_snapshots && retain=1
+    if [ "$retain" -eq 1 ]; then
+        _install_journal_write_to "$replaced" && replaced_written=1 || rc=1
     fi
-    if [ "$journal_removed" -eq 1 ] && ! _install_retain_enablement_snapshots; then
+    # 转存失败时保留 journal（rc 已非零，收尾警告会列出它），供重试收尾
+    if [ "$retain" -eq 0 ] || [ "$replaced_written" -eq 1 ]; then
+        if ! /usr/bin/rm -f -- "$journal" 2>/dev/null; then
+            rc=1
+        else
+            journal_removed=1
+        fi
+    fi
+    if [ "$journal_removed" -eq 1 ] && [ "$retain" -eq 0 ]; then
+        /usr/bin/rm -f -- "$replaced" 2>/dev/null || rc=1
         if _install_cleanup_enablement_manifests; then
             snapshots_removed=1
         else
             rc=1
         fi
     fi
-    if [ "$journal_removed" -eq 1 ] && [ "$snapshots_removed" -eq 1 ] &&
+    if [ "$journal_removed" -eq 1 ] && [ "$retain" -eq 0 ] &&
+        [ "$snapshots_removed" -eq 1 ] &&
         [ "${CLASHCTL_SERVICE_BACKUP_CREATED:-0}" = 1 ]; then
         /usr/bin/rm -f -- "$backup" 2>/dev/null || rc=1
     fi
@@ -1270,27 +1289,8 @@ _install_wait_controller() {
 
 _write_install_env() {
     local kernel=$1 branch=$2 tmp="${CLASHCTL_SRC}/.env.installing" rc=0
-    local original_state='' original_links='' installed_state='' installed_links=''
-    local exact_enablement=0
-    if _install_retain_enablement_snapshots; then
-        exact_enablement=1
-        if ! service_enablement_validate "${CLASHCTL_SERVICE_MANAGER}" "$kernel" \
-            "${CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL:-}"; then
-            _ui_error '安装前的服务自启快照在提交前校验失败'
-            _ui_detail '原因' "${SERVICE_ENABLEMENT_ERROR:-未知错误}"
-            return 1
-        fi
-        original_state=$SERVICE_ENABLEMENT_STATE
-        original_links=$SERVICE_ENABLEMENT_LINKS
-        if ! service_enablement_validate "${CLASHCTL_SERVICE_MANAGER}" "$kernel" \
-            "${CLASHCTL_SERVICE_ENABLEMENT_INSTALLED:-}"; then
-            _ui_error '本次安装的服务自启快照在提交前校验失败'
-            _ui_detail '原因' "${SERVICE_ENABLEMENT_ERROR:-未知错误}"
-            return 1
-        fi
-        installed_state=$SERVICE_ENABLEMENT_STATE
-        installed_links=$SERVICE_ENABLEMENT_LINKS
-    fi
+    # 接管现场不经 .env 持久化：提交时由 _install_end_service_transaction 把
+    # 事务 journal 转存为 .service-replaced（卸载恢复链读该快照）
     cp "${CLASHCTL_SRC}/.env.example" "$tmp" || {
         _ui_error '无法创建安装配置文件'
         return 1
@@ -1304,29 +1304,6 @@ _write_install_env() {
     # 显式内核选择必须在 _set_envs 之后写入：_set_envs 用当前环境值覆写
     # 同键，而环境值在长流程中可能被 .env 重新加载污染（切内核被写回旧值）
     _set_env CLASHCTL_KERNEL "$kernel" || rc=1
-    if [ "${CLASHCTL_SERVICE_CONFLICT:-}" = 1 ] || [ "$exact_enablement" -eq 1 ]; then
-        _set_env CLASHCTL_REPLACED_SERVICE_MANAGER "$CLASHCTL_SERVICE_MANAGER" || rc=1
-        _set_env CLASHCTL_REPLACED_SERVICE_SOURCE "$CLASHCTL_SERVICE_SOURCE" || rc=1
-        _set_env CLASHCTL_REPLACED_SERVICE_TARGET "$CLASHCTL_SERVICE_TARGET" || rc=1
-        _set_env CLASHCTL_REPLACED_SERVICE_BACKUP "$CLASHCTL_SERVICE_BACKUP" || rc=1
-        _set_env CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE "$CLASHCTL_SERVICE_WAS_ACTIVE" || rc=1
-        _set_env CLASHCTL_REPLACED_SERVICE_WAS_ENABLED "$CLASHCTL_SERVICE_WAS_ENABLED" || rc=1
-        _set_env CLASHCTL_REPLACED_SERVICE_ENABLE_LINK "${CLASHCTL_SERVICE_ENABLE_LINK:-}" || rc=1
-        _set_env CLASHCTL_REPLACED_SERVICE_ENABLE_KIND "${CLASHCTL_SERVICE_ENABLE_KIND:-absent}" || rc=1
-        _set_env CLASHCTL_REPLACED_SERVICE_ENABLE_TARGET "${CLASHCTL_SERVICE_ENABLE_TARGET:-}" || rc=1
-        _set_env CLASHCTL_REPLACED_SERVICE_EXPECTED_ENABLE_TARGET \
-            "${CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET:-}" || rc=1
-        if [ "$exact_enablement" -eq 1 ]; then
-            _set_env CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT \
-                clashctl-service-enablement-v1 || rc=1
-            _set_env CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE "$original_state" || rc=1
-            _set_env CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS "$original_links" || rc=1
-            _set_env CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE \
-                "$installed_state" || rc=1
-            _set_env CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS \
-                "$installed_links" || rc=1
-        fi
-    fi
     unset CLASHCTL_ENV_PATH
     if [ "$rc" -ne 0 ] || ! chmod 0600 "$tmp" ||
         ! /bin/mv -f -- "$tmp" "${CLASHCTL_SRC}/.env"; then

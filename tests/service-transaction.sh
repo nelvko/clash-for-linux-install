@@ -630,20 +630,16 @@ manifest_state() {
     sed -n 's/^state=//p' "$1"
 }
 
-test_install_env_persists_exact_enablement_metadata() {
-    local original_state original_links installed_state installed_links env_file
+test_commit_persists_replaced_snapshot_for_takeover() {
+    local snapshot
     setup_case systemd
     write_original_service
     create_systemd_original_runtime_link
     begin_takeover
     service_enablement_validate systemd mihomo "$CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL" ||
         fail "valid original manifest was rejected: $SERVICE_ENABLEMENT_ERROR"
-    original_state=$SERVICE_ENABLEMENT_STATE
-    original_links=$SERVICE_ENABLEMENT_LINKS
     service_enablement_validate systemd mihomo "$CLASHCTL_SERVICE_ENABLEMENT_INSTALLED" ||
         fail "valid installed manifest was rejected: $SERVICE_ENABLEMENT_ERROR"
-    installed_state=$SERVICE_ENABLEMENT_STATE
-    installed_links=$SERVICE_ENABLEMENT_LINKS
 
     if ! (
         # shellcheck source=../scripts/lib/common.sh
@@ -656,34 +652,21 @@ test_install_env_persists_exact_enablement_metadata() {
     ); then
         fail "install env write failed: $(<"$CASE_DIR/env.stderr")"
     fi
-    env_file=$CLASHCTL_SRC/.env
-    (
-        unset CLASHCTL_REPLACED_SERVICE_MANAGER CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT
-        unset CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS
-        unset CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE
-        unset CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS
-        # shellcheck disable=SC1090
-        . "$env_file"
-        assert_eq systemd "$CLASHCTL_REPLACED_SERVICE_MANAGER" \
-            'install env records the replaced service manager'
-        assert_eq clashctl-service-enablement-v1 \
-            "$CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT" \
-            'install env records the enablement manifest format'
-        assert_eq "$original_state" "$CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE" \
-            'install env records the original enablement state'
-        assert_eq "$original_links" "$CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS" \
-            'install env records the original enablement links'
-        assert_eq "$installed_state" "$CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE" \
-            'install env records the installed enablement state'
-        assert_eq "$installed_links" "$CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS" \
-            'install env records the installed enablement links'
-    )
-    assert_eq enabled-runtime "$original_state" 'env test original state'
-    assert_eq enabled "$installed_state" 'env test installed state'
-    [ -n "$original_links" ] || fail 'env test original links are empty'
-    [ -n "$installed_links" ] || fail 'env test installed links are empty'
+    if grep -q '^CLASHCTL_REPLACED_SERVICE_' "$CLASHCTL_SRC/.env"; then
+        fail 'install env must not persist service-recovery keys'
+    fi
 
     _install_end_service_transaction
+    snapshot="$CLASHCTL_HOME/.service-replaced"
+    assert_exists "$snapshot" 'committed takeover writes the replaced-service snapshot'
+    assert_eq 600 "$(stat -c '%a' "$snapshot")" 'replaced-service snapshot permissions'
+    grep -Fqs "CLASHCTL_SERVICE_MANAGER=systemd" "$snapshot" ||
+        fail 'snapshot records the service manager'
+    grep -Fqs "CLASHCTL_SERVICE_SOURCE=$TEST_SERVICE_TARGET" "$snapshot" ||
+        fail 'snapshot records the replaced service definition'
+    grep -Fqs "CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL=$CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL" \
+        "$snapshot" ||
+        fail 'snapshot records the original enablement manifest path'
     assert_exists "$CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL" \
         'committed install retains original enablement snapshot for uninstall'
     assert_exists "$CLASHCTL_SERVICE_ENABLEMENT_INSTALLED" \
@@ -691,8 +674,8 @@ test_install_env_persists_exact_enablement_metadata() {
     assert_absent "$CLASHCTL_SERVICE_JOURNAL" 'committed install removes transaction journal'
 }
 
-test_clean_install_persists_exact_enablement_metadata() {
-    local env_file
+test_clean_install_commit_writes_replaced_snapshot() {
+    local snapshot
     setup_case systemd
     _install_impact_scan "$CLASHCTL_HOME" "$CLASHCTL_KERNEL" systemd \
         >"$CASE_DIR/impact.stdout" 2>"$CASE_DIR/impact.stderr"
@@ -703,55 +686,20 @@ test_clean_install_persists_exact_enablement_metadata() {
     _install_capture_installed_enablement \
         >"$CASE_DIR/installed-enablement.stdout" 2>"$CASE_DIR/installed-enablement.stderr"
 
-    if ! (
-        # shellcheck source=../scripts/lib/common.sh
-        . "$REPO_DIR/scripts/lib/common.sh"
-        _set_envs() {
-            # shellcheck disable=SC2317
-            return 0
-        }
-        _write_install_env mihomo iu >"$CASE_DIR/env.stdout" 2>"$CASE_DIR/env.stderr"
-    ); then
-        fail "clean install env write failed: $(<"$CASE_DIR/env.stderr")"
-    fi
-    env_file=$CLASHCTL_SRC/.env
-    (
-        unset CLASHCTL_REPLACED_SERVICE_MANAGER CLASHCTL_REPLACED_SERVICE_SOURCE
-        unset CLASHCTL_REPLACED_SERVICE_TARGET CLASHCTL_REPLACED_SERVICE_BACKUP
-        unset CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT
-        unset CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS
-        unset CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE
-        unset CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS
-        # shellcheck disable=SC1090
-        . "$env_file"
-        assert_eq systemd "${CLASHCTL_REPLACED_SERVICE_MANAGER:-}" \
-            'clean install records the service manager'
-        assert_eq '' "${CLASHCTL_REPLACED_SERVICE_SOURCE:-}" \
-            'clean install records that no service definition was replaced'
-        assert_eq "$TEST_SERVICE_TARGET" "${CLASHCTL_REPLACED_SERVICE_TARGET:-}" \
-            'clean install records the uninstall target'
-        assert_eq clashctl-service-enablement-v1 \
-            "${CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT:-}" \
-            'clean install records exact enablement metadata'
-        assert_eq disabled "${CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE:-}" \
-            'clean install records the original disabled state'
-        assert_eq enabled "${CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE:-}" \
-            'clean install records the installed enabled state'
-        [ -n "${CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS:-}" ] ||
-            fail 'clean install did not record its enablement link'
-    )
-
     _install_end_service_transaction
+    snapshot="$CLASHCTL_HOME/.service-replaced"
+    assert_exists "$snapshot" 'clean install writes the replaced-service snapshot'
+    grep -Fqs 'CLASHCTL_SERVICE_SOURCE=' "$snapshot" ||
+        fail 'clean install records that no service definition was replaced'
+    grep -Fqs "CLASHCTL_SERVICE_TARGET=$TEST_SERVICE_TARGET" "$snapshot" ||
+        fail 'clean install records the uninstall target'
     assert_exists "$CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL" \
         'clean install retains the original enablement snapshot for uninstall'
     assert_exists "$CLASHCTL_SERVICE_ENABLEMENT_INSTALLED" \
         'clean install retains the installed enablement snapshot for uninstall'
     assert_eq 600 "$(stat -c '%a' "$CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL")" \
         'clean install original snapshot permissions'
-    assert_eq 600 "$(stat -c '%a' "$CLASHCTL_SERVICE_ENABLEMENT_INSTALLED")" \
-        'clean install installed snapshot permissions'
-    assert_absent "$CLASHCTL_SERVICE_JOURNAL" \
-        'clean install removes the committed transaction journal'
+    assert_absent "$CLASHCTL_SERVICE_JOURNAL" 'clean install removes transaction journal'
 }
 
 test_owned_partial_install_discards_transaction_restore_state() {
@@ -794,7 +742,12 @@ test_owned_partial_install_discards_transaction_restore_state() {
         fail 'owned partial install was persisted as an external service to restore'
     fi
 
+    # 预置上一轮可能残留的接管快照：自家重装必须把它清掉，
+    # 否则卸载会按已失效的备份行动
+    printf 'CLASHCTL_SERVICE_JOURNAL_VERSION=3\n' >"$CLASHCTL_HOME/.service-replaced"
     _install_end_service_transaction
+    assert_absent "$CLASHCTL_HOME/.service-replaced" \
+        'owned partial install removes the stale replaced-service snapshot after commit'
     assert_absent "$original" \
         'owned partial install removes its transaction original snapshot after commit'
     assert_absent "$installed" \
@@ -865,8 +818,8 @@ test_runit_external_link_change_blocks_install
 test_systemd_external_link_change_blocks_rollback
 test_systemd_masked_state_round_trip
 test_interrupted_journal_without_installed_snapshot_recovers
-test_install_env_persists_exact_enablement_metadata
-test_clean_install_persists_exact_enablement_metadata
+test_commit_persists_replaced_snapshot_for_takeover
+test_clean_install_commit_writes_replaced_snapshot
 test_owned_partial_install_discards_transaction_restore_state
 test_journal_load_rejects_corruption
 

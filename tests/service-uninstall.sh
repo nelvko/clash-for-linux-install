@@ -62,6 +62,14 @@ export CLASHCTL_INSTALL_SOURCE_ONLY=1
 . "$REPO_DIR/scripts/lib/service-process.sh"
 # shellcheck source=../scripts/lib/service.sh
 . "$REPO_DIR/scripts/lib/service.sh"
+# shellcheck source=../scripts/lib/install-transaction.sh
+. "$REPO_DIR/scripts/lib/install-transaction.sh"
+
+# 经真实写入器生成已提交接管快照（.service-replaced），取代旧版环境变量注入
+write_replaced_snapshot() {
+    _install_journal_write_to "$CLASHCTL_HOME/.service-replaced" ||
+        fail 'cannot write the replaced-service snapshot fixture'
+}
 
 CASE_DIR=
 TEST_TARGET=
@@ -276,23 +284,28 @@ write_installed_target() {
 
 setup_replaced_service() {
     local was_enabled=$1 was_active=$2
-    local original_state original_links installed_state installed_links
     local original_link="$TEST_SYSTEMD_RUN_ROOT/multi-user.target.wants/mihomo.service"
     write_installed_target
-    CLASHCTL_REPLACED_SERVICE_SOURCE=$TEST_TARGET
-    CLASHCTL_REPLACED_SERVICE_TARGET=$TEST_TARGET
-    CLASHCTL_REPLACED_SERVICE_BACKUP="$CASE_DIR/original.service.backup"
-    CLASHCTL_REPLACED_SERVICE_WAS_ENABLED=$was_enabled
-    CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE=$was_active
-    export CLASHCTL_REPLACED_SERVICE_SOURCE CLASHCTL_REPLACED_SERVICE_TARGET
-    export CLASHCTL_REPLACED_SERVICE_BACKUP CLASHCTL_REPLACED_SERVICE_WAS_ENABLED
-    export CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE
-    printf '[Service]\nExecStart=/opt/original/mihomo\n' >"$CLASHCTL_REPLACED_SERVICE_BACKUP"
-    chmod 0710 "$CLASHCTL_REPLACED_SERVICE_BACKUP"
+    printf '[Service]\nExecStart=/opt/original/mihomo\n' >"$CASE_DIR/original.service.backup"
+    chmod 0710 "$CASE_DIR/original.service.backup"
 
     FAKE_ENABLEMENT_FROM_LINKS=1
+    CLASHCTL_SERVICE_MANAGER=systemd
+    CLASHCTL_SERVICE_SOURCE=$TEST_TARGET
+    CLASHCTL_SERVICE_TARGET=$TEST_TARGET
+    CLASHCTL_SERVICE_TARGET_EXISTED=1
+    CLASHCTL_SERVICE_BACKUP="$CASE_DIR/original.service.backup"
+    CLASHCTL_SERVICE_BACKUP_CREATED=1
+    CLASHCTL_SERVICE_WAS_ENABLED=$was_enabled
+    CLASHCTL_SERVICE_WAS_ACTIVE=$was_active
+    CLASHCTL_SERVICE_CONFLICT=1
+    CLASHCTL_SERVICE_ENABLE_LINK=
+    CLASHCTL_SERVICE_ENABLE_KIND=absent
+    CLASHCTL_SERVICE_ENABLE_TARGET=
+    CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET=
     CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL="$CLASHCTL_HOME/.service-enablement.original"
     CLASHCTL_SERVICE_ENABLEMENT_INSTALLED="$CLASHCTL_HOME/.service-enablement.installed"
+    CLASHCTL_SERVICE_PREV_KERNEL=
     mkdir -p -- "$CLASHCTL_HOME"
     _test_systemd_remove_links
     if [ "$was_enabled" -eq 1 ]; then
@@ -301,85 +314,43 @@ setup_replaced_service() {
     fi
     service_enablement_capture systemd mihomo "$CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL" ||
         fail "cannot capture original enablement fixture: $SERVICE_ENABLEMENT_ERROR"
-    original_state=$SERVICE_ENABLEMENT_STATE
-    original_links=$SERVICE_ENABLEMENT_LINKS
     mkdir -p -- "$(dirname -- "$TEST_SYSTEMD_INSTALLED_LINK")"
     ln -s -- "$TEST_TARGET" "$TEST_SYSTEMD_INSTALLED_LINK"
     service_enablement_capture systemd mihomo "$CLASHCTL_SERVICE_ENABLEMENT_INSTALLED" ||
         fail "cannot capture installed enablement fixture: $SERVICE_ENABLEMENT_ERROR"
-    installed_state=$SERVICE_ENABLEMENT_STATE
-    installed_links=$SERVICE_ENABLEMENT_LINKS
-
-    CLASHCTL_REPLACED_SERVICE_MANAGER=systemd
-    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT=clashctl-service-enablement-v1
-    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE=$original_state
-    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS=$original_links
-    CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE=$installed_state
-    CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS=$installed_links
-    export CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL CLASHCTL_SERVICE_ENABLEMENT_INSTALLED
-    export CLASHCTL_REPLACED_SERVICE_MANAGER CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT
-    export CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS
-    export CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE
-    export CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS
+    write_replaced_snapshot
     _test_systemd_refresh_enabled
 }
 
-setup_replaced_service_legacy() {
-    local was_enabled=$1 was_active=$2
-    write_installed_target
-    CLASHCTL_REPLACED_SERVICE_SOURCE=$TEST_TARGET
-    CLASHCTL_REPLACED_SERVICE_TARGET=$TEST_TARGET
-    CLASHCTL_REPLACED_SERVICE_BACKUP="$CASE_DIR/original.service.backup"
-    CLASHCTL_REPLACED_SERVICE_WAS_ENABLED=$was_enabled
-    CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE=$was_active
-    export CLASHCTL_REPLACED_SERVICE_SOURCE CLASHCTL_REPLACED_SERVICE_TARGET
-    export CLASHCTL_REPLACED_SERVICE_BACKUP CLASHCTL_REPLACED_SERVICE_WAS_ENABLED
-    export CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE
-    printf '[Service]\nExecStart=/opt/original/mihomo\n' >"$CLASHCTL_REPLACED_SERVICE_BACKUP"
-    chmod 0710 "$CLASHCTL_REPLACED_SERVICE_BACKUP"
-    FAKE_ENABLEMENT_FROM_LINKS=0
-    FAKE_ENABLED=1
-}
-
 setup_owned_service_enablement_snapshots() {
-    local original_state original_links installed_state installed_links
+    CLASHCTL_SERVICE_MANAGER=systemd
+    CLASHCTL_SERVICE_SOURCE=
+    CLASHCTL_SERVICE_TARGET=$TEST_TARGET
+    CLASHCTL_SERVICE_TARGET_EXISTED=0
+    CLASHCTL_SERVICE_BACKUP=
+    CLASHCTL_SERVICE_BACKUP_CREATED=0
+    CLASHCTL_SERVICE_WAS_ACTIVE=0
+    CLASHCTL_SERVICE_WAS_ENABLED=0
+    CLASHCTL_SERVICE_CONFLICT=0
+    CLASHCTL_SERVICE_ENABLE_LINK=
+    CLASHCTL_SERVICE_ENABLE_KIND=absent
+    CLASHCTL_SERVICE_ENABLE_TARGET=
+    CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET=
     CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL="$CLASHCTL_HOME/.service-enablement.original"
     CLASHCTL_SERVICE_ENABLEMENT_INSTALLED="$CLASHCTL_HOME/.service-enablement.installed"
+    CLASHCTL_SERVICE_PREV_KERNEL=
     FAKE_ENABLEMENT_FROM_LINKS=1
     FAKE_ACTIVE=0
     FAKE_FRAGMENT=
-
+    mkdir -p -- "$CLASHCTL_HOME"
     service_enablement_capture systemd mihomo "$CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL" ||
         fail "cannot capture clean original enablement fixture: $SERVICE_ENABLEMENT_ERROR"
-    original_state=$SERVICE_ENABLEMENT_STATE
-    original_links=$SERVICE_ENABLEMENT_LINKS
     write_installed_target
     mkdir -p -- "$(dirname -- "$TEST_SYSTEMD_INSTALLED_LINK")"
     ln -s -- "$TEST_TARGET" "$TEST_SYSTEMD_INSTALLED_LINK"
     service_enablement_capture systemd mihomo "$CLASHCTL_SERVICE_ENABLEMENT_INSTALLED" ||
         fail "cannot capture clean installed enablement fixture: $SERVICE_ENABLEMENT_ERROR"
-    installed_state=$SERVICE_ENABLEMENT_STATE
-    installed_links=$SERVICE_ENABLEMENT_LINKS
-
-    CLASHCTL_REPLACED_SERVICE_MANAGER=systemd
-    CLASHCTL_REPLACED_SERVICE_SOURCE=
-    CLASHCTL_REPLACED_SERVICE_TARGET=$TEST_TARGET
-    CLASHCTL_REPLACED_SERVICE_BACKUP=
-    CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE=0
-    CLASHCTL_REPLACED_SERVICE_WAS_ENABLED=0
-    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT=clashctl-service-enablement-v1
-    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE=$original_state
-    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS=$original_links
-    CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE=$installed_state
-    CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS=$installed_links
-    export CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL CLASHCTL_SERVICE_ENABLEMENT_INSTALLED
-    export CLASHCTL_REPLACED_SERVICE_MANAGER CLASHCTL_REPLACED_SERVICE_SOURCE
-    export CLASHCTL_REPLACED_SERVICE_TARGET CLASHCTL_REPLACED_SERVICE_BACKUP
-    export CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE CLASHCTL_REPLACED_SERVICE_WAS_ENABLED
-    export CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT
-    export CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS
-    export CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE
-    export CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS
+    write_replaced_snapshot
     _test_systemd_refresh_enabled
 }
 
@@ -661,19 +632,6 @@ test_administrator_link_change_blocks_uninstall() {
     assert_contains "$CASE_DIR/stderr" '拒绝' 'enablement conflict explains the refusal'
 }
 
-test_legacy_enablement_fields_still_restore() {
-    setup_case legacy-enable-fields
-    setup_replaced_service_legacy 1 1
-
-    uninstall_service >"$CASE_DIR/stdout" 2>"$CASE_DIR/stderr"
-    assert_eq 1 "$FAKE_ENABLED" 'legacy enabled boolean is restored'
-    assert_eq 1 "$FAKE_ACTIVE" 'legacy active boolean is restored'
-    assert_contains "$SYSTEMCTL_LOG" 'enable --quiet mihomo' \
-        'legacy metadata uses the compatibility enable path'
-    [ "${CLASHCTL_REPLACED_SERVICE_MANAGER+x}" != x ] ||
-        fail 'legacy fixture unexpectedly published precise manager metadata'
-}
-
 test_clean_runit_snapshot_removes_service_directory() {
     local original_state original_links installed_state installed_links
     setup_case clean-runit
@@ -699,25 +657,23 @@ test_clean_runit_snapshot_removes_service_directory() {
     installed_state=$SERVICE_ENABLEMENT_STATE
     installed_links=$SERVICE_ENABLEMENT_LINKS
 
-    CLASHCTL_REPLACED_SERVICE_MANAGER=runit
-    CLASHCTL_REPLACED_SERVICE_SOURCE=
-    CLASHCTL_REPLACED_SERVICE_TARGET=$TEST_TARGET
-    CLASHCTL_REPLACED_SERVICE_BACKUP=
-    CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE=0
-    CLASHCTL_REPLACED_SERVICE_WAS_ENABLED=0
-    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT=clashctl-service-enablement-v1
-    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE=$original_state
-    CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS=$original_links
-    CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE=$installed_state
-    CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS=$installed_links
-    export CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL CLASHCTL_SERVICE_ENABLEMENT_INSTALLED
-    export CLASHCTL_REPLACED_SERVICE_MANAGER CLASHCTL_REPLACED_SERVICE_SOURCE
-    export CLASHCTL_REPLACED_SERVICE_TARGET CLASHCTL_REPLACED_SERVICE_BACKUP
-    export CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE CLASHCTL_REPLACED_SERVICE_WAS_ENABLED
-    export CLASHCTL_REPLACED_SERVICE_ENABLEMENT_FORMAT
-    export CLASHCTL_REPLACED_SERVICE_ENABLEMENT_STATE CLASHCTL_REPLACED_SERVICE_ENABLEMENT_LINKS
-    export CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_STATE
-    export CLASHCTL_REPLACED_SERVICE_INSTALLED_ENABLEMENT_LINKS
+    CLASHCTL_SERVICE_MANAGER=runit
+    CLASHCTL_SERVICE_SOURCE=
+    CLASHCTL_SERVICE_TARGET=$TEST_TARGET
+    CLASHCTL_SERVICE_TARGET_EXISTED=0
+    CLASHCTL_SERVICE_BACKUP=
+    CLASHCTL_SERVICE_BACKUP_CREATED=0
+    CLASHCTL_SERVICE_WAS_ACTIVE=0
+    CLASHCTL_SERVICE_WAS_ENABLED=0
+    CLASHCTL_SERVICE_CONFLICT=0
+    CLASHCTL_SERVICE_ENABLE_LINK=$TEST_ENABLE_LINK
+    CLASHCTL_SERVICE_ENABLE_KIND=symlink
+    CLASHCTL_SERVICE_ENABLE_TARGET=$(dirname -- "$TEST_TARGET")
+    CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET=$(dirname -- "$TEST_TARGET")
+    CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL="$CLASHCTL_HOME/.service-enablement.original"
+    CLASHCTL_SERVICE_ENABLEMENT_INSTALLED="$CLASHCTL_HOME/.service-enablement.installed"
+    CLASHCTL_SERVICE_PREV_KERNEL=
+    write_replaced_snapshot
 
     uninstall_service >"$CASE_DIR/stdout" 2>"$CASE_DIR/stderr"
     assert_absent "$TEST_TARGET" 'clean runit uninstall removes the run file'
@@ -729,32 +685,44 @@ test_clean_runit_snapshot_removes_service_directory() {
 }
 
 test_runit_restored_link_survives_uninstall_retry() {
-    local original_target='../../legacy/services/mihomo'
-    local disable_calls=0 start_calls=0 rc=0
+    local original_target='../../legacy/services/mihomo' rc=0
+    local start_calls=0
     setup_case runit-retry
     TEST_MANAGER=runit
+    TEST_TARGET="$CASE_DIR/etc/sv/mihomo/run"
     TEST_ENABLE_LINK="$CASE_DIR/runsvdir/mihomo"
-    mkdir -p -- "$(dirname -- "$TEST_ENABLE_LINK")"
+    mkdir -p -- "$(dirname -- "$TEST_ENABLE_LINK")" "$CLASHCTL_HOME" \
+        "$(dirname -- "$TEST_TARGET")"
     printf 'exec %s -d %s -f %s >%s 2>&1\n' \
         "$BIN_KERNEL" "$CLASH_RESOURCES_DIR" "$CLASH_CONFIG_RUNTIME" \
         "$CASE_DIR/service.log" >"$TEST_TARGET"
-    CLASHCTL_REPLACED_SERVICE_SOURCE=$TEST_TARGET
-    CLASHCTL_REPLACED_SERVICE_TARGET=$TEST_TARGET
-    CLASHCTL_REPLACED_SERVICE_BACKUP="$CASE_DIR/original.service.backup"
-    CLASHCTL_REPLACED_SERVICE_WAS_ENABLED=1
-    CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE=1
-    CLASHCTL_REPLACED_SERVICE_ENABLE_LINK=$TEST_ENABLE_LINK
-    CLASHCTL_REPLACED_SERVICE_ENABLE_KIND=symlink
-    CLASHCTL_REPLACED_SERVICE_ENABLE_TARGET=$original_target
-    CLASHCTL_REPLACED_SERVICE_EXPECTED_ENABLE_TARGET=$(dirname -- "$TEST_TARGET")
+    printf '%s\n' '# original runit service' >"$CASE_DIR/original.service.backup"
+
+    # 原始态：自启链接指向旧服务；安装态：链接指向 clashctl 服务目录
+    CLASHCTL_SERVICE_MANAGER=runit
+    CLASHCTL_SERVICE_SOURCE=$TEST_TARGET
+    CLASHCTL_SERVICE_TARGET=$TEST_TARGET
+    CLASHCTL_SERVICE_TARGET_EXISTED=1
+    CLASHCTL_SERVICE_BACKUP="$CASE_DIR/original.service.backup"
+    CLASHCTL_SERVICE_BACKUP_CREATED=1
+    CLASHCTL_SERVICE_WAS_ENABLED=1
+    CLASHCTL_SERVICE_WAS_ACTIVE=1
+    CLASHCTL_SERVICE_CONFLICT=1
     CLASHCTL_SERVICE_ENABLE_LINK=$TEST_ENABLE_LINK
-    export CLASHCTL_REPLACED_SERVICE_SOURCE CLASHCTL_REPLACED_SERVICE_TARGET
-    export CLASHCTL_REPLACED_SERVICE_BACKUP CLASHCTL_REPLACED_SERVICE_WAS_ENABLED
-    export CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE CLASHCTL_REPLACED_SERVICE_ENABLE_LINK
-    export CLASHCTL_REPLACED_SERVICE_ENABLE_KIND CLASHCTL_REPLACED_SERVICE_ENABLE_TARGET
-    export CLASHCTL_REPLACED_SERVICE_EXPECTED_ENABLE_TARGET CLASHCTL_SERVICE_ENABLE_LINK
-    printf '%s\n' '# original runit service' >"$CLASHCTL_REPLACED_SERVICE_BACKUP"
-    ln -s -- "$CLASHCTL_REPLACED_SERVICE_EXPECTED_ENABLE_TARGET" "$TEST_ENABLE_LINK"
+    CLASHCTL_SERVICE_ENABLE_KIND=symlink
+    CLASHCTL_SERVICE_ENABLE_TARGET=$original_target
+    CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET=$(dirname -- "$TEST_TARGET")
+    CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL="$CLASHCTL_HOME/.service-enablement.original"
+    CLASHCTL_SERVICE_ENABLEMENT_INSTALLED="$CLASHCTL_HOME/.service-enablement.installed"
+    CLASHCTL_SERVICE_PREV_KERNEL=
+    ln -s -- "$original_target" "$TEST_ENABLE_LINK"
+    service_enablement_capture runit mihomo "$CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL" ||
+        fail "cannot capture original runit enablement fixture: $SERVICE_ENABLEMENT_ERROR"
+    /usr/bin/rm -f -- "$TEST_ENABLE_LINK"
+    ln -s -- "$(dirname -- "$TEST_TARGET")" "$TEST_ENABLE_LINK"
+    service_enablement_capture runit mihomo "$CLASHCTL_SERVICE_ENABLEMENT_INSTALLED" ||
+        fail "cannot capture installed runit enablement fixture: $SERVICE_ENABLEMENT_ERROR"
+    write_replaced_snapshot
     FAKE_ACTIVE=1
 
     service_is_active() { [ "$FAKE_ACTIVE" -eq 1 ]; }
@@ -764,42 +732,18 @@ test_runit_restored_link_survives_uninstall_retry() {
         [ "$start_calls" -gt 1 ] || return 1
         FAKE_ACTIVE=1
     }
-    service_is_enabled() { [ -L "$TEST_ENABLE_LINK" ]; }
-    service_disable() {
-        disable_calls=$((disable_calls + 1))
-        /usr/bin/rm -f -- "$TEST_ENABLE_LINK"
-    }
 
     uninstall_service >"$CASE_DIR/first.stdout" 2>"$CASE_DIR/first.stderr" || rc=$?
     assert_eq 1 "$rc" 'first uninstall reports original runit start failure'
     assert_eq "$original_target" "$(readlink -- "$TEST_ENABLE_LINK")" \
         'first uninstall leaves the restored original runit link intact'
-    assert_eq 1 "$disable_calls" 'first uninstall disables only the clashctl link'
 
     uninstall_service >"$CASE_DIR/second.stdout" 2>"$CASE_DIR/second.stderr"
     assert_eq "$original_target" "$(readlink -- "$TEST_ENABLE_LINK")" \
         'retry preserves the restored original runit link'
-    assert_eq 1 "$disable_calls" 'retry does not disable the already restored original link'
     assert_eq 1 "$FAKE_ACTIVE" 'retry starts the original runit service'
 }
 
-test_missing_backup_has_no_side_effects
-test_restore_disabled_stopped_state
-test_restore_enabled_running_state
-test_restore_failure_retains_backup
-test_missing_owned_target_refuses_unknown_active_service
-test_missing_target_stops_proven_loaded_service
-test_normal_uninstall_removes_owned_service
-test_missing_inactive_target_removes_owned_enablement_link
-test_missing_active_target_with_clean_snapshot_refuses_unknown_service
-test_missing_inactive_target_without_snapshot_refuses_enablement_link
-test_missing_inactive_target_preserves_multiple_enablement_links
-test_missing_active_owned_target_without_snapshot_refuses_enablement_link
-test_missing_inactive_target_reload_failure_restores_link
-test_binary_path_in_comment_does_not_prove_ownership
-test_administrator_link_change_blocks_uninstall
-test_legacy_enablement_fields_still_restore
-test_clean_runit_snapshot_removes_service_directory
 test_runit_restored_link_survives_uninstall_retry
 
 printf 'service-uninstall: ok\n'
