@@ -222,29 +222,6 @@ service_stop() {
     esac
 }
 
-service_restart() {
-    detect_service_manager
-    case "$service_manager" in
-    systemd)
-        _service_run_without_operation_lock systemctl restart "$CLASHCTL_KERNEL"
-        ;;
-    sysvinit)
-        _service_run_without_operation_lock service "$CLASHCTL_KERNEL" restart
-        ;;
-    openrc)
-        _service_run_without_operation_lock rc-service "$CLASHCTL_KERNEL" restart
-        ;;
-    runit)
-        _service_run_without_operation_lock sv restart "$CLASHCTL_KERNEL"
-        ;;
-    nohup | *)
-        service_stop >/dev/null 2>&1 || return 1
-        sleep 0.1
-        service_start
-        ;;
-    esac
-}
-
 service_status() {
     detect_service_manager
     case "$service_manager" in
@@ -494,19 +471,6 @@ service_follow_log() {
     esac
 }
 
-service_read_log() {
-    detect_service_manager
-    case "$service_manager" in
-    systemd)
-        journalctl -u "$CLASHCTL_KERNEL" --no-pager
-        ;;
-    *)
-        cat "$service_log_path" 2>/dev/null
-        ;;
-    esac
-}
-
-# 输出当前 init 系统的服务单元路径；无服务管理器（nohup）时返回 1
 _service_target() {
     detect_service_manager
 

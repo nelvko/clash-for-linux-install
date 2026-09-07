@@ -7,17 +7,14 @@ _update_has_control_chars() {
 _update_reload_shell() {
     local action=$1 loader="${CLASHCTL_HOME}/scripts/cmd/clashctl.sh"
 
+    # 先在子 shell 试载：装载器损坏时不污染当前 Shell；试载通过后真载一次
     # shellcheck disable=SC1090  # Installed loader path is determined at runtime.
     if [ ! -r "$loader" ] || ! (set -e; . "$loader"); then
         _errorcat "${action}已写入磁盘，但当前 Shell 重新加载失败；请执行 exec bash 或新开终端"
         return 1
     fi
     # shellcheck disable=SC1090  # Installed loader path is determined at runtime.
-    if ! . "$loader"; then
-        _errorcat "${action}已写入磁盘，但当前 Shell 重新加载失败；请执行 exec bash 或新开终端"
-        return 1
-    fi
-    return 0
+    . "$loader"
 }
 
 clashupdate() {

@@ -932,7 +932,7 @@ _install_restore_enablement_preflight() {
 
 _install_restore_preflight() {
     local target=${CLASHCTL_SERVICE_TARGET:-} source=${CLASHCTL_SERVICE_SOURCE:-}
-    local backup=${CLASHCTL_SERVICE_BACKUP:-} current_kind current_target
+    local backup=${CLASHCTL_SERVICE_BACKUP:-}
 
     if [ -n "$source" ] && { [ ! -e "$backup" ] && [ ! -L "$backup" ]; }; then
         _ui_error "原服务备份不存在，无法自动恢复: $backup"
@@ -947,29 +947,9 @@ _install_restore_preflight() {
             return 1
         fi
     fi
+    # runit 的自启入口校验在 enablement 快照体系内（ORIGINAL 必在，journal_load
+    # :612 载入时即强制）；此处无需独立分支
     _install_restore_enablement_preflight || return 1
-    if [ "${CLASHCTL_SERVICE_MANAGER:-}" = runit ] &&
-        [ -z "${CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL:-}" ]; then
-        if [ -L "$CLASHCTL_SERVICE_ENABLE_LINK" ]; then
-            current_kind=symlink
-            current_target=$(readlink -- "$CLASHCTL_SERVICE_ENABLE_LINK") || return 1
-        elif [ -e "$CLASHCTL_SERVICE_ENABLE_LINK" ]; then
-            current_kind=other
-            current_target=
-        else
-            current_kind=absent
-            current_target=
-        fi
-        if [ "$current_kind" = symlink ] &&
-            [ "$current_target" = "${CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET:-}" ]; then
-            return 0
-        fi
-        if [ "$current_kind" != "${CLASHCTL_SERVICE_ENABLE_KIND:-absent}" ] ||
-            [ "$current_target" != "${CLASHCTL_SERVICE_ENABLE_TARGET:-}" ]; then
-            _ui_error "runit 自启入口已被其他操作修改: $CLASHCTL_SERVICE_ENABLE_LINK"
-            return 1
-        fi
-    fi
     return 0
 }
 
@@ -1094,7 +1074,7 @@ _install_switch_retire_previous() { # $1=manager $2=旧内核：切换提交后�
 }
 
 _install_restore_service() {
-    local source=${CLASHCTL_SERVICE_SOURCE:-} failures=0 exact_enablement=0 definition_restored=0
+    local failures=0 exact_enablement=0 definition_restored=0
     local enablement_rc=0
     local journal=${CLASHCTL_SERVICE_JOURNAL:-${CLASHCTL_HOME}/.service-transaction}
     local original_link_target=${CLASHCTL_SERVICE_ENABLE_TARGET:-}
@@ -1130,14 +1110,8 @@ _install_restore_service() {
             failures=1
         fi
     fi
-    if [ "$exact_enablement" -eq 0 ] && [ -n "${CLASHCTL_SERVICE_TARGET:-}" ] &&
-        service_is_enabled >/dev/null 2>&1; then
-        service_disable >/dev/null 2>&1 || true
-        if service_is_enabled >/dev/null 2>&1; then
-            _ui_error "撤销本次安装的服务自启状态失败"
-            failures=1
-        fi
-    fi
+    # exact_enablement=0 仅出现在 nohup（唯一无 enablement 的 manager），其
+    # TARGET/SOURCE 恒空，无自启状态可撤销，故无独立回退分支
     if _install_restore_definition; then
         definition_restored=1
     else
@@ -1158,17 +1132,6 @@ _install_restore_service() {
             _ui_detail '原因' "${SERVICE_ENABLEMENT_ERROR:-未知错误}"
             _ui_detail '原始快照' "$original_manifest"
             [ -z "$installed_manifest" ] || _ui_detail '安装快照' "$installed_manifest"
-            failures=1
-        fi
-    elif [ "$exact_enablement" -eq 0 ] && [ -n "$source" ]; then
-        _service_restore_enablement "${CLASHCTL_SERVICE_WAS_ENABLED:-0}" "$original_link_target" >/dev/null 2>&1 || true
-        if [ "${CLASHCTL_SERVICE_WAS_ENABLED:-0}" = 1 ]; then
-            service_is_enabled >/dev/null 2>&1 || {
-                _ui_error '恢复安装前的服务自启状态失败'
-                failures=1
-            }
-        elif service_is_enabled >/dev/null 2>&1; then
-            _ui_error '恢复安装前的服务禁用状态失败'
             failures=1
         fi
     elif [ "${CLASHCTL_SERVICE_MANAGER:-}" = runit ] &&
