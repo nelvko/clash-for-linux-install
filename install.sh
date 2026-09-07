@@ -386,6 +386,17 @@ main() {
             branch=$home_branch
         [ "$branch" = "${home_branch:-}" ] ||
             _ui_warn "未能读取安装目录的现有分支，按默认分支 $branch 继续"
+    elif [ "${branch_explicit:-0}" = 1 ] && command -v git >/dev/null 2>&1 &&
+        [ -d "$home/.git" ]; then
+        # 续装不再原地刷新程序文件，显式分支与目录现有分支不一致时无法兑现
+        home_branch=$(git -C "$home" rev-parse --abbrev-ref HEAD 2>/dev/null) || home_branch=
+        if [ -n "$home_branch" ] && [ "$home_branch" != HEAD ] &&
+            [ "$home_branch" != "$branch" ]; then
+            _ui_error "续装目录的现有分支是 $home_branch，与请求的 --branch $branch 不一致"
+            _ui_detail '继续现有分支' '省略 --branch 重新执行（自动沿用目录分支）'
+            _ui_detail '改用其他分支' "备份需要的文件后删除 $home，再重新运行安装命令"
+            return 1
+        fi
     fi
     _install_validate_input '安装路径' "$home" || return 1
     _install_validate_input '分支名称' "$branch" || return 1
@@ -459,23 +470,18 @@ main() {
     fi
 
     if [ "$_INSTALL_HOME_STATE" = resume ]; then
-        if [ "${CLASHCTL_SRC:-}" != "$home" ]; then
-            # 空壳自动续装：先把程序文件刷到本次安装器的最新版；失败时若能确认
-            # 目录现有文件与请求的来源/分支同血统，则原地降级续装（离线可完成），
-            # 否则拒绝并给代理指引——避免「刷新失败→拒绝→续装又刷新」死循环
-            if ! _install_refresh_source "$home" "$branch" "$proxy"; then
-                if _install_layout_is_trusted "$home" &&
-                    _install_source_lineage_matches "$home" "$branch" "$proxy"; then
-                    _ui_warn '未能刷新程序文件，改用目录中现有文件续装（版本非最新）'
-                    _ui_detail '更新' '网络恢复后可运行 clashctl update 获取最新'
-                else
-                    _ui_warn '未能刷新程序文件，且无法确认现有文件与请求的来源/分支一致'
-                    _install_refuse_incomplete_source_change \
-                        "$home" "$branch" "$kernel" "$subscription_file"
-                    return 1
-                fi
-            fi
+        # 续装直接沿用目录内程序文件：它们出自同一安装器/分支（上方已对齐或
+        # 校验分支），新鲜度交给安装完成后的 clashctl update。不再原地刷新——
+        # 刷新/血统判定链曾在受限网络下把续装引向死循环（4aef8c7）
+        if [ -n "${CLASHCTL_SRC:-}" ] && [ "$CLASHCTL_SRC" != "$home" ]; then
+            _ui_error '续装未完成的目录时不能指定 --source-dir'
+            _ui_detail '继续' "bash $home/install.sh"
+            _ui_detail '全新' "备份需要的文件后删除 $home，再重新运行安装命令"
+            return 1
+        fi
+        if [ -z "${CLASHCTL_SRC:-}" ]; then
             CLASHCTL_SRC=$home
+            _ui_info '沿用目录中现有程序文件继续安装（完成后可 clashctl update 更新）'
         fi
         [ "${_INSTALL_FRESH_HANDOFF:-0}" = 1 ] ||
             _ui_info "继续未完成的安装: $home"
@@ -923,146 +929,6 @@ _install_report_incomplete_home() {
     _ui_detail '继续安装' "$quoted"
     _ui_detail '全新安装' "备份需要的文件后删除 $home，再重新运行安装命令"
     return 0
-}
-
-# 空壳自动续装的源刷新：把未完成安装的程序文件换成本次安装器拉到的
-# 最新版本，用户数据（data/）、下载缓存（archives/）、标记、事务 journal、
-# bin/ 一律保留。git 家走 fetch+checkout（同 clashctl update 机制，天然
-# 不降级）；无 git 或 git 失败时回落 stage 取源+按清单替换；两者皆败返回
-# 非零（调用方降级为原地续装指引）。
-_INSTALL_REFRESH_PATHS=(
-    install.sh
-    uninstall.sh
-    scripts
-    resources
-    versions.env
-    .env.example
-)
-
-# 刷新失败时的原地续装安全门：目录现有文件的来源/分支须与本次请求同血统。
-# 只有 git 形态的家可确认（remote URL + 当前分支）；归档装的家无血统记录，
-# 宁可拒绝也不静默装错分支。代理前缀不同视为等价（同一上游）。
-_install_source_lineage_matches() {
-    local home=$1 branch=$2 proxy=$3 url current_url current_branch
-    command -v git >/dev/null 2>&1 || return 1
-    [ -d "$home/.git" ] || return 1
-    current_branch=$(git -C "$home" rev-parse --abbrev-ref HEAD 2>/dev/null) || return 1
-    [ "$current_branch" = "$branch" ] || return 1
-    current_url=$(git -C "$home" remote get-url origin 2>/dev/null) || return 1
-    url=${CLASHCTL_UPDATE_GIT_URL:-}
-    if [ -n "$url" ]; then
-        [ "$current_url" = "$url" ]
-        return
-    fi
-    case $current_url in
-    "https://github.com/${_REPO}.git") return 0 ;;
-    "${proxy%/}/https://github.com/${_REPO}.git") return 0 ;;
-    esac
-    return 1
-}
-
-_install_refresh_source() {
-    local home=$1 branch=$2 proxy=$3 url item stage refresh_rc=0
-
-    _ui_step '刷新未完成安装的程序文件'
-    # --source-dir 指定了本地源：直接从本地拷入 stage（不经网络）
-    if [ -n "${CLASHCTL_SRC:-}" ] && [ "$CLASHCTL_SRC" != "$home" ]; then
-        _install_create_stage "$home" stage || return 1
-        if command -v git >/dev/null 2>&1 && [ -d "${CLASHCTL_SRC}/.git" ]; then
-            git clone -q -- "${CLASHCTL_SRC}" "$stage" ||
-                {
-                    _install_discard_stage "$stage" || true
-                    return 1
-                }
-        else
-            cp -a -- "${CLASHCTL_SRC}/." "$stage"/ ||
-                {
-                    _install_discard_stage "$stage" || true
-                    return 1
-                }
-        fi
-        _install_refresh_apply "$home" "$stage" || return 1
-        return 0
-    fi
-    if [ -d "$home/.git" ] && command -v git >/dev/null 2>&1 &&
-        [ -n "$(git -C "$home" remote 2>/dev/null)" ]; then
-        url=${CLASHCTL_UPDATE_GIT_URL:-}
-        [ -n "$url" ] || {
-            url="https://github.com/${_REPO}.git"
-            [ -n "$proxy" ] && url="${proxy%/}/${url}"
-        }
-        refresh_origin_before=$(git -C "$home" remote get-url origin 2>/dev/null || printf '')
-        if git -C "$home" remote set-url origin "$url" &&
-            git -C "$home" -c gc.auto=0 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 \
-                -c http.connectTimeout=15 fetch -q --depth 50 origin -- "$branch" &&
-            git -C "$home" checkout -q -B "$branch" FETCH_HEAD; then
-            _install_layout_is_trusted "$home" || return 1
-            _ui_ok '程序文件已刷新至最新'
-            return 0
-        fi
-        [ -z "$refresh_origin_before" ] ||
-            git -C "$home" remote set-url origin "$refresh_origin_before" 2>/dev/null || :
-        _ui_warn 'Git 刷新未完成安装失败，尝试重新下载'
-    fi
-
-    _install_create_stage "$home" stage || return 1
-    if ! _fetch_into "$stage" "$branch" "$proxy"; then
-        _install_discard_stage "$stage" || true
-        return 1
-    fi
-    _install_refresh_apply "$home" "$stage" || return 1
-    return 0
-}
-
-# 按清单把 stage 的程序文件替换进 home（用户数据/缓存/标记/journal不动）
-_install_refresh_apply() {
-    local home=$1 stage=$2 item incoming refresh_rc=0
-    for item in "${_INSTALL_REFRESH_PATHS[@]}"; do
-        [ -e "$stage/$item" ] || continue
-        # 先拷入同目录暂存名再交换，避免拷贝中途失败留下空洞
-        incoming="${home}/${item}.clashctl-incoming.$$"
-        cp -a -- "$stage/$item" "$incoming" || {
-            rm -rf -- "$incoming"
-            refresh_rc=1
-            continue
-        }
-        rm -rf -- "$home/$item"
-        /bin/mv -f -- "$incoming" "$home/$item" || {
-            refresh_rc=1
-            continue
-        }
-    done
-    _install_discard_stage "$stage" || true
-    [ "$refresh_rc" -eq 0 ] || return 1
-    _install_layout_is_trusted "$home" || return 1
-    _ui_ok '程序文件已刷新至最新'
-    return 0
-}
-
-_install_refuse_incomplete_source_change() {
-    local home=$1 branch=$2 kernel=$3 subscription_file=${4:-}
-    local argument quoted resume_command
-    # 默认分支省略（裸续装经智能分支自动解析）；非默认分支必须显式携带
-    local -a resume_args=()
-    [ "$branch" = "$_BRANCH_DEFAULT" ] || resume_args+=(--branch "$branch")
-    [ -z "$subscription_file" ] ||
-        resume_args+=(--subscription-file "$subscription_file")
-    [ "$kernel" = mihomo ] || resume_args+=("$kernel")
-    printf -v resume_command 'bash %q' "$home/install.sh"
-    for argument in "${resume_args[@]}"; do
-        printf -v quoted '%q' "$argument"
-        resume_command+=" $quoted"
-    done
-
-    _ui_blank
-    _ui_error "上次安装没有完成，本次已停止（未做任何修改）"
-    _ui_detail '安装目录' "$home"
-    _ui_detail '现状' '程序文件已就位，内核与服务尚未安装'
-    _ui_detail '继续安装（推荐）' "$resume_command"
-    [ -n "${GH_PROXY:-}" ] ||
-        _ui_detail '网络受限' '在上述命令尾追加 --gh-proxy <加速前缀>（如 https://ghfast.top/）'
-    _ui_detail '重新开始' "备份需要的文件后删除 $home，再重新运行安装命令"
-    _INSTALL_INCOMPLETE_SUMMARY_SHOWN=1
 }
 
 _require_empty_home() {

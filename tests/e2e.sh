@@ -1,5 +1,5 @@
 #!/bin/env bash
-# E2E 全流程自验证循环：安装/续装/迁移/切换/更新/卸载 × 15 场景。
+# E2E 全流程自验证循环：安装/续装/迁移/切换/更新/卸载 × 12 场景。
 # 离线确定性：本地 git 镜像源 + 假 api.github.com 应答 + file:// 订阅 + 假内核
 # （自定义 HTTP 服务器充当 external-controller）。真 systemd 场景带 unit 备份恢复；
 # 宿主机若有真实 mihomo.service，套件期间按快照静默、退出逐项恢复（见 foreign_*）。
@@ -285,51 +285,6 @@ s2_resume_inplace() {
     has "$root/io.err" '继续未完成的安装' && ok "s2: 续装标识" || no s2 "无续装标识"
 }
 
-s3_resume_online_refresh() {
-    local root
-    root=$(new_env s3)
-    make_empty_shell "$root/home"
-    run_install "$root" --home "$root/home" --branch iu --non-interactive \
-        --subscription-file "$WORK/sub.url" >/dev/null || true
-    complete_asserts "$root" s3
-    has "$root/io.err" '程序文件已刷新至最新' && ok "s3: 在线刷新" || no s3 "无刷新标识"
-}
-
-s4_refresh_fail_fallback() {
-    local root
-    root=$(new_env s4)
-    make_empty_shell "$root/home"
-    env -i PATH="$WORK/bin:$PATH" HOME="$root/user" CLASHCTL_UPDATE_GIT_URL="https://codeload.github.com/e2e-block" \
-        INIT_TYPE=nohup CLASHCTL_COLOR=never TERM=dumb \
-        bash "$WORK/online/install.sh" --home "$root/home" --branch iu --non-interactive \
-        >"$root/io.out" 2>"$root/io.err" </dev/null
-    local rc=$?
-    [ "$rc" -ne 0 ] && ok "s4: 刷新失败中止(rc=$rc)" || no s4 "异常成功"
-    has "$root/io.err" '继续安装' && ok "s4: 续装指引" || no s4 "无指引"
-    has "$root/io.err" '网络受限' && ok "s4: 代理提示" || no s4 "无代理提示"
-    [ -f "$root/home/.env" ] && no s4 "不应物化 .env" || ok "s4: 未物化 .env"
-    [ -d "$root/home/data" ] && no s4 "不应误迁移" || ok "s4: 无迁移"
-}
-
-s16_refresh_fail_degrade() { # 同血统刷新失败：原地降级续装，不再死循环拒绝
-    local root
-    root=$(new_env s16)
-    make_empty_shell "$root/home"
-    # 断源（镜像挪走）但 CLASHCTL_UPDATE_GIT_URL 与 home origin 一致 → 血统可确认
-    mv "$WORK/mirror" "$WORK/mirror-hidden"
-    env -i PATH="$WORK/bin:$PATH" HOME="$root/user" CLASHCTL_UPDATE_GIT_URL="$WORK/mirror" \
-        INIT_TYPE=nohup CLASHCTL_COLOR=never TERM=dumb \
-        bash "$WORK/online/install.sh" --home "$root/home" --branch iu --non-interactive \
-        >"$root/io.out" 2>"$root/io.err" </dev/null || true
-    mv "$WORK/mirror-hidden" "$WORK/mirror"
-    has "$root/io.err" '改用目录中现有文件续装' &&
-        ok "s16: 原地降级续装" || no s16 "未降级续装"
-    has "$root/io.err" '本次已停止' &&
-        no s16 "同血统却拒绝" || ok "s16: 不再拒绝"
-    [ -f "$root/home/.env" ] && ok "s16: 降级后完成安装" || no s16 "降级后未完成"
-    stop_all_sandboxes
-}
-
 s6_v2_shell_no_migration() { # 今日回归 bug 的钉子
     local root
     root=$(new_env s6)
@@ -539,10 +494,9 @@ foreign_unit_restore_and_replay() { # $1=信号名：恢复宿主状态后按原
 trap foreign_unit_restore EXIT
 trap 'foreign_unit_restore_and_replay TERM' TERM
 trap 'foreign_unit_restore_and_replay INT' INT
-ALL="s1_fresh_install s2_resume_inplace s3_resume_online_refresh s4_refresh_fail_fallback
-s6_v2_shell_no_migration s7_idempotent s8_switch_kernel
-s9_uninstall_full s10_uninstall_shell s11_update s12_systemd_real s13_failed_switch_restore
-s14_systemd_switch s15_pending_journal_guidance s16_refresh_fail_degrade"
+ALL="s1_fresh_install s2_resume_inplace s6_v2_shell_no_migration s7_idempotent
+s8_switch_kernel s9_uninstall_full s10_uninstall_shell s11_update s12_systemd_real
+s13_failed_switch_restore s14_systemd_switch s15_pending_journal_guidance"
 SELECT=${*:-$ALL}
 for scen in $SELECT; do
     say "$scen"
