@@ -4,7 +4,6 @@ CLASHCTL_SRC="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 CLASHCTL_HOME=$CLASHCTL_SRC
 export CLASHCTL_HOME CLASHCTL_SRC
 _UNINSTALL_MARKER_NAME=.clashctl-installation
-_UNINSTALL_ALLOW_LEGACY=0
 _UNINSTALL_CRON_STATE=unknown
 _UNINSTALL_STAGE=preflight
 _UNINSTALL_SIGNAL_HOME=
@@ -17,7 +16,6 @@ Usage:
 
 Options:
   -y, --yes                确认卸载；非交互环境必须显式指定
-  --allow-legacy-layout    显式允许卸载无安装标记的旧版目录
   -h, --help               显示帮助信息
 EOF
 }
@@ -113,24 +111,19 @@ _uninstall_path_is_safe() {
 }
 
 _uninstall_target_is_trusted() {
-    local home=$1 allow_legacy=${2:-0} marker="$1/$_UNINSTALL_MARKER_NAME"
+    local home=$1 marker="$1/$_UNINSTALL_MARKER_NAME"
     _uninstall_path_is_safe "$home" || return 1
     _uninstall_layout_is_trusted "$home" || return 1
-    if [ -e "$marker" ] || [ -L "$marker" ]; then
-        _uninstall_marker_is_valid "$home"
-    else
-        [ "$allow_legacy" = 1 ]
-    fi
+    { [ -e "$marker" ] || [ -L "$marker" ]; } && _uninstall_marker_is_valid "$home"
 }
 
 _uninstall_preflight_gate() {
-    local arg allow_legacy=${_UNINSTALL_ALLOW_LEGACY_LAYOUT:-0}
+    local arg
     for arg in "$@"; do
         if _uninstall_has_control_chars "$arg"; then
             printf '%s\n' '[ERROR] 命令行参数不能包含控制字符，未加载或修改安装目录' >&2
             return 1
         fi
-        [ "$arg" != --allow-legacy-layout ] || allow_legacy=1
     done
     if ! _uninstall_path_is_safe "$CLASHCTL_HOME"; then
         printf '[ERROR] 安装目录属于高危删除目标，拒绝卸载: %s\n' "$CLASHCTL_HOME" >&2
@@ -146,15 +139,11 @@ _uninstall_preflight_gate() {
             printf '[ERROR] 安装身份标记无效或与当前目录不匹配，拒绝卸载: %s\n' "$CLASHCTL_HOME" >&2
             return 1
         fi
-    elif [ "$allow_legacy" = 1 ]; then
-        [ "${_UNINSTALL_PREFLIGHT_RECHECK:-0}" = 1 ] ||
-            printf '%s\n' '[WARN] 正在按显式授权卸载无身份标记的旧版目录' >&2
     else
         printf '%s\n' '[ERROR] 当前目录缺少有效安装标记，拒绝卸载' >&2
-        printf '%s\n' '        旧版目录: 确认来源可信后添加 --allow-legacy-layout' >&2
+        printf '%s\n' '        旧版目录（master 布局）: 用目录内旧版 uninstall.sh 卸载，或备份后手动删除' >&2
         return 1
     fi
-    _UNINSTALL_ALLOW_LEGACY=$allow_legacy
 }
 
 if [ "${CLASHCTL_UNINSTALL_SOURCE_ONLY:-}" != 1 ]; then
@@ -343,7 +332,7 @@ _uninstall_disable_signal_summary() {
 main() {
     umask 077
     local replaced_backup=${CLASHCTL_REPLACED_SERVICE_BACKUP:-} assume_yes=0 confirm_rc=0
-    local allow_legacy=${_UNINSTALL_ALLOW_LEGACY:-0} service_snapshot=0 restore_original=0
+    local service_snapshot=0 restore_original=0
     local integration_warnings=0
     local cron_report_rc=0 retry_command
     printf -v retry_command 'bash %q --yes' "$CLASHCTL_HOME/uninstall.sh"
@@ -356,7 +345,6 @@ main() {
     while [ $# -gt 0 ]; do
         case $1 in
         -y | --yes) assume_yes=1 ;;
-        --allow-legacy-layout) allow_legacy=1 ;;
         -h | --help)
             _uninstall_usage
             return 0
@@ -370,7 +358,7 @@ main() {
         shift
     done
 
-    if ! _uninstall_target_is_trusted "$CLASHCTL_HOME" "$allow_legacy"; then
+    if ! _uninstall_target_is_trusted "$CLASHCTL_HOME"; then
         _ui_error '安装目录的身份、结构、归属或权限校验失败，拒绝卸载'
         _ui_detail '目录' "$CLASHCTL_HOME"
         return 1
@@ -476,7 +464,7 @@ main() {
 
     _UNINSTALL_STAGE=predelete
     _ui_step '删除安装数据'
-    if ! _uninstall_target_is_trusted "$CLASHCTL_HOME" "$allow_legacy"; then
+    if ! _uninstall_target_is_trusted "$CLASHCTL_HOME"; then
         _uninstall_disable_signal_summary
         _ui_error '卸载期间安装目录发生变化，拒绝递归删除；服务与 Shell 清理已完成'
         _ui_detail '保留目录' "$CLASHCTL_HOME"

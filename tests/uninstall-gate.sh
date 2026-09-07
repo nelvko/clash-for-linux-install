@@ -31,6 +31,7 @@ SENTINEL=$sentinel bash "$fake_home/uninstall.sh" --yes \
 [ "$rc" -eq 1 ] || fail "missing marker: expected rc 1, got $rc"
 [ ! -e "$sentinel" ] || fail 'untrusted preflight was sourced before marker validation'
 assert_contains "$stderr" '缺少有效安装标记' 'missing marker is explained'
+assert_contains "$stderr" '旧版目录' 'legacy directory guidance points at the old uninstaller'
 
 {
     printf 'CLASHCTL_INSTALLATION=clashctl\n'

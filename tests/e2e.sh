@@ -1,5 +1,5 @@
 #!/bin/env bash
-# E2E 全流程自验证循环：安装/续装/迁移/切换/更新/卸载 × 16 场景。
+# E2E 全流程自验证循环：安装/续装/迁移/切换/更新/卸载 × 15 场景。
 # 离线确定性：本地 git 镜像源 + 假 api.github.com 应答 + file:// 订阅 + 假内核
 # （自定义 HTTP 服务器充当 external-controller）。真 systemd 场景带 unit 备份恢复；
 # 宿主机若有真实 mihomo.service，套件期间按快照静默、退出逐项恢复（见 foreign_*）。
@@ -330,30 +330,6 @@ s16_refresh_fail_degrade() { # 同血统刷新失败：原地降级续装，不�
     stop_all_sandboxes
 }
 
-s5_legacy_takeover() {
-    local root old
-    root=$(new_env s5)
-    old="$root/user/clashctl"
-    mkdir -p "$old/resources/profiles" "$old/bin" "$old/scripts/lib" "$old/scripts/cmd"
-    printf 'port: 7890\n' >"$old/resources/config.yaml"
-    printf 'mixed-port: 7890\n\nexternal-controller: "127.0.0.1:9090"\n' >"$old/resources/mixin.yaml"
-    printf 'profiles:\n  - name: old\n    url: https://old.invalid/t\n' >"$old/resources/profiles.yaml"
-    printf 'proxies: []\n' >"$old/resources/profiles/old.yaml"
-    printf '#!/bin/sh\n' >"$old/bin/mihomo"
-    for f in install.sh uninstall.sh; do : >"$old/$f"; done
-    : >"$old/scripts/preflight.sh"; : >"$old/scripts/lib/common.sh"; : >"$old/scripts/cmd/off.sh"
-    mkdir -p "$root/user"
-    run_install "$root" --home "$old" --allow-legacy-layout --branch iu \
-        --non-interactive --subscription-file "$WORK/sub.url" >/dev/null || true
-    has "$root/io.err" '迁移旧版数据' && ok "s5: 迁移步骤触发" || no s5 "未触发迁移"
-    [ -f "$old/data/profiles.yaml" ] && ok "s5: 用户数据迁入 data/" || no s5 "data/ 未迁移"
-    grep -Fqs 'https://old.invalid/t' "$old/data/profiles.yaml" &&
-        ok "s5: 旧订阅数据保留" || no s5 "旧订阅丢失"
-    [ -f "$old/.env" ] && ok "s5: 接管后完成安装" || no s5 "接管未完成"
-    [ -x "$old/bin/mihomo/mihomo" ] && ok "s5: 新内核落位" || no s5 "新内核未落位"
-    stop_all_sandboxes
-}
-
 s6_v2_shell_no_migration() { # 今日回归 bug 的钉子
     local root
     root=$(new_env s6)
@@ -564,7 +540,7 @@ trap foreign_unit_restore EXIT
 trap 'foreign_unit_restore_and_replay TERM' TERM
 trap 'foreign_unit_restore_and_replay INT' INT
 ALL="s1_fresh_install s2_resume_inplace s3_resume_online_refresh s4_refresh_fail_fallback
-s5_legacy_takeover s6_v2_shell_no_migration s7_idempotent s8_switch_kernel
+s6_v2_shell_no_migration s7_idempotent s8_switch_kernel
 s9_uninstall_full s10_uninstall_shell s11_update s12_systemd_real s13_failed_switch_restore
 s14_systemd_switch s15_pending_journal_guidance s16_refresh_fail_degrade"
 SELECT=${*:-$ALL}

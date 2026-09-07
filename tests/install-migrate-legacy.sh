@@ -136,12 +136,16 @@ assert_contains "$WORK_DIR/decline.stderr" '已跳过迁移' 'decline is reporte
     fail 'declined migration must not copy data'
 unset -f _ui_confirm
 
-# ── 用例 4：显式 --home 指到旧目录 = 原地接管，不进入迁移流程 ──
+# ── 用例 4：显式 --home 指到旧目录 = 拒绝并指路（原地接管已随旗标移除） ──
 rc=0
 main --home "$legacy" --branch iu --non-interactive \
     >"$WORK_DIR/inplace.stdout" 2>"$WORK_DIR/inplace.stderr" || rc=$?
-[ "$rc" -ne 0 ] || fail 'in-place takeover without legacy flag must fail'
+[ "$rc" -ne 0 ] || fail '--home targeting the legacy directory must be rejected'
+assert_contains "$WORK_DIR/inplace.stderr" '旧版目录' \
+    'rejection must point at the automatic-migration path'
 assert_not_contains "$WORK_DIR/inplace.stderr" '旧版数据已迁入' \
-    'in-place takeover must not run data migration'
+    'rejection must not run data migration'
+[ -f "$legacy/resources/config.yaml" ] ||
+    fail 'rejection must leave the legacy directory untouched'
 
 printf '%s\n' 'install-migrate-legacy: ok'

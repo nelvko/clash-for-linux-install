@@ -335,7 +335,6 @@ main() {
                 ;;
             esac
             ;;
-        --allow-legacy-layout) _INSTALL_ALLOW_LEGACY_LAYOUT=1 ;;
         --take-over-service) CLASHCTL_ALLOW_UNIT_OVERWRITE=1 ;;
         --non-interactive) CLASHCTL_NON_INTERACTIVE=1 ;;
         --verbose) _INSTALL_VERBOSE=1 ;;
@@ -359,8 +358,8 @@ main() {
         esac
         shift
     done
-    # 旧版（master 时代 ~/clashctl 布局）检测：旧布局目录是迁移源而非安装目标。
-    # 显式 --home 指到旧目录 = 原地接管，仍走 --allow-legacy-layout 语义。
+    # 旧版（master 时代 ~/clashctl 布局）检测：旧布局目录是迁移源而非安装目标，
+    # 数据经自动迁移进入新家；不再提供旧目录原地接管。
     _INSTALL_LEGACY_HOME=
     for legacy_candidate in "${CLASHCTL_HOME:-}" "${HOME}/clashctl"; do
         [ -n "$legacy_candidate" ] || continue
@@ -441,7 +440,6 @@ main() {
     [ -z "${_INSTALL_VERBOSE:-}" ] || export _INSTALL_VERBOSE
     [ -z "${CLASHCTL_NON_INTERACTIVE:-}" ] || export CLASHCTL_NON_INTERACTIVE
     [ -z "${CLASHCTL_ALLOW_UNIT_OVERWRITE:-}" ] || export CLASHCTL_ALLOW_UNIT_OVERWRITE
-    [ -z "${_INSTALL_ALLOW_LEGACY_LAYOUT:-}" ] || export _INSTALL_ALLOW_LEGACY_LAYOUT
     case $kernel in
     mihomo | clash) ;;
     *)
@@ -461,32 +459,6 @@ main() {
     fi
 
     if [ "$_INSTALL_HOME_STATE" = resume ]; then
-        # 旧版原地接管（--allow-legacy-layout，旗标见 _require_empty_home）：
-        # resources/ 里是用户数据，刷新会整目录替换——先把数据就地迁入 data/
-        if [ "${_INSTALL_LEGACY_TAKEOVER:-0}" = 1 ]; then
-            _ui_step '迁移旧版数据到 data/'
-            # 旧 bin/ 是平铺文件（bin/mihomo 为文件），与新布局 bin/<内核>/
-            # 目录冲突；内核本就要重下，旧 bin 挪为 .bak 不参与安装
-            if [ -e "$home/bin" ] && [ ! -d "$home/bin/$kernel" ]; then
-                mv -f -- "$home/bin" \
-                    "$home/bin.clashctl-legacy.$(date +%s)" || {
-                    _ui_error '旧版 bin 目录无法挪开'
-                    return 1
-                }
-            fi
-            /usr/bin/install -d -m 0700 "$home/data" "$home/data/profiles" || return 1
-            local legacy_item
-            for legacy_item in config.yaml mixin.yaml profiles.yaml; do
-                [ -f "$home/resources/$legacy_item" ] || continue
-                /usr/bin/install -m 0600 "$home/resources/$legacy_item" \
-                    "$home/data/$legacy_item" || return 1
-            done
-            if [ -d "$home/resources/profiles" ]; then
-                cp -a -- "$home/resources/profiles/." "$home/data/profiles/" || return 1
-                chmod 0600 -- "$home/data/profiles"/*.yaml 2>/dev/null || true
-            fi
-            _ui_ok "旧版数据已迁入 $home/data"
-        fi
         if [ "${CLASHCTL_SRC:-}" != "$home" ]; then
             # 空壳自动续装：先把程序文件刷到本次安装器的最新版；失败时若能确认
             # 目录现有文件与请求的来源/分支同血统，则原地降级续装（离线可完成），
@@ -1139,31 +1111,9 @@ _require_empty_home() {
         return 0
     fi
 
-    if [ "${_INSTALL_ALLOW_LEGACY_LAYOUT:-0}" = 1 ]; then
-        _install_layout_is_trusted "$home" || {
-            _ui_error '旧版目录未通过严格的脚本归属、权限与结构校验'
-            _ui_detail '目录' "$home"
-            return 1
-        }
-        _install_marker_write "$home" "$home" || {
-            _ui_error '旧版目录校验通过，但安装身份标记写入失败'
-            return 1
-        }
-        _ui_warn '已通过显式授权接管旧版目录，并写入新的安装身份标记'
-        if [ -e "$home/.env" ] || [ -L "$home/.env" ]; then
-            _already_installed "$home"
-            return 1
-        fi
-        # 旧版原地接管专属旗标：resources/ 里是用户数据。v2 空壳的 resources/
-        # 只是仓库种子模板，文件特征与旧版完全重叠，只能靠本旗标区分
-        _INSTALL_LEGACY_TAKEOVER=1
-        _INSTALL_HOME_STATE=resume
-        return 0
-    fi
-
     _ui_error '目标目录非空且缺少有效的 clashctl 安装标记，拒绝执行其中脚本'
     _ui_detail '目录' "$home"
-    _ui_detail '旧版迁移' '确认目录可信后，显式添加 --allow-legacy-layout'
+    _ui_detail '旧版目录' 'master 布局请用默认路径安装（自动迁移数据），或先用目录内旧版 uninstall.sh 卸载'
     _ui_detail '新安装' '改用不存在或为空的目录'
     return 1
 }
@@ -1235,7 +1185,6 @@ Options:
                             优先于 GH_PROXY 环境变量，选择将持久化到 .env）
   --source-dir <路径>       从明确指定的本地源码目录安装
   --subscription-file <文件> 从权限受限的单行文件读取初始订阅 URL
-  --allow-legacy-layout     显式接管并升级无安装标记的旧版目录
   --take-over-service       允许接管现有同名服务或残留服务状态
   --non-interactive         禁用所有交互；缺少订阅时直接跳过
   --verbose                 显示下载进度与失败诊断

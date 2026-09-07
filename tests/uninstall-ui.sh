@@ -155,12 +155,16 @@ test_target_swap_before_delete_is_rejected() {
     assert_contains "$stderr" '卸载期间安装目录发生变化' 'identity race is explained'
 }
 
-test_explicit_legacy_uninstall() {
+test_legacy_directory_rejected() {
     setup_install legacy
     local home=$CLASHCTL_HOME
+    local stderr="$WORK_DIR/legacy/stderr" rc=0
     /usr/bin/rm -f -- "$CLASHCTL_HOME/.clashctl-installation"
-    main --yes --allow-legacy-layout >"$WORK_DIR/legacy/stdout" 2>"$WORK_DIR/legacy/stderr"
-    [ ! -e "$home" ] || fail 'explicitly authorized legacy directory was not removed'
+    main --yes >"$WORK_DIR/legacy/stdout" 2>"$stderr" || rc=$?
+    assert_eq 1 "$rc" 'legacy directory without a marker is rejected'
+    [ -d "$home" ] || fail 'legacy directory was deleted without authorization'
+    assert_contains "$stderr" '身份、结构、归属或权限校验失败' \
+        'marker-less rejection surfaces the trust failure'
 }
 
 test_noninteractive_requires_confirmation() {
@@ -295,7 +299,7 @@ test_managed_shell_cleanup
 test_unknown_option_uses_stderr
 test_missing_marker_is_rejected
 test_target_swap_before_delete_is_rejected
-test_explicit_legacy_uninstall
+test_legacy_directory_rejected
 test_noninteractive_requires_confirmation
 test_service_failure_preserves_everything
 test_restore_preflight_failure_blocks_confirmation_and_mutation
