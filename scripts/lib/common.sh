@@ -24,8 +24,14 @@ CLASH_RESOURCES_DIR="${CLASHCTL_HOME}/resources"
 
 BIN_BASE_DIR="${CLASHCTL_HOME}/bin"
 # 每内核一目录（bin/mihomo/mihomo、bin/sing-box/sing-box…），支持多内核并存；
-# CLASHCTL_KERNEL 是激活指针，已装集合以 bin/ 子目录为准
-BIN_KERNEL="${BIN_BASE_DIR}/$CLASHCTL_KERNEL/$CLASHCTL_KERNEL"
+# CLASHCTL_KERNEL 是激活指针，已装集合以 bin/ 子目录为准。
+# bin_kernel_path 是该路径的唯一派生点：CLASHCTL_KERNEL 变更后必须经此重派生
+# BIN_KERNEL，禁止各处手写公式——漏重算会静默跑旧内核二进制
+bin_kernel_path() {
+    local kernel=${CLASHCTL_KERNEL:-mihomo}
+    printf '%s/%s/%s\n' "$BIN_BASE_DIR" "$kernel" "$kernel"
+}
+BIN_KERNEL=$(bin_kernel_path)
 BIN_YQ="${BIN_BASE_DIR}/yq"
 
 # 兼容性判定：仅 mikefarah yq v4（发行版打包的 Python yq 是 jq 语法，不兼容）。

@@ -321,7 +321,7 @@ clashinstall() (
 
     export CLASHCTL_HOME CLASHCTL_KERNEL="$kernel" CLASHCTL_UPDATE_BRANCH="$branch"
     CLASHCTL_SRC="$CLASHCTL_HOME"
-    BIN_KERNEL="${BIN_BASE_DIR}/$kernel/$kernel"
+    BIN_KERNEL=$(bin_kernel_path)
 
     operation_lock_acquire || return 1
     # shellcheck disable=SC1090  # 组件下载与 .env 物化依赖安装预检模块
@@ -335,7 +335,7 @@ clashinstall() (
     # （previous_kernel 记自 .env 加载前的本命令导出值，供切换前停旧服务）
     previous_kernel=$CLASHCTL_KERNEL
     export CLASHCTL_KERNEL="$kernel"
-    BIN_KERNEL="${BIN_BASE_DIR}/$kernel/$kernel"
+    BIN_KERNEL=$(bin_kernel_path)
     detect_service_manager
     install_manager=$service_manager
 

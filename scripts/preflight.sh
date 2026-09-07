@@ -66,7 +66,7 @@ prepare_zip() {
     clash) ZIP_KERNEL="$ZIP_CLASH" ;;
     *) ZIP_KERNEL="$ZIP_MIHOMO" ;;
     esac
-    BIN_KERNEL="${BIN_BASE_DIR}/$CLASHCTL_KERNEL/$CLASHCTL_KERNEL"
+    BIN_KERNEL=$(bin_kernel_path)
     unzip_zip || return 1
 }
 

@@ -93,7 +93,7 @@ detect_service_manager() {
 _service_context_apply() { # $1=kernel
     local kernel=$1
     export CLASHCTL_KERNEL="$kernel"
-    BIN_KERNEL="${BIN_BASE_DIR}/$kernel/$kernel"
+    BIN_KERNEL=$(bin_kernel_path)
     service_manager=
     service_pid_path=
     detect_service_manager
