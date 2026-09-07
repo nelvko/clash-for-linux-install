@@ -405,6 +405,9 @@ _UPDATE_ARCHIVE_PATHS=(
     resources/Country.mmdb
     resources/geosite.dat
     resources/mixin.yaml.example
+    resources/config.yaml
+    resources/profiles.yaml
+    resources/profiles
 )
 
 _UPDATE_ARCHIVE_REQUIRED_FILES=(
@@ -446,6 +449,9 @@ _UPDATE_ARCHIVE_REQUIRED_FILES=(
     resources/Country.mmdb
     resources/geosite.dat
     resources/mixin.yaml.example
+    resources/config.yaml
+    resources/profiles.yaml
+    resources/profiles/.gitkeep
 )
 
 _update_archive_backup() {
