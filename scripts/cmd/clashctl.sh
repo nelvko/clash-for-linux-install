@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# 空壳态（已装 clashctl、尚未跑 clashctl install）没有 .env，缺省跳过
+# 首次初始化时 .env 尚未创建
 [ -f "$CLASHCTL_HOME"/.env ] && . "$CLASHCTL_HOME"/.env
 
 for lib_file in "$CLASHCTL_HOME"/scripts/lib/*.sh; do

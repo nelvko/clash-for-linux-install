@@ -32,8 +32,7 @@ valid_required() {
 }
 
 prepare_zip() {
-    # 组件集合显式传参（kernel 关键字映射为当前内核）。clashctl install 的
-    # 无参编排传 kernel yq；subconverter/UI 由 provision_component 按需补装。
+    # 安装只下载 kernel、yq；subconverter/UI 按需补装。
     local -a requested=("$@") normalized=() item
     local kernel_zip system_yq
     case "${CLASHCTL_KERNEL}" in
@@ -666,7 +665,7 @@ unzip_zip() (
     _component_transaction_init
     trap '_component_cleanup_stages "$bin_stage" "$ui_stage" || :' EXIT
     umask 077
-    # 组件按需：ZIP_* 为空即跳过（clashctl install 只装 kernel+yq，
+    # 组件按需：ZIP_* 为空即跳过（首次安装只装 kernel+yq，
     # subconverter/UI 由 provision_component 单独补装）
     for component_dir in "$ZIP_KERNEL" "$ZIP_YQ" "$ZIP_SUBCONVERTER" "$ZIP_UI"; do
         [ -z "$component_dir" ] || valid_archives+=("$component_dir")
@@ -822,17 +821,6 @@ unzip_zip() (
     trap - EXIT
     _ui_ok "运行组件已安装"
 )
-
-_set_envs() {
-    local rev
-    _set_env INIT_TYPE "$INIT_TYPE" || return 1
-    _set_env CLASHCTL_KERNEL "$CLASHCTL_KERNEL" || return 1
-    # 无 .git 的安装记录 rev；git 安装以 rev-parse 为准（clashctl update 直接读 git）
-    if [ ! -d "${CLASHCTL_SRC}/.git" ]; then
-        rev=$(_update_source_rev "$CLASHCTL_SRC") || return 1
-        _set_env CLASHCTL_REV "$rev" || return 1
-    fi
-}
 
 apply_rc() {
     detect_rc

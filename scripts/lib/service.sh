@@ -7,13 +7,6 @@ if ! declare -F _service_process_record_pid >/dev/null 2>&1; then
     unset _service_process_lib_dir
 fi
 
-if ! declare -F service_enablement_restore >/dev/null 2>&1; then
-    _service_enablement_lib_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
-    # shellcheck source=scripts/lib/service-enablement.sh
-    . "${_service_enablement_lib_dir}/service-enablement.sh"
-    unset _service_enablement_lib_dir
-fi
-
 if ! declare -F operation_lock_close_fd >/dev/null 2>&1; then
     _service_operation_lock_lib_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
     # shellcheck source=scripts/lib/operation-lock.sh
@@ -24,7 +17,6 @@ fi
 service_manager=
 service_log_path=
 service_pid_path=
-_SERVICE_REPLACED_RESTORE_STATUS=
 
 _service_run_without_operation_lock() {
     if [ -z "${CLASHCTL_OPERATION_LOCK_FD:-}" ]; then
@@ -84,19 +76,6 @@ detect_service_manager() {
         service_log_path="${CLASH_DATA_DIR}/${CLASHCTL_KERNEL}.log"
         service_pid_path="${CLASH_DATA_DIR}/${CLASHCTL_KERNEL}.pid"
     }
-}
-
-# 切换服务上下文到指定内核：CLASHCTL_KERNEL 变更后 pid/log 路径必须重派生。
-# detect_service_manager 对已识别环境幂等早退、不会重算路径，故先清再测。
-# 注意保持纯粹：不得在此作废自启链接快照变量（CLASHCTL_SERVICE_ENABLE_*）——
-# 事务期间的 journal 重写依赖这些快照字段（runit 载入侧强校验非空）。
-_service_context_apply() { # $1=kernel
-    local kernel=$1
-    export CLASHCTL_KERNEL="$kernel"
-    BIN_KERNEL=$(bin_kernel_path)
-    service_manager=
-    service_pid_path=
-    detect_service_manager
 }
 
 _service_nohup_start_locked() {    local pid expected_argv
@@ -302,7 +281,7 @@ service_is_enabled() {
 }
 
 _service_runit_enable_link() {
-    printf '%s\n' "${CLASHCTL_SERVICE_ENABLE_LINK:-/etc/runit/runsvdir/default/${CLASHCTL_KERNEL}}"
+    printf '%s\n' "/etc/runit/runsvdir/default/${CLASHCTL_KERNEL}"
 }
 
 _service_runit_link_state() {
@@ -352,15 +331,8 @@ service_enable() {
         enable_link=$(_service_runit_enable_link)
         desired_target=$(dirname -- "$service_target")
         IFS=$'\t' read -r current_kind current_target < <(_service_runit_link_state "$enable_link")
-        if [ -n "${CLASHCTL_SERVICE_ENABLE_KIND+x}" ]; then
-            if [ "$current_kind" != "${CLASHCTL_SERVICE_ENABLE_KIND:-absent}" ] ||
-                [ "$current_target" != "${CLASHCTL_SERVICE_ENABLE_TARGET:-}" ]; then
-                [ "$current_kind" = symlink ] && [ "$current_target" = "$desired_target" ] || return 1
-            fi
-        else
-            [ "$current_kind" = absent ] ||
-                { [ "$current_kind" = symlink ] && [ "$current_target" = "$desired_target" ]; } || return 1
-        fi
+        [ "$current_kind" = absent ] ||
+            { [ "$current_kind" = symlink ] && [ "$current_target" = "$desired_target" ]; } || return 1
         /usr/bin/install -d "$(dirname -- "$enable_link")" &&
             _service_atomic_symlink "$desired_target" "$enable_link"
         ;;
@@ -396,8 +368,7 @@ service_disable() {
         [ "$current_kind" = symlink ] || return 1
         desired_target=$(_service_target 2>/dev/null) || desired_target=
         [ -z "$desired_target" ] || desired_target=$(dirname -- "$desired_target")
-        if [ "$current_target" != "$desired_target" ] &&
-            [ "$current_target" != "${CLASHCTL_SERVICE_ENABLE_TARGET:-}" ]; then
+        if [ "$current_target" != "$desired_target" ]; then
             return 1
         fi
         /usr/bin/rm -f -- "$enable_link"
@@ -422,25 +393,6 @@ _service_unregister() {
         ;;
     *) return 0 ;;
     esac
-}
-
-_service_restore_enablement() {
-    local was_enabled=${1:-0} runit_target=${2:-}
-
-    if [ "$service_manager" = runit ] && [ "$was_enabled" = 1 ] && [ -n "$runit_target" ]; then
-        local enable_link
-        enable_link=$(_service_runit_enable_link)
-        /usr/bin/install -d "$(dirname -- "$enable_link")" &&
-            _service_atomic_symlink "$runit_target" "$enable_link"
-        return
-    fi
-    if [ "$was_enabled" != 1 ]; then
-        service_is_enabled || return 0
-        service_disable
-        return
-    fi
-    service_is_enabled && return 0
-    service_enable
 }
 
 service_log() {
@@ -532,137 +484,6 @@ _render_service_unit() {
         "$dst"
 }
 
-_restore_service_unit() {
-    local target=$1 rollback=$2 had_target=$3 staged
-
-    if [ "$had_target" = true ]; then
-        staged=$(mktemp "${target}.clashctl-restore.XXXXXX") || return 1
-        if ! cp -aT -- "$rollback" "$staged" || ! /bin/mv -fT -- "$staged" "$target"; then
-            /usr/bin/rm -f -- "$staged"
-            return 1
-        fi
-    else
-        /usr/bin/rm -f -- "$target" || return 1
-    fi
-    [ "$service_manager" != systemd ] || systemctl daemon-reload >/dev/null 2>&1 || return 1
-    [ "$had_target" != true ] || /usr/bin/rm -f -- "$rollback"
-    return 0
-}
-
-_service_install_failed() {
-    local message=$1 target=$2 rollback=$3 had_target=$4
-    if _restore_service_unit "$target" "$rollback" "$had_target"; then
-        _ui_error "$message；已恢复写入前的服务定义"
-    else
-        _ui_error "$message；自动恢复失败"
-        if [ -e "$rollback" ] || [ -L "$rollback" ]; then
-            _ui_detail '临时备份' "$rollback"
-        fi
-    fi
-    return 1
-}
-
-install_service() {
-    detect_service_manager
-
-    local service_target candidate staged rollback had_target=false mode=0755
-    service_target=$(_service_target) || {
-        _ui_info "服务模式: nohup（无需注册系统服务）"
-        return 0
-    }
-    [ "$service_manager" != systemd ] || mode=0644
-
-    candidate=$(mktemp) || {
-        _ui_error '无法创建服务配置临时文件'
-        return 1
-    }
-    _render_service_unit "$candidate" || {
-        /usr/bin/rm -f -- "$candidate"
-        _ui_error "无法生成 ${service_manager} 服务配置"
-        return 1
-    }
-
-    staged=$(mktemp "${service_target}.clashctl-new.XXXXXX") || {
-        /usr/bin/rm -f -- "$candidate"
-        _ui_error "无法创建服务配置暂存文件: $service_target"
-        return 1
-    }
-    if [ -e "$service_target" ] || [ -L "$service_target" ]; then
-        rollback=$(mktemp "${service_target}.clashctl-rollback.XXXXXX") || {
-            /usr/bin/rm -f -- "$candidate" "$staged"
-            _ui_error "无法创建服务配置回滚文件: $service_target"
-            return 1
-        }
-        cp -aT -- "$service_target" "$rollback" || {
-            /usr/bin/rm -f -- "$candidate" "$staged" "$rollback"
-            _ui_error "无法暂存现有服务配置: $service_target"
-            return 1
-        }
-        had_target=true
-    fi
-    /usr/bin/install -D -m "$mode" "$candidate" "$staged" &&
-        /bin/mv -fT -- "$staged" "$service_target"
-    local write_rc=$?
-    /usr/bin/rm -f -- "$candidate" "$staged"
-    if [ "$write_rc" -ne 0 ]; then
-        [ "$had_target" != true ] || /usr/bin/rm -f -- "$rollback"
-        _ui_error "无法写入服务配置: $service_target"
-        return 1
-    fi
-
-    case "$service_manager" in
-    systemd)
-        systemctl daemon-reload || {
-            _service_install_failed '重载 systemd 配置失败' "$service_target" "$rollback" "$had_target"
-            return 1
-        }
-
-        service_enable || {
-            _service_install_failed '设置 systemd 开机自启失败' "$service_target" "$rollback" "$had_target"
-            return 1
-        }
-        ;;
-    sysvinit)
-        service_enable || {
-            _service_install_failed '注册或启用 SysVinit 服务失败' "$service_target" "$rollback" "$had_target"
-            return 1
-        }
-        ;;
-    openrc)
-        service_enable || {
-            _service_install_failed '设置 OpenRC 开机自启失败' "$service_target" "$rollback" "$had_target"
-            return 1
-        }
-        ;;
-
-    runit)
-        service_enable || {
-            _service_install_failed '设置 runit 开机自启失败' "$service_target" "$rollback" "$had_target"
-            return 1
-        }
-
-        ;;
-
-    *)
-        _service_install_failed "不支持的服务管理器: $service_manager" "$service_target" "$rollback" "$had_target"
-        return 1
-        ;;
-    esac
-
-    [ "$had_target" != true ] || /usr/bin/rm -f -- "$rollback"
-    return 0
-}
-
-_service_same_object() {
-    local left=$1 right=$2
-    if [ -L "$left" ] || [ -L "$right" ]; then
-        [ -L "$left" ] && [ -L "$right" ] &&
-            [ "$(readlink -- "$left")" = "$(readlink -- "$right")" ]
-        return
-    fi
-    cmp -s -- "$left" "$right"
-}
-
 _service_definition_is_owned() {
     local target=$1 command_line
     command_line="$BIN_KERNEL -d $CLASH_RESOURCES_DIR -f $CLASH_CONFIG_RUNTIME"
@@ -685,428 +506,47 @@ _service_definition_is_owned() {
     esac
 }
 
-_service_systemd_property() {
-    systemctl show "${CLASHCTL_KERNEL}.service" -p "$1" --value 2>/dev/null
-}
 
-_service_systemd_execstart_is_owned() {
-    local value=$1
-    case $value in
-    "$BIN_KERNEL" | "$BIN_KERNEL "* | *" path=$BIN_KERNEL ;"*) return 0 ;;
-    *) return 1 ;;
-    esac
-}
-
-_service_systemd_main_pid_is_owned() {
-    local pid=$1 expected_path actual_path expected_argv actual_argv
-    local starttime_before starttime_after
-    case $pid in '' | *[!0-9]*) return 1 ;; esac
-    [ "$pid" -gt 1 ] || return 1
-    expected_path=$(readlink -f -- "$BIN_KERNEL" 2>/dev/null) || return 1
-    expected_argv=$(_service_process_values_argv_hex \
-        "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME") || return 1
-    starttime_before=$(_service_process_starttime "$pid") || return 1
-    actual_path=$(_service_process_exe_path "$pid") || return 1
-    [ "$actual_path" = "$expected_path" ] || return 1
-    actual_argv=$(_service_process_argv_hex "$pid") || return 1
-    [ "$actual_argv" = "$expected_argv" ] || return 1
-    starttime_after=$(_service_process_starttime "$pid") || return 1
-    [ "$starttime_after" = "$starttime_before" ]
-}
-
-_service_systemd_loaded_unit_is_owned() {
-    local expected_target=$1 fragment execstart main_pid current_main_pid
-    fragment=$(_service_systemd_property FragmentPath) || return 1
-    [ "$fragment" = "$expected_target" ] || return 1
-    execstart=$(_service_systemd_property ExecStart) || return 1
-    _service_systemd_execstart_is_owned "$execstart" || return 1
-    main_pid=$(_service_systemd_property MainPID) || return 1
-    _service_systemd_main_pid_is_owned "$main_pid" || return 1
-    current_main_pid=$(_service_systemd_property MainPID) || return 1
-    [ "$current_main_pid" = "$main_pid" ]
-}
-
-_service_vendor_provider_exists() {
-    local source=$1
-    [ -e "$source" ] || [ -L "$source" ]
-}
-
-_service_missing_definition_enablement_preflight() {
-    local snapshot state links
-    snapshot=$(mktemp "${CLASHCTL_HOME}/.service-enablement.uninstall.XXXXXX") || {
-        _ui_error '无法创建服务自启检查快照，拒绝卸载'
-        return 1
-    }
-    if ! service_enablement_capture "$service_manager" "$CLASHCTL_KERNEL" "$snapshot"; then
-        /usr/bin/rm -f -- "$snapshot" 2>/dev/null || true
-        _ui_error '服务定义已缺失，且无法完整检查残留自启状态，拒绝卸载'
-        _ui_detail '原因' "${SERVICE_ENABLEMENT_ERROR:-未知错误}"
-        return 1
-    fi
-    state=$SERVICE_ENABLEMENT_STATE
-    links=$SERVICE_ENABLEMENT_LINKS
-    if ! /usr/bin/rm -f -- "$snapshot"; then
-        _ui_error '无法清理服务自启检查快照，拒绝继续卸载'
-        _ui_detail '快照' "$snapshot"
-        return 1
-    fi
-    if [ -z "$links" ]; then
-        case $state in disabled | not-found) return 0 ;; esac
-    fi
-
-    _ui_error '服务定义已缺失，但仍存在无法确认归属的自启状态，拒绝卸载'
-    _ui_detail '当前状态' "$state"
-    _ui_detail '处理' "确认相关链接归属后，清理残留并重新运行 $CLASHCTL_HOME/uninstall.sh --yes"
-    return 1
-}
-
-# ── 已提交的接管快照（安装提交时由事务 journal 转存为 .service-replaced）──
-# 存在即代表安装期间接管过服务或重装过自家单元：卸载必须恢复原服务。
-# 取代旧版往 .env 写 16 个 CLASHCTL_REPLACED_SERVICE_* 键的双编码（快照与
-# manifest 同处 0700 家目录，攻击面相同；快照文件为原子写，无部分写状态）。
-_service_replaced_snapshot() {
-    printf '%s/%s\n' "${CLASHCTL_HOME:-}" .service-replaced
-}
-
-_service_replaced_state_present() {
-    local snapshot
-    snapshot=$(_service_replaced_snapshot)
-    [ -f "$snapshot" ] && [ ! -L "$snapshot" ]
-}
-
-# 解析快照并填充恢复变量（CLASHCTL_REPLACED_SERVICE_* 名义不变，下游恢复
-# 逻辑零改动）。幂等：已加载直接成功。0=已加载 1=无快照 2=快照无效
-_service_replaced_state_load() {
-    local snapshot line key value owner mode
-    local -A parsed=() seen=()
-    local -a keys=(
-        CLASHCTL_SERVICE_JOURNAL_VERSION
-        CLASHCTL_SERVICE_JOURNAL_KERNEL
-        CLASHCTL_SERVICE_MANAGER
-        CLASHCTL_SERVICE_TARGET
-        CLASHCTL_SERVICE_TARGET_EXISTED
-        CLASHCTL_SERVICE_SOURCE
-        CLASHCTL_SERVICE_BACKUP
-        CLASHCTL_SERVICE_BACKUP_CREATED
-        CLASHCTL_SERVICE_WAS_ACTIVE
-        CLASHCTL_SERVICE_WAS_ENABLED
-        CLASHCTL_SERVICE_CONFLICT
-        CLASHCTL_SERVICE_ENABLE_LINK
-        CLASHCTL_SERVICE_ENABLE_KIND
-        CLASHCTL_SERVICE_ENABLE_TARGET
-        CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET
-        CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL
-        CLASHCTL_SERVICE_ENABLEMENT_INSTALLED
-        CLASHCTL_SERVICE_PREV_KERNEL
-    )
-    [ -n "${CLASHCTL_REPLACED_SERVICE_MANAGER:-}" ] && return 0
-    _service_replaced_state_present || return 1
-    snapshot=$(_service_replaced_snapshot)
-    owner=$(stat -c %u -- "$snapshot" 2>/dev/null) || return 2
-    mode=$(stat -c %a -- "$snapshot" 2>/dev/null) || return 2
-    [ "$owner" -eq "$(id -u)" ] && [ $((8#$mode & 0077)) -eq 0 ] || return 2
-
-    while IFS= read -r line || [ -n "$line" ]; do
-        case $line in *=*) ;; *) return 2 ;; esac
-        key=${line%%=*}
-        value=${line#*=}
-        case $key in
-        CLASHCTL_SERVICE_JOURNAL_VERSION|CLASHCTL_SERVICE_JOURNAL_KERNEL|CLASHCTL_SERVICE_MANAGER|\
-            CLASHCTL_SERVICE_TARGET|CLASHCTL_SERVICE_TARGET_EXISTED|CLASHCTL_SERVICE_SOURCE|\
-            CLASHCTL_SERVICE_BACKUP|CLASHCTL_SERVICE_BACKUP_CREATED|CLASHCTL_SERVICE_WAS_ACTIVE|\
-            CLASHCTL_SERVICE_WAS_ENABLED|CLASHCTL_SERVICE_CONFLICT|CLASHCTL_SERVICE_ENABLE_LINK|\
-            CLASHCTL_SERVICE_ENABLE_KIND|CLASHCTL_SERVICE_ENABLE_TARGET|\
-            CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET|CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL|\
-            CLASHCTL_SERVICE_ENABLEMENT_INSTALLED|CLASHCTL_SERVICE_PREV_KERNEL)
-            [ "${seen[$key]:-0}" -eq 0 ] || return 2
-            printf '%s' "$value" | LC_ALL=C grep -q '[[:cntrl:]]' && return 2
-            parsed[$key]=$value
-            seen[$key]=1
-            ;;
-        *) return 2 ;;
-        esac
-    done <"$snapshot"
-    for key in "${keys[@]}"; do
-        [ "${seen[$key]:-0}" -eq 1 ] || return 2
-    done
-    [ "${parsed[CLASHCTL_SERVICE_JOURNAL_VERSION]}" = 3 ] || return 2
-    [ "${parsed[CLASHCTL_SERVICE_JOURNAL_KERNEL]}" = "${CLASHCTL_KERNEL:-}" ] || return 2
-    case ${parsed[CLASHCTL_SERVICE_MANAGER]} in
-    systemd | sysvinit | openrc | runit) ;;
-    *) return 2 ;;
-    esac
-    case ${parsed[CLASHCTL_SERVICE_WAS_ACTIVE]}${parsed[CLASHCTL_SERVICE_WAS_ENABLED]} in
-    00 | 01 | 10 | 11) ;;
-    *) return 2 ;;
-    esac
-
-    export CLASHCTL_REPLACED_SERVICE_MANAGER=${parsed[CLASHCTL_SERVICE_MANAGER]}
-    export CLASHCTL_REPLACED_SERVICE_SOURCE=${parsed[CLASHCTL_SERVICE_SOURCE]}
-    export CLASHCTL_REPLACED_SERVICE_TARGET=${parsed[CLASHCTL_SERVICE_TARGET]}
-    export CLASHCTL_REPLACED_SERVICE_BACKUP=${parsed[CLASHCTL_SERVICE_BACKUP]}
-    export CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE=${parsed[CLASHCTL_SERVICE_WAS_ACTIVE]}
-    export CLASHCTL_REPLACED_SERVICE_WAS_ENABLED=${parsed[CLASHCTL_SERVICE_WAS_ENABLED]}
-    export CLASHCTL_REPLACED_SERVICE_ENABLE_LINK=${parsed[CLASHCTL_SERVICE_ENABLE_LINK]}
-    export CLASHCTL_REPLACED_SERVICE_ENABLE_KIND=${parsed[CLASHCTL_SERVICE_ENABLE_KIND]}
-    export CLASHCTL_REPLACED_SERVICE_ENABLE_TARGET=${parsed[CLASHCTL_SERVICE_ENABLE_TARGET]}
-    export CLASHCTL_REPLACED_SERVICE_EXPECTED_ENABLE_TARGET=${parsed[CLASHCTL_SERVICE_EXPECTED_ENABLE_TARGET]}
-    _SERVICE_REPLACED_ENABLEMENT_ORIGINAL=${parsed[CLASHCTL_SERVICE_ENABLEMENT_ORIGINAL]}
-    _SERVICE_REPLACED_ENABLEMENT_INSTALLED=${parsed[CLASHCTL_SERVICE_ENABLEMENT_INSTALLED]}
-    # 能写快照的 manager 必在 enablement 体系内（retain 条件），恢复模式恒为 exact
-    _SERVICE_REPLACED_ENABLEMENT_MODE=exact
-    return 0
-}
-
-_service_replaced_enablement_preflight() {
-    local manager=${CLASHCTL_REPLACED_SERVICE_MANAGER:-}
-    [ "${_SERVICE_REPLACED_ENABLEMENT_MODE:-legacy}" = exact ] || return 0
-    if ! service_enablement_validate "$manager" "$CLASHCTL_KERNEL" \
-        "$_SERVICE_REPLACED_ENABLEMENT_ORIGINAL"; then
-        _ui_error '安装前的服务自启快照无效或已丢失'
-        _ui_detail '原因' "${SERVICE_ENABLEMENT_ERROR:-未知错误}"
-        _ui_detail '快照' "$_SERVICE_REPLACED_ENABLEMENT_ORIGINAL"
-        return 1
-    fi
-    if ! service_enablement_validate "$manager" "$CLASHCTL_KERNEL" \
-        "$_SERVICE_REPLACED_ENABLEMENT_INSTALLED"; then
-        _ui_error 'clashctl 安装后的服务自启快照无效或已丢失'
-        _ui_detail '原因' "${SERVICE_ENABLEMENT_ERROR:-未知错误}"
-        _ui_detail '快照' "$_SERVICE_REPLACED_ENABLEMENT_INSTALLED"
-        return 1
-    fi
-    if ! service_enablement_preflight_restore "$manager" "$CLASHCTL_KERNEL" \
-        "$_SERVICE_REPLACED_ENABLEMENT_ORIGINAL" \
-        "$_SERVICE_REPLACED_ENABLEMENT_INSTALLED"; then
-        _ui_error '当前服务自启状态已被其他操作修改，拒绝卸载'
-        _ui_detail '原因' "${SERVICE_ENABLEMENT_ERROR:-未知错误}"
-        _ui_detail '处理' '确认服务链接归属并恢复到安装后状态，再重新执行卸载'
-        return 1
-    fi
-    return 0
-}
-
-# 调用前提：.service-replaced 已由 _service_replaced_state_load 成功载入
-_replaced_service_preflight() {
-    local source=${CLASHCTL_REPLACED_SERVICE_SOURCE:-}
-    local target=${CLASHCTL_REPLACED_SERVICE_TARGET:-}
-    local backup=${CLASHCTL_REPLACED_SERVICE_BACKUP:-}
-    local expected_target
-
-    _service_replaced_enablement_preflight || return 1
-    expected_target=$(_service_target) || expected_target=
-    if [ -z "$target" ] || [ "$target" != "$expected_target" ]; then
-        _ui_error '原服务恢复目标与当前服务管理器不匹配，拒绝卸载'
-        return 1
-    fi
-    if [ -n "$source" ]; then
-        if [ -z "$backup" ] || { [ ! -e "$backup" ] && [ ! -L "$backup" ]; }; then
-            _ui_error "原服务备份不存在，拒绝卸载: ${backup:-未记录}"
-            return 1
-        fi
-    elif [ -n "$backup" ] || [ "${CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE:-0}" = 1 ]; then
-        _ui_error '无原服务定义时不应存在定义备份或运行中状态，拒绝卸载'
-        return 1
-    fi
-    if [ -n "$source" ] && [ "$source" != "$target" ] && [ "$service_manager" = systemd ]; then
-        _service_vendor_provider_exists "$source" "$target" || {
-            _ui_error 'systemd 原服务 provider 已不存在，拒绝删除当前 override'
-            _ui_detail '保留备份' "$backup"
-            return 1
-        }
-    fi
-    return 0
-}
-
-uninstall_replaced_service_preflight() {
+# 不接管外部同名服务；用户先自行处理冲突。
+_service_check_conflict() {
+    local target fragment
     detect_service_manager
-    _service_replaced_state_load || return 1
-    _replaced_service_preflight
-}
-
-# 调用前提：快照已载入且 preflight 通过；恢复失败须保留现场供重试
-_restore_replaced_service_after_uninstall() {
-    local source=${CLASHCTL_REPLACED_SERVICE_SOURCE:-}
-    local target=${CLASHCTL_REPLACED_SERVICE_TARGET:-}
-    local backup=${CLASHCTL_REPLACED_SERVICE_BACKUP:-}
-    local was_active=${CLASHCTL_REPLACED_SERVICE_WAS_ACTIVE:-0}
-    local provider staged='' enablement_rc=0
-
-    _SERVICE_REPLACED_RESTORE_STATUS='尚未修改原服务定义'
-    if [ "$source" = "$target" ]; then
-        staged=$(mktemp "${target}.clashctl-restore.XXXXXX") || {
-            _ui_error "无法创建原服务恢复暂存文件；备份保留在: $backup"
-            return 1
-        }
-        if ! cp -aT -- "$backup" "$staged" || ! /bin/mv -fT -- "$staged" "$target"; then
-            /usr/bin/rm -f -- "$staged"
-            _ui_error "恢复原服务定义失败；备份保留在: $backup"
-            return 1
-        fi
-        _SERVICE_REPLACED_RESTORE_STATUS='原服务定义已写回；服务管理器状态尚未确认'
-    else
-        /usr/bin/rm -f -- "$target" || {
-            _ui_error '移除 clashctl 服务定义失败，尚未恢复原服务'
-            _ui_detail '目标' "$target"
-            [ -z "$backup" ] || _ui_detail '保留备份' "$backup"
-            return 1
-        }
-        _SERVICE_REPLACED_RESTORE_STATUS='clashctl 服务定义已移除；原 provider 尚未确认'
+    target=$(_service_target) || return 0
+    if [ -e "$target" ] || [ -L "$target" ]; then
+        [ ! -L "$target" ] && _service_definition_is_owned "$target" && return 0
+        _ui_error "同名服务已存在，请先处理后重试：$target"
+        return 1
     fi
     if [ "$service_manager" = systemd ]; then
-        systemctl daemon-reload >/dev/null 2>&1 || {
-            _ui_error '恢复原服务后重载 systemd 失败'
-            return 1
-        }
-        if [ -n "$source" ] && [ "$source" != "$target" ]; then
-            provider=$(systemctl show -p FragmentPath --value "${CLASHCTL_KERNEL}.service" 2>/dev/null) || provider=
-            if [ "$provider" != "$source" ] ||
-                { [ ! -e "$source" ] && [ ! -L "$source" ]; }; then
-                _ui_error '移除 override 后没有可用的 systemd provider'
-                _ui_detail '保留备份' "$backup"
-                return 1
-            fi
-        fi
+        fragment=$(systemctl show "$CLASHCTL_KERNEL.service" -p FragmentPath --value) || return 1
+        [ -z "$fragment" ] || { _ui_error "同名服务已存在：$fragment"; return 1; }
     fi
-    _SERVICE_REPLACED_RESTORE_STATUS='原服务定义已恢复；自启与运行状态尚未恢复'
-
-    service_enablement_restore "$service_manager" "$CLASHCTL_KERNEL" \
-        "$_SERVICE_REPLACED_ENABLEMENT_ORIGINAL" \
-        "$_SERVICE_REPLACED_ENABLEMENT_INSTALLED" || enablement_rc=$?
-    if [ "$enablement_rc" -ne 0 ]; then
-        _ui_error '恢复安装前的精确自启状态失败'
-        _ui_detail '原因' "${SERVICE_ENABLEMENT_ERROR:-未知错误}"
-        case ${SERVICE_ENABLEMENT_ERROR:-} in
-        *'previous enablement links were restored'* | *'previous links were restored'*)
-            _ui_detail '回滚' '已恢复变更前的服务自启链接'
-            ;;
-        esac
-        _ui_detail '原始快照' "$_SERVICE_REPLACED_ENABLEMENT_ORIGINAL"
-        _ui_detail '安装快照' "$_SERVICE_REPLACED_ENABLEMENT_INSTALLED"
-        return 1
-    fi
-    _SERVICE_REPLACED_RESTORE_STATUS='原服务定义和自启状态已恢复；运行状态尚未恢复'
-
-    if [ "$was_active" = 1 ]; then
-        service_start >/dev/null 2>&1 || true
-        service_is_active || {
-            _ui_error '恢复原服务运行状态失败'
-            return 1
-        }
-    elif service_is_active; then
-        _ui_error '恢复原服务停止状态失败'
-        return 1
-    fi
-    if [ -n "$source" ]; then
-        _SERVICE_REPLACED_RESTORE_STATUS='原服务定义、自启与运行状态均已恢复'
-        _ui_ok "已恢复安装前的同名服务: $source"
-    else
-        # 快照里没有原服务（全新安装的基线）：语义是注销自家而非恢复
-        [ "$service_manager" != runit ] ||
-            rmdir "$(dirname -- "$target")" >/dev/null 2>&1 || true
-        _SERVICE_REPLACED_RESTORE_STATUS='clashctl 服务定义和自启状态已移除，服务已停止'
-        _ui_ok "已注销 ${service_manager} 服务: $CLASHCTL_KERNEL"
-    fi
-    return 0
 }
 
-uninstall_service() {
+install_service() (
+    local target candidate mode=0755
     detect_service_manager
-    local target restore_original=0 owns_current_service=0
-    local source backup loaded_fragment
+    _service_check_conflict || return 1
+    target=$(_service_target) || return 0
+    candidate=$(mktemp) || return 1
+    trap 'rm -f -- "$candidate"' EXIT
+    _render_service_unit "$candidate" || return 1
+    [ "$service_manager" != systemd ] || mode=0644
+    install -D -m "$mode" "$candidate" "$target" || return 1
+    [ "$service_manager" != systemd ] || systemctl daemon-reload || return 1
+    service_enable
+)
 
-    target=$(_service_target) || target=
-    if _service_replaced_state_present; then
-        restore_original=1
-        if ! _service_replaced_state_load; then
-            _ui_error '已提交的服务接管快照无法解析，拒绝卸载'
-            _ui_detail '快照' "$(_service_replaced_snapshot)"
-            _ui_detail '处理' '确认快照未被修改；确认无需恢复原服务时可删除该快照后重试'
-            return 1
-        fi
-        _replaced_service_preflight || return 1
-        source=${CLASHCTL_REPLACED_SERVICE_SOURCE:-}
-        backup=${CLASHCTL_REPLACED_SERVICE_BACKUP:-}
-    fi
-
-    if [ -n "$target" ] && { [ -e "$target" ] || [ -L "$target" ]; }; then
-        if [ "$restore_original" -eq 1 ] && [ "$source" = "$target" ] &&
-            _service_same_object "$target" "$backup"; then
-            # 定义即将由备份整段写回，无需单删，也不必先停服务（恢复段处置）
-            :
-        elif ! _service_definition_is_owned "$target"; then
-            _ui_error "服务定义不再属于 clashctl，拒绝删除: $target"
-            return 1
-        else
-            owns_current_service=1
-        fi
-    fi
-    if [ "$service_manager" = systemd ] && [ -n "$target" ] &&
-        [ ! -e "$target" ] && [ ! -L "$target" ] && service_is_active; then
-        if _service_systemd_loaded_unit_is_owned "$target"; then
-            owns_current_service=1
-        elif [ "$restore_original" -eq 1 ] && [ -n "$source" ] && [ "$source" != "$target" ]; then
-            if ! loaded_fragment=$(_service_systemd_property FragmentPath) ||
-                [ -z "$loaded_fragment" ] || [ "$loaded_fragment" != "$source" ]; then
-                _ui_error 'systemd 服务定义已缺失且服务仍在运行，无法确认进程归属，拒绝卸载'
-                return 1
-            fi
-        else
-            _ui_error 'systemd 服务定义已缺失且服务仍在运行，无法确认进程归属，拒绝卸载'
-            return 1
-        fi
-    fi
-    if [ "$service_manager" = systemd ] && [ "$restore_original" -eq 0 ] &&
-        [ -n "$target" ] && [ ! -e "$target" ] && [ ! -L "$target" ]; then
-        _service_missing_definition_enablement_preflight || return 1
-    fi
-
-    [ "$service_manager" != nohup ] || owns_current_service=1
-    if [ "$owns_current_service" -eq 1 ] && service_is_active; then
-        service_stop >/dev/null 2>&1 || true
-        service_is_active && {
-            _ui_error "$CLASHCTL_KERNEL 服务仍在运行，已取消卸载"
-            return 1
-        }
-    fi
-    # 无接管快照的普通注销：自启状态须在此显式撤销（恢复路径由 enablement
-    # 快照处置；runit 亦经 service_disable 收敛自启链接）
-    if [ "$restore_original" -eq 0 ] && [ "$owns_current_service" -eq 1 ] &&
-        service_is_enabled; then
-        service_disable >/dev/null 2>&1 || true
-        service_is_enabled && {
-            _ui_error '禁用 clashctl 服务失败，已取消卸载'
-            return 1
-        }
-    fi
-
-    if [ "$restore_original" -eq 1 ]; then
-        _restore_replaced_service_after_uninstall || {
-            _ui_error '安装前的同名服务未能完整恢复，卸载已中止'
-            _ui_detail '恢复进度' "${_SERVICE_REPLACED_RESTORE_STATUS:-状态未知}"
-            _ui_detail '保留目录' "$CLASHCTL_HOME"
-            _ui_detail '保留备份' "$backup"
-            return 1
-        }
-        return 0
-    fi
-
-    if [ "$service_manager" = sysvinit ]; then
-        _service_unregister || {
-            _ui_error '注销 SysVinit 服务失败'
-            return 1
-        }
-    fi
-    [ -z "$target" ] || /usr/bin/rm -f -- "$target" || {
-        _ui_error "移除服务定义失败: $target"
-        return 1
-    }
-    [ "$service_manager" != systemd ] || systemctl daemon-reload >/dev/null 2>&1 || {
-        _ui_error '重载 systemd 配置失败'
-        return 1
-    }
-    if [ "$service_manager" = runit ]; then
-        rmdir "$(dirname -- "$target")" >/dev/null 2>&1 || true
-    fi
-    _ui_ok "已注销 ${service_manager} 服务: $CLASHCTL_KERNEL"
+uninstall_service() {
+    local target
+    detect_service_manager
+    _service_check_conflict || return 1
+    service_is_active && service_stop
+    service_is_active && { _ui_error '服务未能停止'; return 1; }
+    target=$(_service_target) || return 0
+    service_disable || return 1
+    _service_unregister || return 1
+    rm -f -- "$target" || return 1
+    [ "$service_manager" != systemd ] || systemctl daemon-reload || return 1
     return 0
 }

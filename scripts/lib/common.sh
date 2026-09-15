@@ -25,10 +25,7 @@ CLASH_RESOURCES_DIR="${CLASHCTL_HOME}/resources"
 BIN_BASE_DIR="${CLASHCTL_HOME}/bin"
 # fish 托管块首行标记：写入/识别/清理共用（preflight.sh 的 revoke 同引此量）
 CLASHCTL_FISH_MANAGED_MARKER='# clashctl shell-rc (managed by install.sh, do not edit)'
-# 每内核一目录（bin/mihomo/mihomo、bin/sing-box/sing-box…），支持多内核并存；
-# CLASHCTL_KERNEL 是激活指针，已装集合以 bin/ 子目录为准。
-# bin_kernel_path 是该路径的唯一派生点：CLASHCTL_KERNEL 变更后必须经此重派生
-# BIN_KERNEL，禁止各处手写公式——漏重算会静默跑旧内核二进制
+# 内核二进制路径，安装和运行共用。
 bin_kernel_path() {
     local kernel=${CLASHCTL_KERNEL:-mihomo}
     printf '%s/%s/%s\n' "$BIN_BASE_DIR" "$kernel" "$kernel"
@@ -67,8 +64,6 @@ CLASH_PROFILES_LOG="${CLASH_DATA_DIR}/profiles.log"
 CLASH_PROFILES_LOCK="${CLASH_DATA_DIR}/profiles.lock"
 
 CLASHCTL_CMD_DIR="${CLASHCTL_HOME}/scripts/cmd"
-
-CLASHCTL_CRON_TAG="# clashctl-auto-update"
 
 # GH_PROXY 加速前缀拼接的唯一入口：设置代理时输出 "<代理>/<url>"，未设置时
 # 原样返回。勿在别处手写 ${GH_PROXY%/}/ 前缀（install.sh 根脚本 pre-source

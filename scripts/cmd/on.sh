@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
 clashon() {
-    # 空壳态守卫：clashctl 已装但内核未安装（clashctl install 未完成）
+    # 安装失败或内核文件被移除时给出修复入口
     if [ ! -x "$BIN_KERNEL" ]; then
         _ui_fail "代理内核未安装（$CLASHCTL_KERNEL）"
-        _ui_fail "请先运行: clashctl install"
+        _ui_fail "请执行: bash $CLASHCTL_HOME/scripts/cmd/install.sh"
         return 1
     fi
     case "$1" in

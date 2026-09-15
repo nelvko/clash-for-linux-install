@@ -108,38 +108,9 @@ assert_eq 1 "$RUN_RC" 'service-only residual proxy exit code'
 assert_contains "$RUN_STDOUT" '[ OK ] mihomo 已停止' 'service stop result uses stdout'
 assert_contains "$RUN_STDERR" '[WARN] 当前终端代理未关闭' 'residual proxy warning uses stderr'
 
-_update_local_rev() {
-    printf 'abc1234\n'
-}
-
-_update_fetch() {
-    printf 'def5678\n'
-}
-
-UPDATE_STATUS='behind 3'
-_update_status() {
-    printf '%s\n' "$UPDATE_STATUS"
-}
-
-run_cmd update_check clashupdate_git true false master
-assert_eq 0 "$RUN_RC" 'update check with available version exit code'
-assert_contains "$RUN_STDOUT" '[INFO] 当前版本：abc1234（master）' 'current version uses stdout'
-assert_contains "$RUN_STDOUT" '[INFO] 最新版本：def5678（master）' 'remote version uses stdout'
-assert_contains "$RUN_STDOUT" '[INFO] 有新版本可用（落后 3 个提交）' \
-    'available update result uses stdout'
-assert_not_contains "$RUN_STDERR" '有新版本可用' \
-    'available update result is not mixed into diagnostics'
-
-UPDATE_STATUS=diverged
-run_cmd update_check_diverged clashupdate_git true false master
-assert_eq 0 "$RUN_RC" 'diverged update check exit code'
-assert_contains "$RUN_STDOUT" '远端 master 与当前版本已分叉' \
-    'diverged update result uses stdout'
-assert_not_contains "$RUN_STDERR" '已分叉' 'diverged result is not mixed into diagnostics'
-
 run_cmd update_unknown clashupdate --definitely-unknown
 assert_eq 1 "$RUN_RC" 'unknown update option exit code'
 assert_eq '' "$RUN_STDOUT" 'unknown update option keeps stdout clean'
-assert_contains "$RUN_STDERR" 'Usage:' 'unknown update option writes help to stderr'
+assert_contains "$RUN_STDERR" '用法: clashupdate' 'unknown update option writes help to stderr'
 
 printf 'cmd-ui-contract: ok\n'

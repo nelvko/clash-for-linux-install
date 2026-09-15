@@ -30,9 +30,9 @@ assert_dead() {
     fi
 }
 
-export CLASHCTL_INSTALL_SOURCE_ONLY=1
-# shellcheck source=../install.sh
-. "$REPO_DIR/install.sh"
+CLASHCTL_HOME="$WORK_DIR/owned"
+# shellcheck source=../scripts/lib/common.sh
+. "$REPO_DIR/scripts/lib/common.sh"
 # shellcheck source=../scripts/lib/service-process.sh
 . "$REPO_DIR/scripts/lib/service-process.sh"
 # shellcheck source=../scripts/lib/service.sh

@@ -1,30 +1,21 @@
 #!/usr/bin/env bash
 
 clashversion() {
-    case "$1" in
+    case "${1:-}" in
     -h | --help)
         cat <<'EOF'
 Usage:
   clashctl version
 
-显示脚本版本（git 安装为当前提交，归档安装为安装时记录）、跟进分支、
+显示脚本提交版本、跟进分支、
 已装内核版本与依赖钉版。
 EOF
         return 0
         ;;
     esac
 
-    local rev branch kernel
-    if _update_is_git_home; then
-        rev=$(git -C "$CLASHCTL_HOME" rev-parse --short HEAD 2>/dev/null)
-        local date
-        date=$(git -C "$CLASHCTL_HOME" log -1 --pretty=%cd --date=short 2>/dev/null)
-        [ -n "$date" ] && rev="${rev}（${date}）"
-        branch=$(git -C "$CLASHCTL_HOME" rev-parse --abbrev-ref HEAD 2>/dev/null)
-    else
-        rev=${CLASHCTL_REV:-unknown}
-    fi
-    branch=${branch:-${CLASHCTL_UPDATE_BRANCH:-master}}
+    local rev branch=${CLASHCTL_UPDATE_BRANCH:-master} kernel
+    rev=$(git -C "$CLASHCTL_HOME" rev-parse --short HEAD 2>/dev/null)
 
     kernel=$(timeout 5 "$BIN_KERNEL" -v 2>/dev/null | grep -oE 'v[0-9][0-9A-Za-z.-]*' | head -1)
     kernel=${kernel:-unknown}

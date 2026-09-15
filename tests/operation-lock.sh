@@ -189,23 +189,21 @@ test_sysv_style_background_child_does_not_inherit_lock_fd() {
 }
 
 test_update_holds_lifecycle_lock_for_dispatch() {
-    local dispatch_checked=0
-
-    # shellcheck source=../scripts/cmd/update.sh
+    local dispatch_file="$WORK_DIR/update-dispatched"
+    . "$REPO_DIR/scripts/lib/update.sh"
     . "$REPO_DIR/scripts/cmd/update.sh"
-    _update_require_install() { return 0; }
-    _update_is_git_home() { return 0; }
-    clashupdate_git() {
+    _ui_error() { :; }
+    _update_is_git_home() {
         local inherited_fd=${CLASHCTL_OPERATION_LOCK_FD:-}
         if [ -z "$inherited_fd" ] || [ ! -e "/proc/self/fd/$inherited_fd" ]; then
             fail 'update dispatch started without the lifecycle lock'
         fi
-        dispatch_checked=1
-        return 0
+        touch "$dispatch_file"
+        return 1
     }
-
-    clashupdate --check || fail 'locked update dispatch failed'
-    [ "$dispatch_checked" -eq 1 ] || fail 'update dispatch did not run'
+    # shellcheck disable=SC2119  # 测试无参数入口
+    if clashupdate; then fail 'update accepted a missing installation'; fi
+    [ -f "$dispatch_file" ] || fail 'update dispatch did not run'
     [ -z "${CLASHCTL_OPERATION_LOCK_FD:-}" ] || fail 'update retained lifecycle lock fd'
     operation_lock_acquire || fail 'update did not release lifecycle lock'
     operation_lock_close_fd || fail 'could not close post-update test lock'
