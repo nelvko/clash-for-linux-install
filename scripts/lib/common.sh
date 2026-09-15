@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-# 依赖钉版数据（versions.env 为纯数据文件，随仓库分发，位于仓库根目录）
-_versions_env_file="$(dirname -- "${BASH_SOURCE[0]}")/../../versions.env"
-[ -f "$_versions_env_file" ] && . "$_versions_env_file"
-unset -v _versions_env_file
-
 # 下载默认值（.env 物化前或环境变量未设时兜底）；GH_PROXY 默认不设 = 直连，
 # 需要加速时经 --gh-proxy 旗标 / 环境变量 / .env 显式指定
 [ -n "${SUBCONVERTER_REPO:-}" ] || SUBCONVERTER_REPO=asdlokj1qpi233/subconverter
@@ -553,3 +548,11 @@ _write_fish_rc() {
         return 1
     fi
 }
+
+# UI 和订阅转换器沿用按需下载。
+_ci_provision() (
+    export CLASHCTL_SRC="$CLASHCTL_HOME"
+    operation_lock_acquire || return 1
+    . "$CLASHCTL_SRC/scripts/preflight.sh" || return 1
+    provision_component "$1"
+)

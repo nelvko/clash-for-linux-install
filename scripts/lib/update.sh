@@ -27,7 +27,7 @@ _update_scripts() (
     stage=$(mktemp -d) || return 1
     trap 'rm -rf -- "$stage"' EXIT
     git -C "$CLASHCTL_HOME" archive "$target" | tar -x -C "$stage" || return 1
-    for file in .env.example scripts/cmd/clashctl.sh scripts/cmd/install.sh scripts/cmd/update.sh; do
+    for file in .env.example scripts/cmd/clashctl.sh install.sh scripts/cmd/update.sh; do
         [ -f "$stage/$file" ] || { _ui_error "更新版本缺少必需文件：$file"; return 1; }
     done
     for file in .env data bin resources/dist; do
@@ -36,6 +36,7 @@ _update_scripts() (
             return 1
         fi
     done
+    bash -n "$stage/install.sh" || return 1
     while IFS= read -r -d '' file; do
         bash -n "$file" || return 1
     done < <(find "$stage/scripts" -name '*.sh' -type f -print0)

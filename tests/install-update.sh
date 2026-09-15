@@ -10,7 +10,8 @@ export REAL_GIT
 REAL_GIT=$(command -v git)
 export FIXTURE="$WORK_DIR/source" CI=1 CLASHCTL_HOME="$WORK_DIR/installed"
 mkdir -p "$FIXTURE/scripts/cmd" "$FIXTURE/resources" "$WORK_DIR/bin"
-cp "$REPO_DIR/scripts/cmd/"{install,update}.sh "$FIXTURE/scripts/cmd/"
+cp "$REPO_DIR/scripts/cmd/update.sh" "$FIXTURE/scripts/cmd/"
+cp "$REPO_DIR/install.sh" "$FIXTURE/"
 cp "$REPO_DIR/uninstall.sh" "$FIXTURE/"
 cp "$REPO_DIR/.env.example" "$FIXTURE/"
 cp "$REPO_DIR/resources/"{mixin.yaml.example,profiles.yaml} "$FIXTURE/resources/"
@@ -81,6 +82,9 @@ if FAIL_START=1 CLASHCTL_HOME="$WORK_DIR/start-failed" bash "$REPO_DIR/install.s
     fail 'service failure succeeded'
 fi
 ! grep -q '安装完成' "$WORK_DIR/start-failed.out" || fail 'service failure reported success'
+
+CLASHCTL_HOME="$WORK_DIR/start-failed" bash "$WORK_DIR/start-failed/install.sh" >"$WORK_DIR/retry.out" 2>&1
+[ -f "$WORK_DIR/start-failed/data/started" ] || fail 'root installer could not retry initialization'
 
 # 控制终端与脚本 stdin 分离：真实 PTY 下读取订阅，并验证输入不回显。
 TEST_REPO="$REPO_DIR" TEST_WORK="$WORK_DIR" python3 - <<'PTY'
@@ -154,6 +158,11 @@ old=$("$REAL_GIT" -C "$CLASHCTL_HOME" rev-parse HEAD)
 printf 'local edit\n' >>"$CLASHCTL_HOME/scripts/cmd/clashctl.sh"
 if clashupdate >"$WORK_DIR/dirty.out" 2>&1; then fail 'update overwrote local edits'; fi
 "$REAL_GIT" -C "$CLASHCTL_HOME" checkout -- scripts/cmd/clashctl.sh
+printf '\nbroken() {\n' >>"$FIXTURE/install.sh"
+"$REAL_GIT" -C "$FIXTURE" commit -qam broken-installer
+if clashupdate >"$WORK_DIR/broken-installer.out" 2>&1; then fail 'invalid installer was deployed'; fi
+[ "$("$REAL_GIT" -C "$CLASHCTL_HOME" rev-parse HEAD)" = "$old" ] || fail 'invalid installer changed version'
+cp "$REPO_DIR/install.sh" "$FIXTURE/install.sh"
 printf 'broken() {\n' >"$FIXTURE/scripts/cmd/clashctl.sh"
 "$REAL_GIT" -C "$FIXTURE" commit -qam broken
 if clashupdate >"$WORK_DIR/broken.out" 2>&1; then fail 'syntax error was deployed'; fi

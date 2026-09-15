@@ -9,6 +9,12 @@ for lib_file in "$CLASHCTL_SRC"/scripts/lib/*.sh; do
     . "$lib_file"
 done
 
+# 查询最新版本失败时使用已知可用版本。
+DEFAULT_VERSION_MIHOMO=v1.19.27
+DEFAULT_VERSION_YQ=v4.53.3
+DEFAULT_VERSION_SUBCONVERTER=v0.9.9
+DEFAULT_VERSION_UI=v3.20.0
+
 ZIP_BASE_DIR="${CLASHCTL_SRC}/archives"
 
 valid_required() {
@@ -108,7 +114,7 @@ _fetch_latest_tag() {
 _resolve_version() {
     local varname=$1 repo=$2 tag local_version
 
-    # 版本来源优先级：最新版本查询 > versions.env 内置钉版
+    # 版本来源优先级：最新版本查询 > 内置备用版本
     if tag=$(_fetch_latest_tag "$repo"); then
         printf -v "$varname" '%s' "$tag"
         _ui_detail "$repo" "$tag（最新版本）"
