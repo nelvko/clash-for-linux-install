@@ -13,7 +13,9 @@ main() (
         [[ $answer == y || $answer == Y ]] || return 1 ;;
     *) printf '未知参数\n' >&2; return 1 ;;
     esac
-    if [ ! -f "$CLASHCTL_HOME/.env" ] || [ ! -d "$CLASHCTL_HOME/.git" ] ||
+    # 安装态以 .git 为准：.env 由 clashctl install 生成，未安装的克隆目录没有它。
+    if [ ! -f "$CLASHCTL_HOME/install.sh" ] || [ ! -f "$CLASHCTL_HOME/uninstall.sh" ] ||
+        [ ! -f "$CLASHCTL_HOME/scripts/preflight.sh" ] || [ ! -d "$CLASHCTL_HOME/.git" ] ||
         [ "$CLASHCTL_HOME" = / ] || [ "$CLASHCTL_HOME" = "$HOME" ]; then
         printf '未找到有效安装目录\n' >&2; return 1
     fi

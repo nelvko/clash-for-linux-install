@@ -74,6 +74,8 @@ main() (
         *) printf '未知安装参数\n' >&2; return 1 ;;
         esac
     done
+    # 服务单元名与内核二进制路径都派生自它，必须在 sourcing 前导出。
+    export CLASHCTL_KERNEL="$kernel"
     for arg in git curl tar gzip unzip; do
         command -v "$arg" >/dev/null || { printf '缺少依赖: %s\n' "$arg" >&2; return 1; }
     done
