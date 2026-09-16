@@ -28,7 +28,9 @@
 curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | bash
 ```
 
-需要 Git、curl、tar、gzip、unzip。默认安装到 `~/.clashctl`，安装后重开终端加载命令。
+默认安装到 `~/.clashctl`，安装后重开终端加载命令。
+有 Git 时克隆仓库；没有 Git 时，使用 curl（或 wget）下载分支源码压缩包。
+Git 克隆失败会直接报错，不自动切换方式。组件和订阅下载仍需要 curl，另需 tar、gzip、unzip 等运行依赖。
 订阅链接在安装时输入，也可跳过。跳过时只安装组件和命令，不启动代理、不启用自启。
 运行 `clashctl sub add --use <url>` 首次启用订阅后，会生成运行配置、启动代理并设置自启。
 组件独立安装；某个组件失败时保留已安装成功的组件，修复问题后可重新运行安装脚本。
@@ -72,8 +74,10 @@ clashupdate             # 更新脚本与资源，并加载到当前 Shell
 # 等价命令：clashctl update
 ```
 
-安装目录是 Git 仓库。更新保留 `data/` 中的订阅、mixin 和密钥，以及已下载的内核和面板；
-有本地代码修改时会停止，请先提交或暂存。更新不会重启代理。
+更新沿用安装时的方式：Git 安装使用 Git；压缩包安装重新下载源码压缩包，即使后来安装了 Git 也不会自动转换。
+两种方式都保留 `data/` 中的订阅、Mixin 和密钥，以及已下载的内核、面板和运行缓存，不重启代理。
+Git 安装有本地代码修改时会停止，请先提交或暂存；压缩包安装按 `.clashctl-files` 中的校验值检查程序文件，
+发现修改或缺失时会停止，请先恢复。压缩包更新会清理新版已删除的程序文件，写入失败时尝试恢复原程序。
 更新来源由 `~/.clashctl/.env` 中的 `CLASHCTL_UPDATE_BRANCH` 和 `GH_PROXY` 配置。
 升级代理内核仍使用 `clashctl upgrade`。
 
@@ -87,8 +91,9 @@ clashupdate             # 更新脚本与资源，并加载到当前 Shell
 bash ~/.clashctl/uninstall.sh
 ```
 
-仅允许卸载安装器创建、且 `.git/clashctl-home` 标记与当前路径匹配的目录。
-源码克隆、移动或复制后的安装副本、旧版未标记目录会被拒绝，不会删除；请勿手动补写标记。
+仅允许卸载安装器创建、且 `.clashctl-install` 标记与当前路径匹配的目录；该文件记录安装路径和 Git/压缩包类型。
+此前的 `.git/clashctl-home` 路径标记仍可验证，Git 更新成功后会补写独立标记。
+源码克隆、移动或复制后的安装副本、完全没有标记的旧目录会被拒绝，不会删除；请勿手动补写标记。
 确认后停止并移除当前安装的服务，清理指向本目录的 Shell 引导及安装目录。
 有安装标记但尚未生成 `.env` 的中断安装仅清理目录自身。若内核信息无效、服务停止或 Shell 清理失败，会保留安装目录。
 非交互卸载使用 `--yes`。

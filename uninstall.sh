@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 main() (
-    local answer='' initialized=false install_home
+    local answer='' initialized=false install_home marker
     case ${1:-} in
     -y | --yes) answer=y ;;
     -h | --help) printf '用法: bash uninstall.sh [--yes]\n'; return 0 ;;
@@ -12,16 +12,25 @@ main() (
     export CLASHCTL_HOME="$install_home"
     export CLASHCTL_SRC="$CLASHCTL_HOME"
     if [ ! -f "$CLASHCTL_HOME/install.sh" ] || [ ! -f "$CLASHCTL_HOME/scripts/preflight.sh" ] ||
-        [ ! -d "$CLASHCTL_HOME/.git" ] || [ -L "$CLASHCTL_HOME/.git" ] ||
         [ "$CLASHCTL_HOME" = / ] || [ "$CLASHCTL_HOME" = "$(cd -- "$HOME" && pwd -P)" ]; then
         printf '未找到有效安装目录\n' >&2; return 1
     fi
-    # .git 和 .env 也可能存在于源码目录，只有安装器写入的路径标记能授权删除。
-    if [ ! -f "$install_home/.git/clashctl-home" ] || [ -L "$install_home/.git/clashctl-home" ] ||
-        [ "$(cat -- "$install_home/.git/clashctl-home")" != "$install_home" ]; then
-        printf '缺少匹配的安装标记，拒绝卸载此目录：%s\n请运行实际安装目录中的 uninstall.sh；源码目录和旧版未标记目录不会被删除。\n' "$install_home" >&2
-        return 1
+    # 安装标记不依赖 Git；严格匹配物理路径，复制后的目录不能卸载。
+    marker=''
+    if [ -f "$install_home/.clashctl-install" ] && [ ! -L "$install_home/.clashctl-install" ]; then
+        marker=$(cat -- "$install_home/.clashctl-install") || return 1
+    elif [ ! -e "$install_home/.clashctl-install" ] && [ ! -L "$install_home/.clashctl-install" ] &&
+        [ -d "$install_home/.git" ] && [ ! -L "$install_home/.git" ] &&
+        [ -f "$install_home/.git/clashctl-home" ] && [ ! -L "$install_home/.git/clashctl-home" ] &&
+        [ "$(cat -- "$install_home/.git/clashctl-home")" = "$install_home" ]; then
+        marker="$install_home"$'\ngit'
     fi
+    case "$marker" in
+    "$install_home"$'\ngit' | "$install_home"$'\narchive') ;;
+    *)
+        printf '缺少匹配的安装标记，拒绝卸载此目录：%s\n请运行实际安装目录中的 uninstall.sh。\n' "$install_home" >&2
+        return 1 ;;
+    esac
     . "$CLASHCTL_SRC/scripts/lib/operation-lock.sh" || return 1
     operation_lock_acquire || return 1
     [ ! -e "$CLASHCTL_HOME/.env" ] && [ ! -L "$CLASHCTL_HOME/.env" ] || initialized=true

@@ -196,6 +196,9 @@ test_update_holds_lifecycle_lock_for_dispatch() {
     local CLASHCTL_HOME="$WORK_DIR/update-home"
     mkdir -p "$CLASHCTL_HOME/.git"
     touch "$CLASHCTL_HOME/.env"
+    cp "$REPO_DIR/install.sh" "$CLASHCTL_HOME/install.sh"
+    printf '%s\ngit\n' "$CLASHCTL_HOME" >"$CLASHCTL_HOME/.clashctl-install"
+    _ui_step() { :; }
     git() {
         local inherited_fd=${CLASHCTL_OPERATION_LOCK_FD:-}
         if [ -z "$inherited_fd" ] || [ ! -e "/proc/self/fd/$inherited_fd" ]; then

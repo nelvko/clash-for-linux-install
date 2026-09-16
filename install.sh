@@ -1,5 +1,91 @@
 #!/usr/bin/env bash
 
+# 同时供安装入口与 clashupdate 使用；source 本文件只加载函数。
+_install_method() {
+    local home=$1 marker
+    # 兼容此前由安装器写入的路径标记；不凭 .git 或 .env 推断安装身份。
+    if [ ! -e "$home/.clashctl-install" ] && [ ! -L "$home/.clashctl-install" ] &&
+        [ -d "$home/.git" ] && [ ! -L "$home/.git" ] &&
+        [ -f "$home/.git/clashctl-home" ] && [ ! -L "$home/.git/clashctl-home" ] &&
+        [ "$(cat -- "$home/.git/clashctl-home")" = "$home" ]; then
+        printf 'git\n'
+        return 0
+    fi
+    [ -f "$home/.clashctl-install" ] && [ ! -L "$home/.clashctl-install" ] || return 1
+    marker=$(cat -- "$home/.clashctl-install") || return 1
+    case "$marker" in
+    "$home"$'\ngit') printf 'git\n' ;;
+    "$home"$'\narchive') printf 'archive\n' ;;
+    *) return 1 ;;
+    esac
+}
+
+_source_path_allowed() {
+    local path=${1#./}
+    [[ -n "$path" && "$path" != /* && "$path" != *[^a-zA-Z0-9_./-]* ]] || return 1
+    case "/$path/" in */../* | */./*) return 1 ;; esac
+    case "$path" in
+    .git | .git/* | .env | .env/* | .clashctl-* | data | data/* | bin | bin/* | archives | archives/* | resources/dist | resources/dist/* | resources/cache.db)
+        return 1 ;;
+    esac
+}
+
+_source_archive() (
+    local destination=$1 branch=$2 proxy=$3 archive entries url
+    [[ "$branch" =~ ^[a-zA-Z0-9][a-zA-Z0-9_./-]*$ ]] || { printf '分支名称无效\n' >&2; return 1; }
+    archive=$(mktemp) || return 1
+    entries="${archive}.list"
+    trap 'rm -f -- "$archive" "$entries"' EXIT
+    url="https://github.com/nelvko/clash-for-linux-install/archive/refs/heads/${branch}.tar.gz"
+    [ -z "$proxy" ] || url="${proxy%/}/$url"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --connect-timeout 10 --max-time 180 --retry 2 -o "$archive" "$url" || return 1
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q --timeout=30 --tries=3 -O "$archive" "$url" || return 1
+    else
+        printf '下载源码需要 curl 或 wget\n' >&2
+        return 1
+    fi
+    # 仅允许单个顶层目录内的普通文件/目录；拒绝越界路径和链接后再解压。
+    tar -tzf "$archive" >"$entries" || return 1
+    awk '
+        /[^a-zA-Z0-9_.\/-]/ || /^\// || /(^|\/)\.\.?($|\/)/ { exit 1 }
+        { split($0, parts, "/"); if (!root) root=parts[1]; if (parts[1]!=root || !index($0,"/")) exit 1 }
+        END { if (!root) exit 1 }
+    ' "$entries" || { printf '源码归档路径无效\n' >&2; return 1; }
+    tar -tvzf "$archive" >"$entries" || return 1
+    if LC_ALL=C grep -qv '^[-d]' "$entries"; then
+        printf '源码归档包含非普通文件\n' >&2
+        return 1
+    fi
+    tar -xzf "$archive" --strip-components=1 --no-same-owner --no-same-permissions -C "$destination"
+)
+
+_source_validate() {
+    local directory=$1 file relative
+    for file in .env.example install.sh uninstall.sh scripts/preflight.sh scripts/cmd/clashctl.sh scripts/cmd/update.sh; do
+        if [ ! -f "$directory/$file" ] || [ -L "$directory/$file" ]; then
+            printf '源码不兼容：缺少必需文件 %s\n' "$file" >&2
+            return 1
+        fi
+    done
+    while IFS= read -r -d '' file; do
+        relative=${file#"$directory/"}
+        if ! _source_path_allowed "$relative" || [ -L "$file" ] || { [ ! -d "$file" ] && [ ! -f "$file" ]; }; then
+            printf '源码包含不支持的路径：%s\n' "$relative" >&2
+            return 1
+        fi
+        case "$file" in *.sh) bash -n "$file" || return 1 ;; esac
+    done < <(find "$directory" -mindepth 1 -path "$directory/.git" -prune -o -mindepth 1 -print0)
+}
+
+_source_manifest() (
+    set -o pipefail
+    cd -- "$1" || return 1
+    find . -path './.git' -prune -o -type f ! -name '.clashctl-*' -print0 |
+        sort -z | xargs -0 -r sha256sum
+)
+
 _install_initialize() {
     export CLASHCTL_SRC="$CLASHCTL_HOME"
     . "$CLASHCTL_SRC/scripts/preflight.sh" || return 1
@@ -62,7 +148,7 @@ main() (
     set -e
     local install_home=${CLASHCTL_HOME:-$HOME/.clashctl}
     local branch=${CLASHCTL_UPDATE_BRANCH:-master} kernel=mihomo
-    local proxy=${GH_PROXY-https://gh-proxy.org} stage='' arg
+    local proxy=${GH_PROXY-https://gh-proxy.org} stage='' arg method
     for arg in "$@"; do
         case $arg in
         mihomo | clash) kernel=$arg ;;
@@ -74,7 +160,7 @@ main() (
     done
     # 服务单元名与内核二进制路径都派生自它，必须在 sourcing 前导出。
     export CLASHCTL_KERNEL="$kernel"
-    for arg in git curl tar gzip unzip; do
+    for arg in tar gzip unzip sha256sum; do
         command -v "$arg" >/dev/null || { printf '缺少依赖: %s\n' "$arg" >&2; return 1; }
     done
     # 服务模板使用绝对路径；拒绝会影响模板或 Shell 解析的字符。
@@ -93,10 +179,7 @@ main() (
         if [ -f "${BASH_SOURCE[0]:-}" ]; then
             script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
         fi
-        if [ ! -d "$install_home/.git" ] || [ -L "$install_home/.git" ] ||
-            [ ! -f "$install_home/.git/clashctl-home" ] || [ -L "$install_home/.git/clashctl-home" ] ||
-            [ "$(cat -- "$install_home/.git/clashctl-home")" != "$install_home" ] ||
-            [ "$script_dir" != "$install_home" ]; then
+        if ! method=$(_install_method "$install_home") || [ "$script_dir" != "$install_home" ]; then
             printf '目录已存在且不是可重试的安装目录: %s；请使用新的安装目录\n' "$install_home" >&2
             return 1
         fi
@@ -104,19 +187,22 @@ main() (
         mkdir -p -- "$(dirname -- "$install_home")"
         stage=$(mktemp -d "${install_home}.download.XXXXXX")
         trap '[ -z "$stage" ] || rm -rf -- "$stage"' EXIT
-        local url=https://github.com/nelvko/clash-for-linux-install.git
-        [ -z "$proxy" ] || url="${proxy%/}/$url"
-        git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 \
-            clone --depth 1 --branch "$branch" -- "$url" "$stage"
-        for arg in scripts/preflight.sh .env.example scripts/cmd/update.sh; do
-            if [ ! -f "$stage/$arg" ]; then
-                printf '分支 %s 的源码不兼容此安装器（缺少 %s），未写入安装目录\n' "$branch" "$arg" >&2
-                printf '管道安装时请将分支变量放在 bash 前：curl ... | CLASHCTL_UPDATE_BRANCH=<分支> bash\n' >&2
-                return 1
-            fi
-        done
-        # Git 私有元数据不随源码克隆或更新传播；记录物理路径以拒绝误删源码和副本。
-        (umask 077; printf '%s\n' "$install_home" >"$stage/.git/clashctl-home")
+        if command -v git >/dev/null 2>&1; then
+            method=git
+            local url=https://github.com/nelvko/clash-for-linux-install.git
+            [ -z "$proxy" ] || url="${proxy%/}/$url"
+            git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 \
+                clone --depth 1 --branch "$branch" -- "$url" "$stage"
+        else
+            method=archive
+            _source_archive "$stage" "$branch" "$proxy"
+            [ ! -e "$stage/.git" ] && [ ! -L "$stage/.git" ] || return 1
+        fi
+        _source_validate "$stage"
+        if [ "$method" = archive ]; then
+            _source_manifest "$stage" >"$stage/.clashctl-files"
+        fi
+        (umask 077; printf '%s\n%s\n' "$install_home" "$method" >"$stage/.clashctl-install")
         mv -T -- "$stage" "$install_home"
         stage=''
     fi
@@ -129,4 +215,6 @@ main() (
 )
 
 # 完整读取脚本后才执行，下载中断时不会提前开始安装。
-main "$@"
+if [ -z "${BASH_SOURCE[0]:-}" ] || [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    main "$@"
+fi

@@ -35,7 +35,7 @@ STUB
 }
 setup_install() {
     setup_source "$1"
-    printf '%s\n' "$1" >"$1/.git/clashctl-home"
+    printf '%s\ngit\n' "$1" >"$1/.clashctl-install"
 }
 write_rc() {
     local target=$1 rc
@@ -75,18 +75,14 @@ if run_uninstall "$WORK_DIR/user/.clashctl"; then fail 'symlink to source bypass
 rm "$WORK_DIR/user/.clashctl"
 diff -r "$WORK_DIR/user.expected" "$WORK_DIR/user" || fail 'source rejection changed shell integration'
 
-# 复制安装目录不授予新目录卸载权限；软链接标记和软链接 .git 也拒绝。
+# 复制安装目录不授予新目录卸载权限；软链接标记也拒绝。
 cp -a "$WORK_DIR/other-install" "$WORK_DIR/copied"
 if run_uninstall "$WORK_DIR/copied"; then fail 'copied installation marker was accepted'; fi
 [ -d "$WORK_DIR/copied" ] || fail 'copied directory was removed'
-rm "$WORK_DIR/copied/.git/clashctl-home"
+rm "$WORK_DIR/copied/.clashctl-install"
 printf '%s\n' "$WORK_DIR/copied" >"$WORK_DIR/external-marker"
-ln -s "$WORK_DIR/external-marker" "$WORK_DIR/copied/.git/clashctl-home"
+ln -s "$WORK_DIR/external-marker" "$WORK_DIR/copied/.clashctl-install"
 if run_uninstall "$WORK_DIR/copied"; then fail 'symlink marker was accepted'; fi
-mv "$WORK_DIR/copied/.git" "$WORK_DIR/copied-git"
-ln -s "$WORK_DIR/copied-git" "$WORK_DIR/copied/.git"
-if run_uninstall "$WORK_DIR/copied"; then fail 'symlink git directory was accepted'; fi
-
 # 安装器留下的未初始化目录有真实标记，仍可清理，且不加载 preflight。
 setup_install "$WORK_DIR/interrupted"
 printf 'exit 77\n' >"$WORK_DIR/interrupted/scripts/preflight.sh"

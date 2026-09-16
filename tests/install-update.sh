@@ -16,7 +16,7 @@ cp "$REPO_DIR/install.sh" "$FIXTURE/"
 cp "$REPO_DIR/uninstall.sh" "$FIXTURE/"
 cp "$REPO_DIR/.env.example" "$FIXTURE/"
 cp "$REPO_DIR/resources/"{mixin.yaml.example,profiles.yaml} "$FIXTURE/resources/"
-printf 'data/\nbin/\n.env\n' >"$FIXTURE/.gitignore"
+printf 'data/\nbin/\n.env\n.clashctl-install\n.clashctl-files\n' >"$FIXTURE/.gitignore"
 cat >"$FIXTURE/scripts/preflight.sh" <<'STUB'
 [ ! -f "$CLASHCTL_HOME/.env" ] || . "$CLASHCTL_HOME/.env"
 CLASH_DATA_DIR="$CLASHCTL_HOME/data"
@@ -90,17 +90,17 @@ cat "$REPO_DIR/install.sh" | bash >"$WORK_DIR/install.out" 2>&1
 grep -q '尚未配置订阅' "$WORK_DIR/install.out" || fail 'empty install did not explain missing configuration'
 [ -f "$CLASHCTL_HOME/data/shell-ready" ] || fail 'pipeline did not install shell integration'
 [ -f "$CLASHCTL_HOME/.env" ] || fail 'pipeline did not write environment'
-[ "$(cat "$CLASHCTL_HOME/.git/clashctl-home")" = "$CLASHCTL_HOME" ] || fail 'pipeline did not record installation path'
-[ "$(stat -c %a "$CLASHCTL_HOME/.git/clashctl-home")" = 600 ] || fail 'installation marker is not private'
+[ "$(head -n 1 "$CLASHCTL_HOME/.clashctl-install")" = "$CLASHCTL_HOME" ] || fail 'pipeline did not record installation path'
+[ "$(stat -c %a "$CLASHCTL_HOME/.clashctl-install")" = 600 ] || fail 'installation marker is not private'
 grep -q '安装完成' "$WORK_DIR/install.out" || fail 'missing install result'
 # 源码不能通过重试初始化获得安装身份；克隆真实安装也不会继承 Git 私有标记。
 if CLASHCTL_HOME="$FIXTURE" bash "$FIXTURE/install.sh" >"$WORK_DIR/source-retry.out" 2>&1; then
     fail 'installer adopted source checkout as installation'
 fi
-[ ! -e "$FIXTURE/.git/clashctl-home" ] || fail 'installer marked source checkout'
+[ ! -e "$FIXTURE/.clashctl-install" ] || fail 'installer marked source checkout'
 [ ! -e "$FIXTURE/.env" ] || fail 'installer initialized source checkout'
 "$REAL_GIT" clone -q "$CLASHCTL_HOME" "$WORK_DIR/cloned-install"
-[ ! -e "$WORK_DIR/cloned-install/.git/clashctl-home" ] || fail 'Git clone inherited installation identity'
+[ ! -e "$WORK_DIR/cloned-install/.clashctl-install" ] || fail 'Git clone inherited installation identity'
 if bash "$WORK_DIR/cloned-install/uninstall.sh" --yes >"$WORK_DIR/cloned-uninstall.out" 2>&1; then
     fail 'cloned installation was accepted for uninstall'
 fi
@@ -118,7 +118,7 @@ for unsafe_home in /tmp/.. "$HOME/./"; do
     grep -q '不能使用根目录或用户主目录' "$WORK_DIR/unsafe-home.out" || fail 'unsafe path was not rejected before cloning'
 done
 CLASHCTL_HOME="$WORK_DIR/unused/../normalized" bash "$REPO_DIR/install.sh" >"$WORK_DIR/normalized.out" 2>&1
-[ "$(cat "$WORK_DIR/normalized/.git/clashctl-home")" = "$WORK_DIR/normalized" ] || fail 'marker did not use physical installation path'
+[ "$(head -n 1 "$WORK_DIR/normalized/.clashctl-install")" = "$WORK_DIR/normalized" ] || fail 'marker did not use physical installation path'
 bash "$WORK_DIR/normalized/uninstall.sh" --yes >"$WORK_DIR/normalized-uninstall.out" 2>&1
 [ ! -e "$WORK_DIR/normalized" ] || fail 'normalized installation could not be uninstalled'
 # 已有主配置时重试初始化：启动失败仍返回失败，恢复后可以继续。
@@ -212,7 +212,152 @@ clashupdate >"$WORK_DIR/update.out" 2>&1
 [ "$(cat "$CLASHCTL_HOME/data/config.yaml")" = 'user config' ] || fail 'update changed config'
 [ "$(cat "$CLASHCTL_HOME/bin/kernel")" = kernel ] || fail 'update changed kernel'
 cmp "$WORK_DIR/env.before" "$CLASHCTL_HOME/.env" || fail 'update changed environment'
-[ "$(cat "$CLASHCTL_HOME/.git/clashctl-home")" = "$CLASHCTL_HOME" ] || fail 'update lost installation marker'
+[ "$(head -n 1 "$CLASHCTL_HOME/.clashctl-install")" = "$CLASHCTL_HOME" ] || fail 'update lost installation marker'
+# 已存在的 Git 安装可以凭旧的精确路径标记更新，并补写独立标记。
+printf '%s\n' "$CLASHCTL_HOME" >"$CLASHCTL_HOME/.git/clashctl-home"
+rm "$CLASHCTL_HOME/.clashctl-install"
+clashupdate >"$WORK_DIR/marker-update.out" 2>&1 || fail 'existing Git installation could not update'
+[ "$(head -n 1 "$CLASHCTL_HOME/.clashctl-install")" = "$CLASHCTL_HOME" ] || fail 'old installation marker was not migrated'
+# 无 Git 的真实 PATH：下载器只复制本地 tar 包，其余使用系统工具。
+no_git_bin="$WORK_DIR/no-git-bin"
+mkdir "$no_git_bin"
+for tool in install bash cat dirname readlink mkdir mktemp rm mv tar gzip unzip sha256sum find sort xargs chmod cp head stat sleep touch grep sed awk id flock; do
+    ln -s "$(command -v "$tool")" "$no_git_bin/$tool"
+done
+export SOURCE_ARCHIVE="$WORK_DIR/source.tar.gz" DOWNLOAD_LOG="$WORK_DIR/download.log"
+cat >"$no_git_bin/curl" <<'DOWNLOAD'
+#!/usr/bin/env bash
+printf '%s %s\n' "${0##*/}" "$*" >>"$DOWNLOAD_LOG"
+[ "${FAIL_DOWNLOAD:-0}" = 0 ] || exit 22
+while [ "$#" -gt 0 ]; do
+    case "$1" in -o | -O) destination=$2; shift ;; esac
+    shift
+done
+cp "$SOURCE_ARCHIVE" "$destination"
+DOWNLOAD
+chmod +x "$no_git_bin/curl"
+cp "$no_git_bin/curl" "$no_git_bin/wget"
+archive_source="$WORK_DIR/archive-source"
+mkdir "$archive_source"
+"$REAL_GIT" -C "$FIXTURE" archive HEAD | tar -x -C "$archive_source"
+printf 'obsolete=true\n' >"$archive_source/scripts/obsolete.sh"
+tar -czf "$SOURCE_ARCHIVE" -C "$WORK_DIR" archive-source
+archive_home="$WORK_DIR/archive-home"
+PATH="$no_git_bin" CLASHCTL_HOME="$archive_home" GH_PROXY=https://proxy.example \
+    bash "$REPO_DIR/install.sh" >"$WORK_DIR/archive-install.out" 2>&1 || { cat "$WORK_DIR/archive-install.out"; fail 'curl fallback install failed'; }
+[ ! -e "$archive_home/.git" ] || fail 'fallback created a Git repository'
+[ "$(tail -n 1 "$archive_home/.clashctl-install")" = archive ] || fail 'archive type was not recorded'
+[ -s "$archive_home/.clashctl-files" ] || fail 'archive file manifest missing'
+grep -Fq 'https://proxy.example/https://github.com/nelvko/clash-for-linux-install/archive/refs/heads/master.tar.gz' "$DOWNLOAD_LOG" || fail 'source archive ignored proxy or branch'
+# wget 只负责拉取源码，此处初始化桩不依赖 curl。
+mv "$no_git_bin/curl" "$WORK_DIR/saved-curl"
+PATH="$no_git_bin" CLASHCTL_HOME="$WORK_DIR/wget-home" GH_PROXY='' \
+    bash "$REPO_DIR/install.sh" >"$WORK_DIR/wget-install.out" 2>&1 || { cat "$WORK_DIR/wget-install.out"; fail 'wget fallback install failed'; }
+grep -q '^wget ' "$DOWNLOAD_LOG" || fail 'wget fallback was not used'
+mv "$WORK_DIR/saved-curl" "$no_git_bin/curl"
+# Git 存在但失败时不能偷偷回退下载。
+before_downloads=$(wc -l <"$DOWNLOAD_LOG")
+ln -s "$WORK_DIR/bin/git" "$no_git_bin/git"
+if PATH="$no_git_bin" FAIL_FETCH=1 CLASHCTL_HOME="$WORK_DIR/git-failed" bash "$REPO_DIR/install.sh" >"$WORK_DIR/git-failed.out" 2>&1; then fail 'Git failure succeeded'; fi
+[ "$(wc -l <"$DOWNLOAD_LOG")" = "$before_downloads" ] || fail 'Git failure fell back to archive'
+rm "$no_git_bin/git"
+if PATH="$no_git_bin" FAIL_DOWNLOAD=1 CLASHCTL_HOME="$WORK_DIR/archive-failed" bash "$REPO_DIR/install.sh" >/dev/null 2>&1; then fail 'archive download failure succeeded'; fi
+[ ! -e "$WORK_DIR/archive-failed" ] || fail 'failed download created installation'
+
+archive_update() (
+    export CLASHCTL_HOME="$archive_home" PATH="$no_git_bin"
+    . "$archive_home/scripts/cmd/update.sh"
+    clashupdate >"$WORK_DIR/archive-update.out" 2>&1 || return
+    printf '%s\n' "$fixture_version" >"$WORK_DIR/archive-version"
+)
+printf keep-config >"$archive_home/data/config.yaml"
+mkdir -p "$archive_home/resources/dist" "$archive_home/archives"
+printf keep-ui >"$archive_home/resources/dist/index.html"
+printf keep-cache >"$archive_home/resources/cache.db"
+printf keep-archive >"$archive_home/archives/kernel.gz"
+cp "$archive_home/.env" "$WORK_DIR/archive.env.before"
+cp "$archive_home/.clashctl-install" "$WORK_DIR/archive.marker.before"
+cp "$archive_home/.clashctl-files" "$WORK_DIR/archive.manifest.before"
+rm "$archive_source/scripts/obsolete.sh"
+printf 'new_helper=true\n' >"$archive_source/scripts/new-helper.sh"
+printf 'fixture_version=archive-new\n' >"$archive_source/scripts/cmd/clashctl.sh"
+tar -czf "$SOURCE_ARCHIVE" -C "$WORK_DIR" archive-source
+# 本地修改与非托管文件冲突都应在替换前拒绝。
+printf 'local-change=true\n' >>"$archive_home/scripts/obsolete.sh"
+if archive_update; then fail 'archive update overwrote modified code'; fi
+printf 'obsolete=true\n' >"$archive_home/scripts/obsolete.sh"
+printf 'user-file=true\n' >"$archive_home/scripts/new-helper.sh"
+if archive_update; then fail 'archive update overwrote unmanaged file'; fi
+rm "$archive_home/scripts/new-helper.sh"
+# 模拟写入阶段中途失败，必须恢复旧程序文件与旧清单。
+(
+    tar() {
+        if [ "${1:-}" = -xf ] && [ "${2:-}" = - ]; then
+            cat >/dev/null
+            printf 'partial=true\n' >"$archive_home/scripts/cmd/clashctl.sh"
+            printf 'partial=true\n' >"$archive_home/scripts/new-helper.sh"
+            return 1
+        fi
+        command tar "$@"
+    }
+    if archive_update; then fail 'partial archive write reported success'; fi
+)
+grep -qx 'fixture_version=new' "$archive_home/scripts/cmd/clashctl.sh" || fail 'failed update did not restore code'
+[ ! -e "$archive_home/scripts/new-helper.sh" ] || fail 'failed update retained new file'
+cmp "$WORK_DIR/archive.manifest.before" "$archive_home/.clashctl-files" || fail 'failed update lost old manifest'
+# 后续系统装上 Git，压缩包安装仍使用原方式更新。
+cat >"$no_git_bin/git" <<'GIT'
+#!/usr/bin/env bash
+exit 97
+GIT
+chmod +x "$no_git_bin/git"
+archive_update || { cat "$WORK_DIR/archive-update.out"; fail 'archive update failed'; }
+[ "$(cat "$WORK_DIR/archive-version")" = archive-new ] || fail 'archive update did not reload shell'
+[ ! -e "$archive_home/scripts/obsolete.sh" ] || fail 'obsolete script survived archive update'
+[ ! -e "$archive_home/.git" ] || fail 'archive install changed type after Git appeared'
+[ "$(cat "$archive_home/data/config.yaml")" = keep-config ] || fail 'archive update changed subscription'
+[ "$(cat "$archive_home/resources/dist/index.html")" = keep-ui ] || fail 'archive update changed UI'
+[ "$(cat "$archive_home/resources/cache.db")" = keep-cache ] || fail 'archive update changed runtime cache'
+[ "$(cat "$archive_home/archives/kernel.gz")" = keep-archive ] || fail 'archive update changed archives'
+[ "$(cat "$archive_home/bin/kernel")" = kernel ] || fail 'archive update changed kernel'
+cmp "$WORK_DIR/archive.env.before" "$archive_home/.env" || fail 'archive update changed environment'
+cmp "$WORK_DIR/archive.marker.before" "$archive_home/.clashctl-install" || fail 'archive update changed identity'
+# 下载失败、语法错误、保留目录和越界/链接归档不得影响已安装文件。
+cp "$archive_home/.clashctl-files" "$WORK_DIR/archive.manifest.after"
+if FAIL_DOWNLOAD=1 archive_update; then fail 'failed archive update download succeeded'; fi
+printf 'broken() {\n' >"$archive_source/scripts/new-helper.sh"
+tar -czf "$SOURCE_ARCHIVE" -C "$WORK_DIR" archive-source
+if archive_update; then fail 'archive update accepted syntax error'; fi
+printf 'new_helper=true\n' >"$archive_source/scripts/new-helper.sh"
+mkdir "$archive_source/data"
+printf forbidden >"$archive_source/data/config.yaml"
+tar -czf "$SOURCE_ARCHIVE" -C "$WORK_DIR" archive-source
+if archive_update; then fail 'archive update accepted user data paths'; fi
+rm -rf "$archive_source/data"
+python3 - "$WORK_DIR" <<'BAD_ARCHIVES'
+import io, sys, tarfile
+from pathlib import Path
+root=Path(sys.argv[1])
+for kind in ['traversal','symlink','hardlink']:
+    with tarfile.open(root/(kind+'.tar.gz'),'w:gz') as archive:
+        item=tarfile.TarInfo('source/../../escaped' if kind=='traversal' else 'source/link')
+        if kind=='traversal':
+            item.size=3
+            archive.addfile(item,io.BytesIO(b'bad'))
+        else:
+            item.type=tarfile.SYMTYPE if kind=='symlink' else tarfile.LNKTYPE
+            item.linkname=str(root/'escaped')
+            archive.addfile(item)
+BAD_ARCHIVES
+for kind in traversal symlink hardlink; do
+    if SOURCE_ARCHIVE="$WORK_DIR/$kind.tar.gz" archive_update; then fail "accepted $kind archive"; fi
+done
+[ ! -e "$WORK_DIR/escaped" ] || fail 'archive escaped staging directory'
+cmp "$WORK_DIR/archive.manifest.after" "$archive_home/.clashctl-files" || fail 'rejected archive changed manifest'
+# 无 Git 的安装也能正常卸载，更新后标记仍有效。
+PATH="$no_git_bin" bash "$archive_home/uninstall.sh" --yes >"$WORK_DIR/archive-uninstall.out" 2>&1 || { cat "$WORK_DIR/archive-uninstall.out"; fail 'archive uninstall failed'; }
+[ ! -e "$archive_home" ] || fail 'archive installation remains after uninstall'
+
 old=$("$REAL_GIT" -C "$CLASHCTL_HOME" rev-parse HEAD)
 printf 'local edit\n' >>"$CLASHCTL_HOME/scripts/cmd/clashctl.sh"
 if clashupdate >"$WORK_DIR/dirty.out" 2>&1; then fail 'update overwrote local edits'; fi
