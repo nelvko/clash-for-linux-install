@@ -15,7 +15,7 @@ clashsub() {
         ;;
     esac
 
-    _sub_migrate || return 1
+    _sub_check_format || return 1
 
     case "${1:-}" in
     add)
@@ -504,125 +504,19 @@ _sub_filename() {
     printf '%s' "$path"
 }
 
-# 一次性把旧的数字 id 模型迁移为 name 模型（幂等：以 id 字段存在为哨兵）。
-_sub_migrate() {
+# 仅支持名称模型；旧数据保留原样，由用户备份后重新添加订阅。
+_sub_check_format() {
     [ -f "$CLASH_PROFILES_META" ] || return 0
-
-    local needed
-    needed=$("$BIN_YQ" '([.profiles // [] | .[] | select(has("id"))] | length) > 0' \
+    local legacy
+    legacy=$("$BIN_YQ" '([.profiles // [] | .[] | select(has("id"))] | length) > 0' \
         "$CLASH_PROFILES_META" 2>/dev/null) || {
-        _errorcat "无法检查订阅数据版本"
+        _errorcat "无法读取订阅数据格式"
         return 1
     }
-    [ "$needed" = true ] || return 0
-    _with_profiles_lock _sub_migrate_locked
-}
-
-_sub_migrate_rollback() {
-    local snapshot=$1 reason=$2
-    if _sub_restore_snapshot "$snapshot" "$CLASH_PROFILES_META"; then
-        _errorcat "$reason，已回滚"
-    else
-        _errorcat "$reason，且自动回滚不完整"
-    fi
-    return 0
-}
-
-_sub_migrate_locked() {
-    local needed
-    needed=$("$BIN_YQ" '([.profiles // [] | .[] | select(has("id"))] | length) > 0' \
-        "$CLASH_PROFILES_META" 2>/dev/null) || {
-        _errorcat "无法检查订阅数据版本"
-        return 1
-    }
-    [ "$needed" = true ] || return 0
-
-    local meta_snapshot count i has_name url base name n exists use mapped
-    meta_snapshot=$(_sub_snapshot_file "$CLASH_PROFILES_META" meta) || return 1
-    count=$("$BIN_YQ" '.profiles // [] | length' "$CLASH_PROFILES_META") || {
-        _sub_migrate_rollback "$meta_snapshot" "读取旧订阅数据失败"
-        return 1
-    }
-    [[ "$count" =~ ^[0-9]+$ ]] || {
-        _sub_migrate_rollback "$meta_snapshot" "旧订阅数据格式无效"
-        return 1
-    }
-
-    for ((i = 0; i < count; i++)); do
-        has_name=$(IDX=$i "$BIN_YQ" '.profiles[env(IDX)] | has("name")' \
-            "$CLASH_PROFILES_META") || {
-            _sub_migrate_rollback "$meta_snapshot" "读取旧订阅数据失败"
-            return 1
-        }
-        [ "$has_name" = true ] && continue
-
-        url=$(IDX=$i "$BIN_YQ" '.profiles[env(IDX)].url // ""' \
-            "$CLASH_PROFILES_META") || {
-            _sub_migrate_rollback "$meta_snapshot" "读取旧订阅链接失败"
-            return 1
-        }
-        _sub_validate_url "$url" || {
-            _sub_migrate_rollback "$meta_snapshot" "旧订阅链接无效"
-            return 1
-        }
-        base=$(_sub_default_name "$url")
-        name=$base
-        n=1
-        while :; do
-            exists=$(PROFILE_NAME=$name "$BIN_YQ" \
-                '([.profiles // [] | .[] | select(.name == strenv(PROFILE_NAME))] | length) > 0' \
-                "$CLASH_PROFILES_META") || {
-                _sub_migrate_rollback "$meta_snapshot" "检查订阅名称失败"
-                return 1
-            }
-            [ "$exists" = true ] || break
-            n=$((n + 1))
-            name="${base}-${n}"
-        done
-        _sub_validate_name "$name" || {
-            _sub_migrate_rollback "$meta_snapshot" "旧订阅名称无效"
-            return 1
-        }
-        if ! IDX=$i PROFILE_NAME=$name "$BIN_YQ" -i \
-            '.profiles[env(IDX)].name = strenv(PROFILE_NAME)' "$CLASH_PROFILES_META"; then
-            _sub_migrate_rollback "$meta_snapshot" "写入订阅名称失败"
-            return 1
-        fi
-    done
-
-    use=$("$BIN_YQ" '.use // "" | tostring' "$CLASH_PROFILES_META") || {
-        _sub_migrate_rollback "$meta_snapshot" "读取当前订阅失败"
-        return 1
-    }
-    if [ -n "$use" ] && [[ "$use" =~ ^[0-9]+$ ]]; then
-        mapped=$(PROFILE_ID=$use "$BIN_YQ" '
-            [.profiles // [] | .[] |
-             select((.id // "" | tostring) == strenv(PROFILE_ID)) |
-             .name // ""] | .[0] // ""
-        ' "$CLASH_PROFILES_META") || {
-            _sub_migrate_rollback "$meta_snapshot" "映射当前订阅失败"
-            return 1
-        }
-        if [ -n "$mapped" ]; then
-            if ! PROFILE_NAME=$mapped "$BIN_YQ" -i \
-                '.use = strenv(PROFILE_NAME)' "$CLASH_PROFILES_META"; then
-                _sub_migrate_rollback "$meta_snapshot" "写入当前订阅失败"
-                return 1
-            fi
-        elif ! "$BIN_YQ" -i '.use = ""' "$CLASH_PROFILES_META"; then
-            _sub_migrate_rollback "$meta_snapshot" "清理无效当前订阅失败"
-            return 1
-        fi
-    fi
-
-    if ! "$BIN_YQ" -i 'del(.profiles[].id)' "$CLASH_PROFILES_META"; then
-        _sub_migrate_rollback "$meta_snapshot" "清理旧订阅字段失败"
-        return 1
-    fi
-    _sub_discard_snapshot "$meta_snapshot" || :
-    _sub_log_event INFO '已将订阅数据迁移为 name 模式' ||
-        _ui_warn '订阅数据已迁移，但写入操作日志失败'
-    return 0
+    [ "$legacy" = false ] && return 0
+    _errorcat "不支持旧版数字 ID 订阅数据，请备份 profiles.yaml，用 resources/profiles.yaml 模板替换后重新添加订阅"
+    _ui_detail "订阅数据" "$CLASH_PROFILES_META"
+    return 1
 }
 
 ########################################
@@ -1373,10 +1267,10 @@ _sub_use_locked() {
     _sub_discard_snapshot "$base_snapshot" || :
     _sub_discard_snapshot "$meta_snapshot" || :
 
-    # rc=2：配置本身已切换成功（BASE/runtime/use 均为新配置），仅服务重启失败。
+    # rc=2：配置已切换成功（BASE/runtime/use 均为新配置），服务启动或自启设置未完成。
     if [ "$rc" -eq 2 ]; then
-        _sub_log_event ERROR "订阅已切换但服务重启失败：[$name]" || :
-        _ui_fail "配置已切换，但服务重启失败，请检查代理内核日志"
+        _sub_log_event ERROR "订阅已切换但服务重启失败或自启未完成：[$name]" || :
+        _ui_fail "配置已切换，但服务重启失败或自启未完成，请检查前面的错误"
         return 1
     fi
     _sub_log_event INFO "订阅已切换为：[$name]" ||

@@ -274,26 +274,6 @@ _ui_blank() {
     return 0
 }
 
-# 返回 0=yes、1=no/读取失败、2=非交互环境；调用方决定后续业务状态。
-_ui_confirm() {
-    local prompt=${1:-} answer
-
-    [ "${CI+x}" != x ] && [ -t 0 ] && [ -t 2 ] || return 2
-    if _ui_color_enabled 2; then
-        printf '\033[35m[ ? ]\033[0m %s [y/N] ' "$prompt" >&2
-    else
-        printf '[ ? ] %s [y/N] ' "$prompt" >&2
-    fi
-    IFS= read -r answer || {
-        printf '\n' >&2
-        return 1
-    }
-    case $answer in
-    y | Y | yes | YES | Yes) return 0 ;;
-    *) return 1 ;;
-    esac
-}
-
 _color_log() {
     local color="$1"
     local msg="$2"
@@ -469,49 +449,68 @@ _append_source_block() {
     chmod "$mode" "$tmp" && /bin/mv -f -- "$tmp" "$rc"
 }
 
-# 只移除 clashctl 写入的完整托管块；同时兼容旧版安装器写入的两行引导。
+# 只删除指向当前安装的完整托管块或相邻的旧版 export/source 两行。
 _remove_source_block() {
-    local rc=$1 tmp mode legacy_export
+    local rc=$1 tmp mode quoted parse_rc=0
 
     [ -f "$rc" ] || return 0
     rc=$(readlink -f -- "$rc" 2>/dev/null) || return 1
     tmp=$(mktemp "${rc}.clashctl.XXXXXX") || return 1
     mode=$(stat -c %a -- "$rc" 2>/dev/null) || mode=0600
-    legacy_export="export CLASHCTL_HOME=${CLASHCTL_HOME}"
+    printf -v quoted '%q' "$CLASHCTL_HOME"
 
-    awk -v legacy_export="$legacy_export" '
+    CLASHCTL_RC_EXPORT="export CLASHCTL_HOME=$quoted" \
+        CLASHCTL_RC_LEGACY="export CLASHCTL_HOME=$CLASHCTL_HOME" awk '
         BEGIN {
-            managed = 0
-            buffered = ""
-            legacy_guard = "[ -s \"$CLASHCTL_HOME/scripts/cmd/clashctl.sh\" ] && . \"$CLASHCTL_HOME/scripts/cmd/clashctl.sh\""
+            expected = ENVIRON["CLASHCTL_RC_EXPORT"]
+            legacy = ENVIRON["CLASHCTL_RC_LEGACY"]
+            guard = "[ -s \"$CLASHCTL_HOME/scripts/cmd/clashctl.sh\" ] && . \"$CLASHCTL_HOME/scripts/cmd/clashctl.sh\""
+            source = ". $CLASHCTL_HOME/scripts/cmd/clashctl.sh"
+        }
+        pending != "" {
+            if ($0 == guard || $0 == source) { pending = ""; removed = 1; next }
+            print pending
+            pending = ""
         }
         !managed && $0 == "# >>> clashctl >>>" {
-            managed = 1
+            managed = 1; owned = 0; foreign = 0
             buffered = $0 ORS
             next
         }
         managed {
             buffered = buffered $0 ORS
+            if ($0 == expected || $0 == legacy) owned = 1
+            else if ($0 ~ /^export CLASHCTL_HOME=/ || $0 == "# >>> clashctl >>>") foreign = 1
             if ($0 == "# <<< clashctl <<<") {
-                managed = 0
-                buffered = ""
+                if (owned && !foreign) removed = 1
+                else printf "%s", buffered
+                managed = 0; buffered = ""
             }
             next
         }
-        $0 == legacy_export || $0 == legacy_guard { next }
+        $0 == expected || $0 == legacy { pending = $0; next }
         { print }
         END {
-            # 不完整的标记块可能是用户内容，原样保留。
             if (managed) printf "%s", buffered
+            if (pending != "") print pending
+            if (!removed) exit 2
         }
-    ' "$rc" >"$tmp" || {
+    ' "$rc" >"$tmp" || parse_rc=$?
+    # 无匹配时保留原文件及其时间戳，包括没有末尾换行的情况。
+    if [ "$parse_rc" -eq 2 ]; then
         /usr/bin/rm -f -- "$tmp"
-        return 1
-    }
-    if ! chmod "$mode" "$tmp" || ! /bin/mv -f -- "$tmp" "$rc"; then
+        return 0
+    fi
+    if [ "$parse_rc" -ne 0 ] || ! chmod "$mode" "$tmp" || ! /bin/mv -f -- "$tmp" "$rc"; then
         /usr/bin/rm -f -- "$tmp"
         return 1
     fi
+}
+
+_fish_home_export() {
+    local quoted=${CLASHCTL_HOME//\\/\\\\}
+    quoted=${quoted//\'/\\\'}
+    printf "set -gx CLASHCTL_HOME '%s'\n" "$quoted"
 }
 
 # 将 clashctl.fish 以内容快照方式写入 fish 配置；内容无变化时也视为成功。
@@ -527,13 +526,12 @@ _write_fish_rc() {
     local fish_dir
     fish_dir=$(dirname -- "$SHELL_RC_FISH")
     mkdir -p -- "$fish_dir" || return 1
-    local fish_quoted=${CLASHCTL_HOME//\\/\\\\}
-    fish_quoted=${fish_quoted//\'/\\\'}
     local tmp
     tmp=$(mktemp "${fish_dir}/.clashctl.fish.XXXXXX") || return 1
     {
         printf '%s\n' "$CLASHCTL_FISH_MANAGED_MARKER"
-        printf "set -gx CLASHCTL_HOME '%s'\n\n" "$fish_quoted"
+        _fish_home_export
+        printf '\n'
         cat -- "$CLASHCTL_CMD_DIR/clashctl.fish"
     } >"$tmp" || {
         /usr/bin/rm -f -- "$tmp"
@@ -554,5 +552,5 @@ _ci_provision() (
     export CLASHCTL_SRC="$CLASHCTL_HOME"
     operation_lock_acquire || return 1
     . "$CLASHCTL_SRC/scripts/preflight.sh" || return 1
-    provision_component "$1"
+    prepare_zip "$1"
 )

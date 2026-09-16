@@ -40,6 +40,8 @@ chmod 0700 "$BIN_YQ"
 # shellcheck source=../scripts/lib/config.sh
 . "$REPO_DIR/scripts/lib/config.sh"
 
+# 主配置门禁另由 base-config.sh 验证；本套只检查候选文件事务。
+_require_base_config() { return 0; }
 VALID_RC=0
 _valid_config() {
     return "$VALID_RC"

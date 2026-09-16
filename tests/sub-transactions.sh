@@ -249,7 +249,7 @@ assert_contains "$RUN_STDERR" '配置已切换' 'add --use partial-success diagn
 assert_contains "$RUN_STDERR" '服务重启失败' 'add --use restart diagnosis'
 assert_not_contains "$RUN_STDERR" '但未能启用' 'add --use avoids false not-enabled diagnosis'
 
-setup_case migrate_yq
+setup_case legacy_format
 cat >"$CLASH_PROFILES_META" <<EOF
 use: "7"
 profiles:
@@ -260,32 +260,25 @@ profiles:
 EOF
 chmod 0600 "$CLASH_PROFILES_META"
 snapshot_case
-FAIL_YQ_WRITE=1
-export FAIL_YQ_WRITE
-run_cmd migrate_yq_fail clashsub ls
-assert_eq 1 "$RUN_RC" 'migration yq failure exit code'
-assert_state_unchanged 'migration yq failure rollback'
-assert_eq '' "$RUN_STDOUT" 'migration failure stops command dispatch'
-assert_no_success '已将订阅数据迁移' 'migration yq failure'
-
-setup_case migrate_success
-cat >"$CLASH_PROFILES_META" <<EOF
-use: "7"
-profiles:
-  - id: 7
-    path: "$PROFILE_PATH"
-    url: "$secret_url"
-    updated: "2026-08-26 12:00:00"
-EOF
-chmod 0600 "$CLASH_PROFILES_META"
-run_cmd migrate_success _sub_migrate
-assert_eq 0 "$RUN_RC" 'migration success exit code'
-assert_eq example.test "$("$REAL_YQ" '.profiles[0].name' "$CLASH_PROFILES_META")" \
-    'migration strips URL userinfo from generated name'
-assert_eq example.test "$("$REAL_YQ" '.use' "$CLASH_PROFILES_META")" 'migration maps active id'
-assert_eq false "$("$REAL_YQ" '.profiles[0] | has("id")' "$CLASH_PROFILES_META")" \
-    'migration removes old id'
-assert_contains "$(<"$CLASH_PROFILES_LOG")" '已将订阅数据迁移' 'migration success log'
+for action in ls add use update del rename; do
+    run_cmd "legacy_$action" clashsub "$action"
+    assert_eq 1 "$RUN_RC" 'legacy format rejection exit code'
+    assert_state_unchanged 'legacy data remains unchanged'
+    assert_eq '' "$RUN_STDOUT" 'legacy rejection stops command dispatch'
+    assert_contains "$RUN_STDERR" '用 resources/profiles.yaml 模板替换' 'legacy data recovery guidance'
+    assert_not_contains "$RUN_STDERR" "$secret_url" 'legacy rejection does not expose subscription URL'
+done
+run_cmd legacy_help clashsub --help
+assert_eq 0 "$RUN_RC" 'legacy data does not block help'
+# 按提示恢复空模板后可重新添加，原主配置和运行配置保留到启用新订阅。
+cp "$REPO_DIR/resources/profiles.yaml" "$CLASH_PROFILES_META"
+printf 'proxies: [new-profile]\n' >"$CASE_DIR/download.yaml"
+run_cmd legacy_reset _sub_add_locked new "$secret_url/new" false "$CASE_DIR/download.yaml" '' ''
+assert_eq 0 "$RUN_RC" 'template reset allows adding subscription'
+assert_same "$CASE_DIR/expected.base" "$CLASH_CONFIG_BASE" 'reset keeps main config'
+assert_same "$CASE_DIR/expected.runtime" "$CLASH_CONFIG_RUNTIME" 'reset keeps runtime'
+run_cmd legacy_reset_list clashsub ls
+assert_eq 0 "$RUN_RC" 'template reset allows command dispatch'
 
 setup_case del_yq
 snapshot_case

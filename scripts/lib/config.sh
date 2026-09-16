@@ -155,7 +155,7 @@ _valid_config() {
     return 1
   }
   local config="$1"
-  [[ ! -e "$config" || "$(wc -l <"$config")" -lt 1 ]] && return 1
+  [ -s "$config" ] || return 1
 
   local test_log
   # 校验须与服务同工作目录（resources/ 内含随仓库分发的 geodata）；
@@ -175,7 +175,27 @@ _valid_config() {
   }
 }
 
+# 主配置和订阅使用相同的节点结构约束；解析失败也必须拒绝。
+_has_proxy_nodes() {
+  [ -s "$1" ] && "$BIN_YQ" -e '
+      ((.proxies | type) == "!!seq" and (.proxies | length) > 0) or
+      ((.proxy-providers | type) == "!!map" and (.proxy-providers | length) > 0)
+    ' "$1" >/dev/null 2>&1
+}
+
+# Mixin 只能补充主配置；主配置必须包含节点或代理提供者并通过内核校验。
+_require_base_config() {
+  if _has_proxy_nodes "$CLASH_CONFIG_BASE" &&
+    _valid_config "$CLASH_CONFIG_BASE" >/dev/null 2>&1; then
+    return 0
+  fi
+  _ui_error '尚未配置有效的主配置，Mixin 不能单独运行'
+  _ui_detail '添加并启用订阅' 'clashctl sub add --use <URL>'
+  return 1
+}
+
 _merge_config() (
+  _require_base_config || return 1
   _config_kernel_supported || {
     _ui_error "内核 $CLASHCTL_KERNEL 暂不支持配置渲染"
     return 1
@@ -317,11 +337,17 @@ _is_tun_enabled() {
   esac
 }
 _merge_config_restart() {
-  local was_tun_active=false tun_enabled=false tun_state_rc=0
+  local was_tun_active=false tun_enabled=false tun_state_rc=0 was_active=false
 
+  service_is_active >&/dev/null && was_active=true
   tunstatus >&/dev/null && was_tun_active=true
   # rc=1：候选配置合并或校验失败，原 runtime 保持不变。
+  local first_config=false
+  [ -s "$CLASH_CONFIG_RUNTIME" ] || first_config=true
   _merge_config || return 1
+  if [ "$first_config" = true ]; then
+    _detect_proxy_port && _detect_ext_addr || return 2
+  fi
 
   _is_tun_enabled || tun_state_rc=$?
   case $tun_state_rc in
@@ -359,6 +385,12 @@ _merge_config_restart() {
     sleep 0.1
     service_is_active >&/dev/null || {
       _ui_error "运行配置已更新，但服务重启失败，请检查代理内核日志"
+      return 2
+    }
+  fi
+  if [ "$was_active" = false ]; then
+    service_enable || {
+      _ui_error '代理已启动，但设置开机自启失败'
       return 2
     }
   fi

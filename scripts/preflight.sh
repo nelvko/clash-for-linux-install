@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
 # 已安装时存在；install.sh 首跑物化前（依赖下载阶段）暂缺
-[ -f "$CLASHCTL_SRC/.env" ] && . "$CLASHCTL_SRC/.env"
+if [ -f "$CLASHCTL_SRC/.env" ]; then
+    . "$CLASHCTL_SRC/.env" || return 1
+fi
 
 for lib_file in "$CLASHCTL_SRC"/scripts/lib/*.sh; do
     [ -f "$lib_file" ] || continue
@@ -38,19 +40,15 @@ valid_required() {
 }
 
 prepare_zip() {
-    # 安装只下载 kernel、yq；subconverter/UI 按需补装。
-    local -a requested=("$@") normalized=() item
-    local kernel_zip system_yq
-    case "${CLASHCTL_KERNEL}" in
-    clash) kernel_zip=clash ;;
-    *) kernel_zip=mihomo ;;
-    esac
+    # 首次安装与按需补装共用；下载结果仅在本次调用内有效。
+    local -a normalized=()
+    local item system_yq ZIP_KERNEL='' ZIP_YQ='' ZIP_SUBCONVERTER='' ZIP_UI=''
     (($#)) || {
         _ui_error 'prepare_zip 需要显式组件列表'
         return 1
     }
-    for item in "${requested[@]}"; do
-        [ "$item" != kernel ] || item=$kernel_zip
+    for item in "$@"; do
+        [ "$item" != kernel ] || item=$CLASHCTL_KERNEL
         # 系统 yq 兼容且本地未下载时复用系统副本，跳过下载（bin/yq 存在则照常刷新）
         if [ "$item" = yq ] && [ ! -x "${BIN_BASE_DIR}/yq" ] &&
             system_yq=$(_get_system_yq); then
@@ -64,30 +62,8 @@ prepare_zip() {
         return 0
     fi
 
-    unset ZIP_KERNEL ZIP_YQ ZIP_SUBCONVERTER ZIP_UI
     download_zip "${normalized[@]}" || return 1
-
-    case "$kernel_zip" in
-    clash) ZIP_KERNEL="$ZIP_CLASH" ;;
-    *) ZIP_KERNEL="$ZIP_MIHOMO" ;;
-    esac
-    BIN_KERNEL=$(bin_kernel_path)
-    unzip_zip || return 1
-}
-
-# 按需补装单个组件（subconverter/ui）；ZIP_* 其余保持为空，unzip_zip 跳过。
-provision_component() {
-    local component=$1
-    case "$component" in
-    subconverter | ui) ;;
-    *)
-        _ui_error "组件 $component 不支持按需补装"
-        return 1
-        ;;
-    esac
-    unset ZIP_KERNEL ZIP_YQ ZIP_SUBCONVERTER ZIP_UI
-    download_zip "$component" || return 1
-    unzip_zip || return 1
+    unzip_zip
 }
 
 # 最新版查询与下载同走 GH_PROXY 通道（有代理时代理优先，直连兜底）：
@@ -402,8 +378,7 @@ download_zip() {
 
         _download_archive "$label" "$url" "$target" || return 1
         case $item in
-        clash) ZIP_CLASH=$target ;;
-        mihomo) ZIP_MIHOMO=$target ;;
+        clash | mihomo) ZIP_KERNEL=$target ;;
         yq) ZIP_YQ=$target ;;
         subconverter) ZIP_SUBCONVERTER=$target ;;
         ui) ZIP_UI=$target ;;
@@ -502,7 +477,6 @@ _component_prepare_yq() {
     [ "$count" -eq 1 ] && [ -n "$candidate" ] && [ ! -L "$candidate" ] &&
         [ -x "$candidate" ] || return 2
     /usr/bin/install -m 0755 -- "$candidate" "$stage/yq.ready" || return 1
-    _component_file_is_safe "$stage/yq.ready" 755 || return 3
 }
 
 _component_prepare_subconverter() {
@@ -521,7 +495,6 @@ _component_prepare_subconverter() {
     chmod 0755 -- "$candidate/subconverter" || return 1
     /usr/bin/install -m 0600 -- "$candidate/pref.example.yml" \
         "$candidate/pref.yml" || return 1
-    _component_subconverter_is_safe "$candidate" || return 3
 }
 
 _component_prepare_ui() {
@@ -540,293 +513,130 @@ _component_prepare_ui() {
     [ -z "$unexpected" ] && [ -d "$candidate" ] && [ ! -L "$candidate" ] || return 2
     [ -f "$candidate/index.html" ] && [ ! -L "$candidate/index.html" ] || return 2
     _component_normalize_public_tree "$candidate" || return 1
-    _component_public_tree_is_safe "$candidate" || return 3
 }
 
-_component_rollback_pending() {
-    [ "${_COMPONENT_REPLACE_PENDING:-0}" -eq 1 ] || return 0
-
-    if [ "${_COMPONENT_REPLACE_HAD_PREVIOUS:-0}" -eq 1 ]; then
-        if [ -e "$_COMPONENT_REPLACE_BACKUP" ] || [ -L "$_COMPONENT_REPLACE_BACKUP" ]; then
-            /usr/bin/rm -rf -- "$_COMPONENT_REPLACE_TARGET" || return 1
-            /bin/mv -T -- "$_COMPONENT_REPLACE_BACKUP" \
-                "$_COMPONENT_REPLACE_TARGET" || return 1
-        fi
-    else
-        /usr/bin/rm -rf -- "$_COMPONENT_REPLACE_TARGET" || return 1
-    fi
-    _COMPONENT_REPLACE_PENDING=0
-}
-
-_component_transaction_init() {
-    _COMPONENT_TRANSACTION_TARGETS=()
-    _COMPONENT_TRANSACTION_BACKUPS=()
-    _COMPONENT_TRANSACTION_HAD_PREVIOUS=()
-    _COMPONENT_TRANSACTION_COMMITTED=0
-    _COMPONENT_REPLACE_PENDING=0
-}
-
-_component_transaction_record() {
-    _COMPONENT_TRANSACTION_TARGETS+=("$1")
-    _COMPONENT_TRANSACTION_BACKUPS+=("$2")
-    _COMPONENT_TRANSACTION_HAD_PREVIOUS+=("$3")
-}
-
-_component_rollback_committed() {
-    local index target backup had_previous record_failed rollback_failed=0
-    local -a remaining_targets=() remaining_backups=() remaining_had_previous=()
-
-    for ((index = ${#_COMPONENT_TRANSACTION_TARGETS[@]} - 1; index >= 0; index--)); do
-        target=${_COMPONENT_TRANSACTION_TARGETS[index]}
-        backup=${_COMPONENT_TRANSACTION_BACKUPS[index]}
-        had_previous=${_COMPONENT_TRANSACTION_HAD_PREVIOUS[index]}
-        record_failed=0
-        if [ "$had_previous" -eq 1 ]; then
-            if { [ ! -e "$backup" ] && [ ! -L "$backup" ]; } ||
-                ! /usr/bin/rm -rf -- "$target" ||
-                ! /bin/mv -T -- "$backup" "$target"; then
-                record_failed=1
+# 使用 _install_component 子 shell 的局部状态，只恢复正在替换的组件。
+_component_cleanup() {
+    [ -n "$stage" ] || return 0
+    if [ "$pending" = true ]; then
+        if [ -e "$stage/previous" ] || [ -L "$stage/previous" ]; then
+            if ! /usr/bin/rm -rf -- "$target" ||
+                ! /bin/mv -T -- "$stage/previous" "$target"; then
+                _ui_error "组件恢复失败，已保留暂存目录"
+                _ui_detail "暂存" "$stage"
+                return 1
             fi
-        else
-            /usr/bin/rm -rf -- "$target" || record_failed=1
+        elif [ "$had_previous" = false ]; then
+            /usr/bin/rm -rf -- "$target" || return 1
         fi
-        if [ "$record_failed" -ne 0 ]; then
-            rollback_failed=1
-            remaining_targets=("$target" "${remaining_targets[@]}")
-            remaining_backups=("$backup" "${remaining_backups[@]}")
-            remaining_had_previous=("$had_previous" "${remaining_had_previous[@]}")
-        fi
-    done
-    _COMPONENT_TRANSACTION_TARGETS=("${remaining_targets[@]}")
-    _COMPONENT_TRANSACTION_BACKUPS=("${remaining_backups[@]}")
-    _COMPONENT_TRANSACTION_HAD_PREVIOUS=("${remaining_had_previous[@]}")
-    [ "$rollback_failed" -eq 0 ]
+    fi
+    /usr/bin/rm -rf -- "$stage"
 }
 
-_component_replace_path() {
-    local candidate=$1 target=$2 backup=$3 verifier=$4
-    shift 4
-
-    _COMPONENT_REPLACE_TARGET=$target
-    _COMPONENT_REPLACE_BACKUP=$backup
-    _COMPONENT_REPLACE_HAD_PREVIOUS=0
-    if [ -e "$target" ] || [ -L "$target" ]; then
-        _COMPONENT_REPLACE_HAD_PREVIOUS=1
-        _COMPONENT_REPLACE_PENDING=1
-        if ! /bin/mv -T -- "$target" "$backup"; then
-            _COMPONENT_REPLACE_PENDING=0
-            return 1
-        fi
-    else
-        _COMPONENT_REPLACE_PENDING=1
-    fi
-
-    if ! /bin/mv -T -- "$candidate" "$target" || ! "$verifier" "$target" "$@"; then
-        _component_rollback_pending || return 1
-        return 1
-    fi
-    _component_transaction_record "$target" "$backup" "$_COMPONENT_REPLACE_HAD_PREVIOUS"
-    _COMPONENT_REPLACE_PENDING=0
-}
-
-_component_remove_path() {
-    local target=$1 backup=$2
-
-    [ -e "$target" ] || [ -L "$target" ] || return 0
-    _COMPONENT_REPLACE_TARGET=$target
-    _COMPONENT_REPLACE_BACKUP=$backup
-    _COMPONENT_REPLACE_HAD_PREVIOUS=1
-    _COMPONENT_REPLACE_PENDING=1
-    if ! /bin/mv -T -- "$target" "$backup"; then
-        _COMPONENT_REPLACE_PENDING=0
-        return 1
-    fi
-    _component_transaction_record "$target" "$backup" 1
-    _COMPONENT_REPLACE_PENDING=0
-}
-
-_component_cleanup_stages() {
-    local bin_stage=${1:-} ui_stage=${2:-} rollback_failed=0
-
-    if [ "${_COMPONENT_TRANSACTION_COMMITTED:-0}" -ne 1 ]; then
-        _component_rollback_committed || rollback_failed=1
-    fi
-    _component_rollback_pending || rollback_failed=1
-    if [ "$rollback_failed" -ne 0 ]; then
-        _ui_error "组件安装事务回滚失败，已保留暂存目录"
-        _ui_detail "暂存" "${bin_stage:-$ui_stage}"
-        return 1
-    fi
-    [ -z "$bin_stage" ] || /usr/bin/rm -rf -- "$bin_stage" || return 1
-    [ -z "$ui_stage" ] || /usr/bin/rm -rf -- "$ui_stage" || return 1
-}
-
-unzip_zip() (
-    local bin_stage='' ui_stage='' kernel_unpacked kernel_candidate
-    local yq_rc converter_rc ui_rc component_dir component_label
-    local kernel_dir="$BIN_BASE_DIR/$CLASHCTL_KERNEL"
-    local ui_target="$CLASH_RESOURCES_DIR/dist"
-    local -a valid_archives=()
-
-    _component_transaction_init
-    trap '_component_cleanup_stages "$bin_stage" "$ui_stage" || :' EXIT
+_install_component() (
+    local component=$1 archive=$2 target root label parent stage='' candidate
+    local pending=false had_previous=false prepare_rc=0
+    local -a verifier
     umask 077
-    # 组件按需：ZIP_* 为空即跳过（首次安装只装 kernel+yq，
-    # subconverter/UI 由 provision_component 单独补装）
-    for component_dir in "$ZIP_KERNEL" "$ZIP_YQ" "$ZIP_SUBCONVERTER" "$ZIP_UI"; do
-        [ -z "$component_dir" ] || valid_archives+=("$component_dir")
+    case "$component" in
+    kernel)
+        target=$BIN_KERNEL root=$BIN_BASE_DIR label=运行组件目录
+        verifier=(_component_file_is_safe 755)
+        ;;
+    yq)
+        target=$BIN_YQ root=$BIN_BASE_DIR label=运行组件目录
+        verifier=(_component_file_is_safe 755)
+        ;;
+    subconverter)
+        target=$BIN_SUBCONVERTER_DIR root=$BIN_BASE_DIR label=运行组件目录
+        verifier=(_component_subconverter_is_safe)
+        ;;
+    ui)
+        target="$CLASH_RESOURCES_DIR/dist" root=$CLASH_RESOURCES_DIR label=资源目录
+        verifier=(_component_public_tree_is_safe)
+        ;;
+    *) return 1 ;;
+    esac
+    valid_zip "$archive" || return 1
+    _managed_directory_prepare "$root" 0755 || {
+        _ui_error "${label}无法安全使用"
+        _ui_detail "目录" "$root"
+        return 1
+    }
+    parent=$(dirname -- "$target")
+    [ "$parent" = "$root" ] || _managed_directory_prepare "$parent" 0755 || {
+        _ui_error "组件安装目录无法安全使用"
+        _ui_detail "目录" "$parent"
+        return 1
+    }
+    trap '_component_cleanup || exit 1' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    stage=$(mktemp -d "$parent/.components.XXXXXX") || return 1
+    case "$component" in
+    kernel)
+        candidate="$stage/kernel.ready"
+        gzip -dc "$archive" >"$candidate" && chmod 0755 -- "$candidate" || prepare_rc=1
+        ;;
+    yq)
+        candidate="$stage/yq.ready"
+        _component_prepare_yq "$archive" "$stage" || prepare_rc=$?
+        ;;
+    subconverter)
+        candidate="$stage/subconverter.extract/subconverter"
+        _component_prepare_subconverter "$archive" "$stage" || prepare_rc=$?
+        ;;
+    ui)
+        candidate="$stage/ui.extract/dist"
+        _component_prepare_ui "$archive" "$stage" || prepare_rc=$?
+        ;;
+    esac
+    if [ "$prepare_rc" -ne 0 ]; then
+        if [ "$prepare_rc" -eq 2 ]; then
+            _ui_error "$component 归档结构无效"
+            _component_discard_invalid_cache "$component" "$archive"
+        else
+            _ui_error "准备 $component 失败"
+        fi
+        return 1
+    fi
+    "${verifier[0]}" "$candidate" "${verifier[@]:1}" || {
+        _ui_error "$component 文件的归属或权限校验失败"
+        return 1
+    }
+
+    [ ! -e "$target" ] && [ ! -L "$target" ] || had_previous=true
+    pending=true
+    if [ "$had_previous" = true ]; then
+        /bin/mv -T -- "$target" "$stage/previous" || return 1
+    fi
+    if ! /bin/mv -T -- "$candidate" "$target" ||
+        ! "${verifier[0]}" "$target" "${verifier[@]:1}"; then
+        _ui_error "安装 $component 失败，正在恢复原组件"
+        return 1
+    fi
+    pending=false
+)
+
+unzip_zip() {
+    local component archive count=0
+    for component in kernel yq subconverter ui; do
+        case "$component" in
+        kernel) archive=${ZIP_KERNEL:-} ;;
+        yq) archive=${ZIP_YQ:-} ;;
+        subconverter) archive=${ZIP_SUBCONVERTER:-} ;;
+        ui) archive=${ZIP_UI:-} ;;
+        esac
+        [ -n "$archive" ] || continue
+        _install_component "$component" "$archive" || return 1
+        count=$((count + 1))
     done
-    [ ${#valid_archives[@]} -gt 0 ] || {
+    [ "$count" -gt 0 ] || {
         _ui_error '没有待安装的组件归档'
         return 1
     }
-    valid_zip "${valid_archives[@]}" || return 1
-    for component_dir in "$BIN_BASE_DIR" "$kernel_dir" "$CLASH_RESOURCES_DIR"; do
-        if [ "$component_dir" = "$BIN_BASE_DIR" ]; then
-            component_label=运行组件目录
-        elif [ "$component_dir" = "$kernel_dir" ]; then
-            component_label=内核目录
-        else
-            component_label=资源目录
-        fi
-        _managed_directory_prepare "$component_dir" 0755 || {
-            _ui_error "${component_label}无法安全使用"
-            _ui_detail "目录" "$component_dir"
-            _ui_detail "要求" "必须是当前用户所有的真实目录，且组用户和其他用户不可写"
-            return 1
-        }
-    done
-
-    bin_stage=$(mktemp -d "$BIN_BASE_DIR/.components.XXXXXX") || {
-        _ui_error "无法创建组件暂存目录"
-        _ui_detail "目录" "$BIN_BASE_DIR"
-        return 1
-    }
-    ui_stage=$(mktemp -d "$CLASH_RESOURCES_DIR/.web-ui.XXXXXX") || {
-        _ui_error "无法创建 Web UI 暂存目录"
-        _ui_detail "目录" "$CLASH_RESOURCES_DIR"
-        return 1
-    }
-    chmod 0700 -- "$bin_stage" "$ui_stage" || {
-        _ui_error "无法保护组件暂存目录"
-        return 1
-    }
-
-    kernel_unpacked="$bin_stage/kernel.unpacked"
-    kernel_candidate="$bin_stage/kernel.ready"
-    if [ -n "$ZIP_KERNEL" ] && {
-        ! gzip -dc "$ZIP_KERNEL" >"$kernel_unpacked" ||
-            ! /usr/bin/install -m 0755 -- "$kernel_unpacked" "$kernel_candidate"
-    }; then
-        _ui_error "安装内核失败：$CLASHCTL_KERNEL"
-        return 1
-    fi
-    if [ -n "$ZIP_KERNEL" ] && ! _component_file_is_safe "$kernel_candidate" 755; then
-        _ui_error "内核文件的归属或权限校验失败"
-        return 1
-    fi
-
-    yq_rc=0
-    [ -z "$ZIP_YQ" ] || _component_prepare_yq "$ZIP_YQ" "$bin_stage" || yq_rc=$?
-    if [ "$yq_rc" -ne 0 ]; then
-        if [ "$yq_rc" -eq 2 ]; then
-            _ui_error "yq 归档结构无效"
-        else
-            _ui_error "准备 yq 失败"
-        fi
-        _ui_detail "预期" "归档根目录中唯一的 yq_linux_* 可执行文件"
-        if [ "$yq_rc" -eq 2 ]; then
-            _component_discard_invalid_cache yq "$ZIP_YQ"
-        fi
-        return 1
-    fi
-
-    converter_rc=0
-    [ -z "$ZIP_SUBCONVERTER" ] ||
-        _component_prepare_subconverter "$ZIP_SUBCONVERTER" "$bin_stage" || converter_rc=$?
-    if [ "$converter_rc" -ne 0 ]; then
-        if [ "$converter_rc" -eq 2 ]; then
-            _ui_error "subconverter 归档结构无效"
-        else
-            _ui_error "准备 subconverter 失败"
-        fi
-        _ui_detail "预期" "subconverter/ 及其可执行文件和 pref.example.yml"
-        if [ "$converter_rc" -eq 2 ]; then
-            _component_discard_invalid_cache subconverter "$ZIP_SUBCONVERTER"
-        fi
-        return 1
-    fi
-
-    ui_rc=0
-    [ -z "$ZIP_UI" ] || _component_prepare_ui "$ZIP_UI" "$ui_stage" || ui_rc=$?
-    if [ "$ui_rc" -ne 0 ]; then
-        if [ "$ui_rc" -eq 2 ]; then
-            _ui_error "Web UI 归档结构无效"
-        else
-            _ui_error "准备 Web UI 失败"
-        fi
-        _ui_detail "预期" "dist/ 目录及 dist/index.html"
-        if [ "$ui_rc" -eq 2 ]; then
-            _component_discard_invalid_cache 'Web UI' "$ZIP_UI"
-        fi
-        return 1
-    fi
-
-    if [ -n "$ZIP_KERNEL" ]; then
-        _component_replace_path "$kernel_candidate" "$BIN_KERNEL" \
-            "$bin_stage/kernel.previous" _component_file_is_safe 755 || {
-            _ui_error "提交内核失败：$CLASHCTL_KERNEL"
-            return 1
-        }
-    fi
-    if [ -n "$ZIP_YQ" ]; then
-        _component_replace_path "$bin_stage/yq.ready" "$BIN_YQ" \
-            "$bin_stage/yq.previous" _component_file_is_safe 755 || {
-            _ui_error '提交 yq 失败'
-            return 1
-        }
-    fi
-    if [ -n "$ZIP_SUBCONVERTER" ]; then
-        _component_replace_path "$bin_stage/subconverter.extract/subconverter" \
-            "$BIN_SUBCONVERTER_DIR" "$bin_stage/subconverter.previous" \
-            _component_subconverter_is_safe || {
-            _ui_error '提交 subconverter 失败'
-            return 1
-        }
-    fi
-    if [ -n "$ZIP_UI" ]; then
-        _component_replace_path "$ui_stage/ui.extract/dist" "$ui_target" \
-            "$ui_stage/dist.previous" _component_public_tree_is_safe || {
-            _ui_error '提交 Web UI 失败'
-            return 1
-        }
-    fi
-
-    if ! _component_remove_path "$BIN_BASE_DIR/yq.1" "$bin_stage/yq.1.previous" ||
-        ! _component_remove_path "$BIN_BASE_DIR/install-man-page.sh" \
-            "$bin_stage/install-man-page.previous"; then
-        _ui_error '无法清理旧版 yq 附带文件'
-        return 1
-    fi
-    if { [ -z "$ZIP_KERNEL" ] || _component_file_is_safe "$BIN_KERNEL" 755; } &&
-        { [ -z "$ZIP_YQ" ] || _component_file_is_safe "$BIN_YQ" 755; } &&
-        { [ -z "$ZIP_SUBCONVERTER" ] || _component_subconverter_is_safe "$BIN_SUBCONVERTER_DIR"; } &&
-        { [ -z "$ZIP_UI" ] || _component_public_tree_is_safe "$ui_target"; }; then
-        :
-    else
-        _ui_error '运行组件的归属或权限校验失败'
-        return 1
-    fi
-    _COMPONENT_TRANSACTION_COMMITTED=1
-    if ! _component_cleanup_stages "$bin_stage" "$ui_stage"; then
-        _ui_error "无法清理组件暂存目录"
-        return 1
-    fi
-    bin_stage=
-    ui_stage=
-    trap - EXIT
     _ui_ok "运行组件已安装"
-)
+}
 
 apply_rc() {
     detect_rc
@@ -871,10 +681,6 @@ apply_rc() {
         done
     fi
 
-    . "$CLASHCTL_CMD_DIR/clashctl.sh" || {
-        _ui_error "加载 clashctl 命令失败"
-        return 1
-    }
     [ ${#configured[@]} -gt 0 ] && return 0
     return 2
 }
@@ -892,15 +698,16 @@ revoke_rc() {
     done
 
     if [ -n "$SHELL_RC_FISH" ] && [ -e "$SHELL_RC_FISH" ]; then
-        if head -n 1 -- "$SHELL_RC_FISH" 2>/dev/null |
-            grep -Fqx "$CLASHCTL_FISH_MANAGED_MARKER"; then
+        if [ ! -L "$SHELL_RC_FISH" ] &&
+            [ "$(head -n 1 -- "$SHELL_RC_FISH")" = "$CLASHCTL_FISH_MANAGED_MARKER" ] &&
+            [ "$(sed -n '2p' "$SHELL_RC_FISH")" = "$(_fish_home_export)" ]; then
             /usr/bin/rm -f -- "$SHELL_RC_FISH" || {
                 _ui_error "无法清理 Fish 配置"
                 _ui_detail "文件" "$SHELL_RC_FISH"
                 failures=1
             }
         else
-            _ui_warn "Fish 配置不再由 clashctl 管理，已保留"
+            _ui_warn "Fish 配置不属于当前安装或已被修改，已保留"
             _ui_detail "文件" "$SHELL_RC_FISH"
         fi
     fi

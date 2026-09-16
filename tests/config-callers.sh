@@ -25,6 +25,7 @@ assert_not_contains() {
 }
 
 export CLASHCTL_KERNEL=mihomo
+BIN_KERNEL=/bin/true
 mkdir -p -- "$WORK_DIR/resources"
 export CLASH_RESOURCES_DIR="$WORK_DIR/resources"
 # shellcheck source=../scripts/cmd/on.sh
@@ -36,6 +37,8 @@ export CLASH_RESOURCES_DIR="$WORK_DIR/resources"
 _ui_info() { printf '[INFO] %s\n' "$*" >&2; }
 _ci_provision() { return 0; }
 
+_require_base_config() { return 0; }
+_merge_config() { return 0; }
 SERVICE_ACTIVE=0
 SERVICE_START_CALLS=0
 PROXY_DETECT_RC=0
@@ -119,7 +122,7 @@ assert_eq 'http://[2001:db8::1]:29090' "$(<"$RUN_STDOUT")" \
 
 SERVICE_ACTIVE=1
 SYSTEM_PROXY_RC=1
-run_case env-failure on_env_only
+run_case env-failure clashon --env-only
 assert_eq 1 "$RUN_RC" 'terminal proxy setup failure is propagated'
 assert_not_contains "$RUN_STDOUT" '终端代理已启用' \
     'terminal proxy setup failure is not reported as success'

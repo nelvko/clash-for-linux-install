@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016  # 引导文件中的变量必须原样写入
 set -euo pipefail
 
 TEST_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
@@ -48,7 +49,7 @@ detect_rc() {
 rc=0
 apply_rc >"$WORK_DIR/manual.stdout" 2>"$WORK_DIR/manual.stderr" || rc=$?
 assert_eq 2 "$rc" 'missing shell startup files use the manual-load status'
-assert_eq 1 "${CLASHCTL_TEST_LOADED:-0}" 'manual mode still loads commands in the installer shell'
+assert_eq 0 "${CLASHCTL_TEST_LOADED:-0}" 'shell integration does not load commands'
 
 RC_MODE=bash
 mkdir -p -- "$WORK_DIR/user"
@@ -57,6 +58,7 @@ apply_rc >"$WORK_DIR/bash.stdout" 2>"$WORK_DIR/bash.stderr"
 apply_rc >"$WORK_DIR/bash-second.stdout" 2>"$WORK_DIR/bash-second.stderr"
 assert_eq 1 "$(grep -Fc '# >>> clashctl >>>' "$WORK_DIR/user/.bashrc")" \
     'bash managed block remains idempotent'
+assert_eq 0 "${CLASHCTL_TEST_LOADED:-0}" 'writing shell integration does not load commands'
 grep -Fqs 'export USER_SETTING=keep' "$WORK_DIR/user/.bashrc" ||
     fail 'bash integration removed an unrelated setting'
 bash -n "$WORK_DIR/user/.bashrc"
@@ -97,12 +99,6 @@ rc=0
 ) >"$WORK_DIR/write-failure.stdout" 2>"$WORK_DIR/write-failure.stderr" || rc=$?
 assert_eq 1 "$rc" 'real shell write failures are not downgraded to manual mode'
 
-printf '%s\n' 'return 1' >"$CLASHCTL_CMD_DIR/clashctl.sh"
-RC_MODE=none
-rc=0
-apply_rc >"$WORK_DIR/load-failure.stdout" 2>"$WORK_DIR/load-failure.stderr" || rc=$?
-assert_eq 1 "$rc" 'command loader failures are reported as real failures'
-
 # ── 真实 detect_rc：fish 需「二进制存在 且 ~/.config/fish 已存在」（使用证据）──
 eval "$_real_detect_rc"
 detect_home="$WORK_DIR/detect-user"
@@ -117,5 +113,49 @@ mkdir -p -- "$detect_home/.config/fish"
 PATH="$fake_bin:$PATH" HOME="$detect_home" detect_rc || true
 [ -n "${SHELL_RC_FISH:-}" ] ||
     fail 'fish with an existing config directory must be targeted'
+
+# 卸载按路径匹配：含空格的自家引导删除，外部安装和不完整块原样保留。
+owned_rc="$WORK_DIR/owned.rc"
+foreign_rc="$WORK_DIR/foreign.rc"
+printf 'user-setting=keep\n' >"$owned_rc"
+printf 'foreign-setting=keep\n' >"$foreign_rc"
+_append_source_block "$owned_rc"
+CLASHCTL_HOME="$WORK_DIR/other install" _append_source_block "$foreign_rc"
+cp "$foreign_rc" "$WORK_DIR/foreign.expected"
+cat "$foreign_rc" >>"$owned_rc"
+_remove_source_block "$owned_rc"
+{ printf 'user-setting=keep\n'; cat "$WORK_DIR/foreign.expected"; } >"$WORK_DIR/owned.expected"
+cmp "$owned_rc" "$WORK_DIR/owned.expected" || fail 'uninstall did not limit managed block removal to the current path'
+_remove_source_block "$foreign_rc"
+cmp "$foreign_rc" "$WORK_DIR/foreign.expected" || fail 'uninstall changed another installation block'
+printf '# >>> clashctl >>>\nexport CLASHCTL_HOME=%q' "$CLASHCTL_HOME" >"$owned_rc"
+cp "$owned_rc" "$WORK_DIR/incomplete.expected"
+_remove_source_block "$owned_rc"
+cmp "$owned_rc" "$WORK_DIR/incomplete.expected" || fail 'uninstall changed incomplete markers'
+
+# 旧版引导只有在相邻 export 指向当前目录时才删除。
+{
+    printf 'export CLASHCTL_HOME=%s\n' "$CLASHCTL_HOME"
+    printf '%s\n' '. $CLASHCTL_HOME/scripts/cmd/clashctl.sh'
+    printf 'export CLASHCTL_HOME=/another/install\n'
+    printf '%s\n' '[ -s "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" ] && . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh"'
+} >"$owned_rc"
+tail -n 2 "$owned_rc" >"$WORK_DIR/legacy.expected"
+_remove_source_block "$owned_rc"
+cmp "$owned_rc" "$WORK_DIR/legacy.expected" || fail 'legacy cleanup removed another installation loader'
+
+# Fish 托管头和安装路径必须同时匹配。
+detect_rc() {
+    SHELL_RC_BASH='' SHELL_RC_ZSH=''
+    SHELL_RC_FISH="$WORK_DIR/uninstall.fish"
+}
+detect_rc
+CLASHCTL_HOME="$WORK_DIR/other install" _write_fish_rc
+cp "$SHELL_RC_FISH" "$WORK_DIR/fish.other.expected"
+revoke_rc >/dev/null 2>&1
+cmp "$SHELL_RC_FISH" "$WORK_DIR/fish.other.expected" || fail 'uninstall removed another installation fish file'
+_write_fish_rc
+revoke_rc
+[ ! -e "$SHELL_RC_FISH" ] || fail 'uninstall retained its own fish file'
 
 printf 'shell-integration: ok\n'

@@ -14,21 +14,6 @@ _download_config() {
         return 1
     }
 
-    _is_native_yaml_config "$dest" && {
-        _ui_info_out '检测到原生 Clash/Mihomo 配置'
-        _valid_config "$dest" && _valid_sub_nodes "$dest" && return
-        [ "$allow_convert" = true ] || {
-            _errorcat "raw 模式下原生配置校验失败（未尝试转换），可改用默认策略或 --convert"
-            return 1
-        }
-        _ui_warn_fail '原生配置验证失败，正在尝试订阅转换'
-        cat "$dest" >"${dest}.raw"
-        _download_convert_config "$dest" "$url" || return
-        _normalize_sub_config "$dest" || return
-        _valid_config "$dest" && _valid_sub_nodes "$dest"
-        return
-    }
-
     _ui_info_out '正在验证订阅配置'
     _valid_config "$dest" && _valid_sub_nodes "$dest" && return
 
@@ -37,7 +22,7 @@ _download_config() {
         return 1
     }
     _ui_warn_fail '配置验证失败，正在尝试订阅转换'
-    cat "$dest" >"${dest}.raw"
+    cat "$dest" >"${dest}.raw" || return 1
     _download_convert_config "$dest" "$url" || return
     _normalize_sub_config "$dest" || return
     _valid_config "$dest" && _valid_sub_nodes "$dest"
@@ -74,22 +59,9 @@ _is_html_response() {
     LC_ALL=C grep -qiE '<[[:space:]]*(!doctype|html|head|body|title)([[:space:]>]|$)' "$1"
 }
 
-_is_native_yaml_config() {
-    "$BIN_YQ" -e '
-      ((.proxies // []) | type == "!!seq" and length > 0) or
-      ((.proxy-providers // {}) | type == "!!map" and length > 0)
-    ' "$1" >/dev/null 2>&1
-}
-
 _valid_sub_nodes() {
-    local config=$1 count
-    count=$("$BIN_YQ" '
-      ((.proxies // []) | length) +
-      ((.proxy-providers // {}) | length)
-    ' "$config" 2>/dev/null) || return 0
-
-    [ "${count:-0}" -gt 0 ] || {
-        _errorcat "订阅未解析出任何节点，请检查订阅内容或转换器版本"
+    _has_proxy_nodes "$1" || {
+        _errorcat "订阅节点为空或结构无效，请检查订阅内容或转换器版本"
         return 1
     }
 }

@@ -7,43 +7,45 @@ clashon() {
         _ui_fail "请执行: CLASHCTL_HOME=$CLASHCTL_HOME bash $CLASHCTL_HOME/install.sh"
         return 1
     fi
-    case "$1" in
+    case "${1:-}" in
     -e | --env-only)
-        on_env_only
+        _require_base_config || return 1
+        service_is_active >&/dev/null || {
+            _ui_fail "$CLASHCTL_KERNEL 未运行，请使用 clashctl on 开启代理环境"
+            return 1
+        }
         ;;
     -s | --service-only)
         on_service_only
+        return
         ;;
     -h | --help)
         on_help
+        return
         ;;
     *)
         on_service_only || return
-        on_env_only
         ;;
     esac
-}
-
-on_env_only() {
-    service_is_active >&/dev/null || {
-        _ui_fail "$CLASHCTL_KERNEL 未运行，请使用 clashctl on 开启代理环境"
-        return 1
-    }
     set_system_proxy || return 1
     _ui_ok_out "终端代理已启用"
 }
 
 on_service_only() {
     service_is_active >&/dev/null && {
+        _require_base_config || return 1
         _ui_ok_out "$CLASHCTL_KERNEL 已运行"
         return 0
     }
+    _merge_config || return 1
     _detect_proxy_port || return 1
-    service_start
+    _detect_ext_addr || return 1
+    service_start || return 1
     service_is_active >&/dev/null || {
         _ui_fail "$CLASHCTL_KERNEL 启动失败"
         return 1
     }
+    service_enable || return 1
     _ui_ok_out "$CLASHCTL_KERNEL 已启动"
 }
 

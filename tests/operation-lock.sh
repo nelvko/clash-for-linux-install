@@ -160,6 +160,7 @@ test_nohup_daemon_does_not_inherit_lock_fd() {
 }
 
 test_sysv_style_background_child_does_not_inherit_lock_fd() {
+    _require_base_config() { return 0; }
     local ready="$WORK_DIR/sysv-child.ready" child_pid attempt=0
 
     # shellcheck disable=SC2034  # Read dynamically by service_start.
@@ -190,10 +191,12 @@ test_sysv_style_background_child_does_not_inherit_lock_fd() {
 
 test_update_holds_lifecycle_lock_for_dispatch() {
     local dispatch_file="$WORK_DIR/update-dispatched"
-    . "$REPO_DIR/scripts/lib/update.sh"
     . "$REPO_DIR/scripts/cmd/update.sh"
     _ui_error() { :; }
-    _update_is_git_home() {
+    local CLASHCTL_HOME="$WORK_DIR/update-home"
+    mkdir -p "$CLASHCTL_HOME/.git"
+    touch "$CLASHCTL_HOME/.env"
+    git() {
         local inherited_fd=${CLASHCTL_OPERATION_LOCK_FD:-}
         if [ -z "$inherited_fd" ] || [ ! -e "/proc/self/fd/$inherited_fd" ]; then
             fail 'update dispatch started without the lifecycle lock'
@@ -202,7 +205,8 @@ test_update_holds_lifecycle_lock_for_dispatch() {
         return 1
     }
     # shellcheck disable=SC2119  # 测试无参数入口
-    if clashupdate; then fail 'update accepted a missing installation'; fi
+    if clashupdate; then fail 'update ignored Git failure'; fi
+    unset -f git
     [ -f "$dispatch_file" ] || fail 'update dispatch did not run'
     [ -z "${CLASHCTL_OPERATION_LOCK_FD:-}" ] || fail 'update retained lifecycle lock fd'
     operation_lock_acquire || fail 'update did not release lifecycle lock'

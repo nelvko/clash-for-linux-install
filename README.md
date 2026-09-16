@@ -29,10 +29,22 @@ curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/nelvko/clash-f
 ```
 
 需要 Git、curl、tar、gzip、unzip。默认安装到 `~/.clashctl`，安装后重开终端加载命令。
-订阅链接在安装时输入，也可跳过后使用 `clashctl sub add --use <url>` 配置。
+订阅链接在安装时输入，也可跳过。跳过时只安装组件和命令，不启动代理、不启用自启。
+运行 `clashctl sub add --use <url>` 首次启用订阅后，会生成运行配置、启动代理并设置自启。
+组件独立安装；某个组件失败时保留已安装成功的组件，修复问题后可重新运行安装脚本。
+
+`data/config.yaml` 是来自订阅或本地导入的主配置，必须含有节点或代理提供者并通过内核校验；
+`data/mixin.yaml` 仅用于覆盖和补充主配置，两者合并生成内核运行所需的 `data/runtime.yaml`。
+没有有效主配置时，`clashctl on` 会提示先添加并启用订阅。
 
 可通过 `CLASHCTL_HOME`、`CLASHCTL_UPDATE_BRANCH`、`GH_PROXY` 环境变量设置目录、分支和下载代理，
-例如先下载脚本，再执行 `CLASHCTL_UPDATE_BRANCH=iu bash install.sh`。设置 `GH_PROXY=''` 使用直连。
+管道安装时变量必须设置在右侧 `bash` 前，例如安装 `iu` 分支：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/iu/install.sh | CLASHCTL_UPDATE_BRANCH=iu bash
+```
+
+写在 `curl` 前的变量不会传给右侧 `bash`。设置 `GH_PROXY=''` 使用直连。
 
 - 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
 
@@ -65,13 +77,21 @@ clashupdate             # 更新脚本与资源，并加载到当前 Shell
 更新来源由 `~/.clashctl/.env` 中的 `CLASHCTL_UPDATE_BRANCH` 和 `GH_PROXY` 配置。
 升级代理内核仍使用 `clashctl upgrade`。
 
+旧版数字 ID 订阅数据不再自动迁移。遇到格式提示时，先备份
+`$CLASHCTL_HOME/data/profiles.yaml`，用安装目录中的 `resources/profiles.yaml` 模板替换它，再用 `clashctl sub add --use <url>` 重新添加订阅。
+现有主配置和运行配置会保留。
+
 ## 🧹 Uninstall
 
 ```bash
 bash ~/.clashctl/uninstall.sh
 ```
 
-确认后停止并移除服务，清理 Shell 集成及安装目录。非交互卸载使用 `--yes`。
+仅允许卸载安装器创建、且 `.git/clashctl-home` 标记与当前路径匹配的目录。
+源码克隆、移动或复制后的安装副本、旧版未标记目录会被拒绝，不会删除；请勿手动补写标记。
+确认后停止并移除当前安装的服务，清理指向本目录的 Shell 引导及安装目录。
+有安装标记但尚未生成 `.env` 的中断安装仅清理目录自身。若内核信息无效、服务停止或 Shell 清理失败，会保留安装目录。
+非交互卸载使用 `--yes`。
 
 ## 📖 Documentation
 

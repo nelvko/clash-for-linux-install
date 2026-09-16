@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2317  # 校验器与命令桩由 source 的函数间接调用。
 set -euo pipefail
 
 TEST_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
@@ -51,10 +52,8 @@ assert_public_tree_modes() {
 
 assert_no_stages() {
     local staged
-    staged=$(find "$BIN_BASE_DIR" -maxdepth 1 -name '.components.*' -print -quit)
-    [ -z "$staged" ] || fail "binary staging directory was retained: [$staged]"
-    staged=$(find "$CLASH_RESOURCES_DIR" -maxdepth 1 -name '.web-ui.*' -print -quit)
-    [ -z "$staged" ] || fail "Web UI staging directory was retained: [$staged]"
+    staged=$(find "$CLASHCTL_HOME" -name '.components.*' -print -quit)
+    [ -z "$staged" ] || fail "component staging directory was retained: [$staged]"
 }
 
 assert_external_untouched() {
@@ -280,8 +279,8 @@ assert_eq fresh-rule "$(<"$BIN_SUBCONVERTER_DIR/config/fresh.ini")" \
     'subconverter archive content'
 assert_eq '<html>new-ui</html>' "$(<"$CLASH_RESOURCES_DIR/dist/index.html")" \
     'Web UI tar fallback content'
-assert_absent "$BIN_BASE_DIR/yq.1" 'legacy yq manual cleanup'
-assert_absent "$BIN_BASE_DIR/install-man-page.sh" 'legacy yq installer cleanup'
+assert_eq legacy-manpage "$(<"$BIN_BASE_DIR/yq.1")" 'unrelated legacy manual is untouched'
+assert_eq legacy-installer "$(<"$BIN_BASE_DIR/install-man-page.sh")" 'unrelated legacy installer is untouched'
 assert_absent "$BIN_SUBCONVERTER_DIR/stale.ini" 'stale subconverter cleanup'
 assert_absent "$CLASH_RESOURCES_DIR/dist/stale.js" 'stale Web UI cleanup'
 
@@ -299,95 +298,70 @@ assert_public_tree_modes "$CLASH_RESOURCES_DIR/dist" 'Web UI modes'
 assert_no_stages
 assert_contains "$stderr_file" '运行组件已安装' 'successful component installation output'
 
-rollback_root="$WORK_DIR/replace-rollback"
-rollback_target="$rollback_root/subconverter"
-rollback_stage="$rollback_root/.stage"
-mkdir -p -- "$rollback_target" "$rollback_stage/candidate"
-printf 'old-after-rollback\n' >"$rollback_target/version"
-printf 'rejected-candidate\n' >"$rollback_stage/candidate/version"
-if [ "$(id -u)" -eq 0 ]; then
-    chown -R 1001:1001 -- "$rollback_target"
-fi
-reject_component() { return 1; }
-_component_transaction_init
-rc=0
-_component_replace_path "$rollback_stage/candidate" "$rollback_target" \
-    "$rollback_stage/previous" reject_component || rc=$?
-assert_eq 1 "$rc" 'failed final verification status'
-assert_eq old-after-rollback "$(<"$rollback_target/version")" \
-    'failed final verification restored previous component'
-assert_absent "$rollback_stage/previous" 'component rollback backup cleanup'
-
-transaction_root="$WORK_DIR/batch-rollback"
-transaction_stage="$transaction_root/.stage"
-mkdir -p -- "$transaction_stage"
-for component in kernel yq subconverter ui; do
-    printf 'old-%s\n' "$component" >"$transaction_root/$component"
-    printf 'new-%s\n' "$component" >"$transaction_stage/$component.candidate"
-    chmod 0600 "$transaction_root/$component" "$transaction_stage/$component.candidate"
-done
-printf 'legacy-yq-file\n' >"$transaction_root/yq.1"
-_component_transaction_init
-for component in kernel yq subconverter; do
-    _component_replace_path "$transaction_stage/$component.candidate" \
-        "$transaction_root/$component" "$transaction_stage/$component.previous" \
-        _component_file_is_safe 600 || fail "batch setup failed for $component"
-done
-_component_remove_path "$transaction_root/yq.1" "$transaction_stage/yq.1.previous" ||
-    fail 'batch setup failed for legacy yq removal'
-rc=0
-_component_replace_path "$transaction_stage/ui.candidate" "$transaction_root/ui" \
-    "$transaction_stage/ui.previous" reject_component || rc=$?
-assert_eq 1 "$rc" 'late component commit failure status'
-assert_eq new-kernel "$(<"$transaction_root/kernel")" \
-    'late failure reached the partially committed state'
-_component_cleanup_stages "$transaction_stage" '' || fail 'batch component rollback failed'
-for component in kernel yq subconverter ui; do
-    assert_eq "old-$component" "$(<"$transaction_root/$component")" \
-        "late failure restored $component"
-done
-assert_eq legacy-yq-file "$(<"$transaction_root/yq.1")" \
-    'late failure restored legacy yq file'
-
-retry_root="$WORK_DIR/retry-rollback"
-retry_stage="$retry_root/.stage"
-mkdir -p -- "$retry_stage"
-for component in kernel yq ui; do
-    printf 'old-%s\n' "$component" >"$retry_root/$component"
-    printf 'new-%s\n' "$component" >"$retry_stage/$component.candidate"
-    chmod 0600 "$retry_root/$component" "$retry_stage/$component.candidate"
-done
-_component_transaction_init
-for component in kernel yq ui; do
-    _component_replace_path "$retry_stage/$component.candidate" \
-        "$retry_root/$component" "$retry_stage/$component.previous" \
-        _component_file_is_safe 600 || fail "retry setup failed for $component"
-done
-/usr/bin/rm -f -- "$retry_stage/yq.previous"
-rc=0
-_component_rollback_committed || rc=$?
-assert_eq 1 "$rc" 'partial rollback failure status'
-assert_eq old-kernel "$(<"$retry_root/kernel")" \
-    'partial rollback continued past failed middle item'
-assert_eq new-yq "$(<"$retry_root/yq")" \
-    'partial rollback retained failed middle item'
-assert_eq old-ui "$(<"$retry_root/ui")" \
-    'partial rollback restored item before failed middle item'
-assert_eq 1 "${#_COMPONENT_TRANSACTION_TARGETS[@]}" \
-    'partial rollback retained only failed target'
-assert_eq "$retry_root/yq" "${_COMPONENT_TRANSACTION_TARGETS[0]}" \
-    'partial rollback retained the retryable target'
-assert_absent "$retry_stage/kernel.previous" \
-    'partial rollback removed successful kernel record'
-assert_absent "$retry_stage/ui.previous" \
-    'partial rollback removed successful UI record'
-
-printf 'old-yq\n' >"$retry_stage/yq.previous"
-chmod 0600 "$retry_stage/yq.previous"
-_component_rollback_committed || fail 'partial rollback retry failed'
-assert_eq old-yq "$(<"$retry_root/yq")" 'partial rollback retry restored failed item'
-assert_eq 0 "${#_COMPONENT_TRANSACTION_TARGETS[@]}" \
-    'partial rollback retry cleared transaction state'
+# yq 最终落位校验失败，只恢复 yq；此前成功的内核保留，后续组件不处理。
+configure_home single-rollback
+seed_existing_components
+real_file_verifier=$(declare -f _component_file_is_safe)
+(
+    eval "${real_file_verifier/_component_file_is_safe/_original_file_verifier}"
+    _component_file_is_safe() {
+        [ "$1" != "$BIN_YQ" ] && _original_file_verifier "$@"
+    }
+    rc=0
+    unzip_zip >"$WORK_DIR/single-rollback.out" 2>&1 || rc=$?
+    assert_eq 1 "$rc" 'failed final verification status'
+    assert_eq new-kernel "$(<"$BIN_KERNEL")" 'earlier installed kernel remains'
+    assert_eq old-yq "$(<"$BIN_YQ")" 'failed yq restored previous component'
+    assert_eq old-converter "$(<"$BIN_SUBCONVERTER")" 'later converter remains untouched'
+    assert_no_stages
+)
+# 恢复失败必须保留备份；不能随暂存目录一起删除。
+(
+    eval "${real_file_verifier/_component_file_is_safe/_original_file_verifier}"
+    _component_file_is_safe() {
+        [ "$1" != "$BIN_YQ" ] && _original_file_verifier "$@"
+    }
+    function /bin/mv() {
+        case "$3" in */previous) return 1 ;; esac
+        command /bin/mv "$@"
+    }
+    rc=0
+    _install_component yq "$ZIP_YQ" >"$WORK_DIR/restore-failure.out" 2>&1 || rc=$?
+    assert_eq 1 "$rc" 'restore failure status'
+    backup=$(find "$BIN_BASE_DIR" -path '*/.components.*/previous' -print -quit)
+    [ -n "$backup" ] || fail 'failed restore deleted backup'
+    assert_eq old-yq "$(<"$backup")" 'failed restore kept original data'
+    assert_contains "$WORK_DIR/restore-failure.out" '已保留暂存目录' 'restore failure diagnosis'
+)
+# 无旧文件时，落位后失败应清除失败候选文件。
+configure_home fresh-rollback
+rm -f "$BIN_YQ"
+(
+    eval "${real_file_verifier/_component_file_is_safe/_original_file_verifier}"
+    _component_file_is_safe() {
+        [ "$1" != "$BIN_YQ" ] && _original_file_verifier "$@"
+    }
+    if _install_component yq "$ZIP_YQ" >/dev/null 2>&1; then fail 'invalid new yq accepted'; fi
+    assert_absent "$BIN_YQ" 'failed new component cleanup'
+    assert_no_stages
+)
+# 单独补装 UI 不访问 bin；单独安装内核不访问 resources。
+(
+    configure_home isolated-ui
+    rm -rf "$BIN_BASE_DIR"
+    ln -s "$bin_external" "$BIN_BASE_DIR"
+    ZIP_KERNEL='' ZIP_YQ='' ZIP_SUBCONVERTER=
+    unzip_zip >/dev/null || fail 'UI-only install touched binary directory'
+    assert_external_untouched "$bin_external" 'UI-only install'
+)
+(
+    configure_home isolated-kernel
+    rm -rf "$CLASH_RESOURCES_DIR"
+    ln -s "$resources_external" "$CLASH_RESOURCES_DIR"
+    ZIP_YQ='' ZIP_SUBCONVERTER='' ZIP_UI=
+    unzip_zip >/dev/null || fail 'kernel-only install touched resources directory'
+    assert_external_untouched "$resources_external" 'kernel-only install'
+)
 
 configure_home invalid-layout
 seed_existing_components
@@ -404,8 +378,8 @@ assert_contains "$stderr_file" '已废弃布局无效的依赖缓存：subconver
 assert_contains "$stderr_file" '安装器将重新下载该组件' \
     'invalid subconverter cache retry diagnostic'
 assert_absent "$ZIP_SUBCONVERTER" 'invalid subconverter layout cache discard'
-assert_eq old-kernel "$(<"$BIN_KERNEL")" 'invalid layout preserved kernel'
-assert_eq old-yq "$(<"$BIN_YQ")" 'invalid layout preserved yq'
+assert_eq new-kernel "$(<"$BIN_KERNEL")" 'invalid layout kept completed kernel'
+assert_eq new-yq "$(<"$BIN_YQ")" 'invalid layout kept completed yq'
 assert_eq old-converter "$(<"$BIN_SUBCONVERTER")" \
     'invalid layout preserved subconverter'
 assert_eq '<html>old-ui</html>' "$(<"$CLASH_RESOURCES_DIR/dist/index.html")" \
@@ -423,8 +397,8 @@ assert_eq 1 "$rc" 'subconverter extraction failure status'
 assert_contains "$stderr_file" '准备 subconverter 失败' \
     'subconverter extraction failure diagnostic'
 [ -f "$ZIP_SUBCONVERTER" ] || fail 'non-layout failure removed managed cache'
-assert_eq old-kernel "$(<"$BIN_KERNEL")" 'extraction failure preserved kernel'
-assert_eq old-yq "$(<"$BIN_YQ")" 'extraction failure preserved yq'
+assert_eq new-kernel "$(<"$BIN_KERNEL")" 'extraction failure kept completed kernel'
+assert_eq new-yq "$(<"$BIN_YQ")" 'extraction failure kept completed yq'
 assert_eq old-converter "$(<"$BIN_SUBCONVERTER")" \
     'extraction failure preserved subconverter'
 assert_eq '<html>old-ui</html>' "$(<"$CLASH_RESOURCES_DIR/dist/index.html")" \
@@ -455,7 +429,7 @@ assert_contains "$resolve_out" '最新版本' 'latest source is labeled'
 : >"$resolve_out"
 : >"$latest_query_log"
 LATEST_QUERY_RC=1
-VERSION_MIHOMO= VERSION_YQ=
+VERSION_MIHOMO='' VERSION_YQ=
 CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=0
 _resolve_version VERSION_MIHOMO MetaCubeX/mihomo >>"$resolve_out" 2>&1
 _resolve_version VERSION_YQ mikefarah/yq >>"$resolve_out" 2>&1
@@ -494,6 +468,7 @@ tag_url_log="$WORK_DIR/tag-urls"
 tag_query() {
     (
         # BODY 等变量须显式导出：假 curl 是独立进程，只看得见环境变量
+        # shellcheck disable=SC2030  # PATH 仅在此查询子 shell 中替换。
         export PATH="$tag_curl_dir:$PATH" TAG_URL_LOG=$tag_url_log \
             TAG_PROXY_PREFIX=https://ghfast.top/ \
             TAG_PROXY_BODY=${TAG_PROXY_BODY-} TAG_DIRECT_BODY=${TAG_DIRECT_BODY-}
@@ -528,7 +503,7 @@ esac
 
 # 代理不支持 api（403 → --fail 非零）：回退直连
 : >"$tag_url_log"
-TAG_PROXY_BODY= TAG_DIRECT_BODY=$tag_body
+TAG_PROXY_BODY='' TAG_DIRECT_BODY=$tag_body
 assert_eq v1.2.3 "$(tag_query MetaCubeX/mihomo)" \
     'direct fallback resolves the tag when the proxy rejects api.github.com'
 assert_eq 2 "$(wc -l <"$tag_url_log")" 'proxy failure falls through to direct'
@@ -545,7 +520,7 @@ assert_eq v1.2.3 "$(tag_query MetaCubeX/mihomo)" \
 assert_eq 2 "$(wc -l <"$tag_url_log")" 'unparseable proxy body retries over direct'
 
 # 双通道皆败：返回非零（调用方回退内置钉版）
-TAG_PROXY_BODY= TAG_DIRECT_BODY=
+TAG_PROXY_BODY='' TAG_DIRECT_BODY=
 tag_rc=0 tag_out=$(tag_query MetaCubeX/mihomo) || tag_rc=$?
 [ "$tag_rc" -ne 0 ] || fail 'tag query succeeded with both channels failing'
 [ -z "$tag_out" ] || fail 'failed tag query still printed a tag'
@@ -561,6 +536,7 @@ make_fake_yq() {
 }
 
 make_fake_yq 'yq (https://github.com/mikefarah/yq/) version v4.53.6'
+# shellcheck disable=SC2031  # 上面的 tag_query 不会改变当前 shell 的 PATH。
 PATH="$fake_bin:$PATH" system_yq=$(_get_system_yq)
 assert_eq "$fake_bin/yq" "$system_yq" 'mikefarah v4 system yq is accepted'
 
@@ -580,11 +556,16 @@ make_fake_yq 'yq (https://github.com/mikefarah/yq/) version v4.53.6'
 _real_unzip_zip=$(declare -f unzip_zip)
 download_zip() {
     printf '%s\n' "$*" >"$WORK_DIR/yq-skip-components"
-    case $* in *mihomo*) ZIP_MIHOMO=stub-mihomo.gz ;; esac
+    case $* in *mihomo*) ZIP_KERNEL=stub-mihomo.gz ;; esac
     case $* in *yq*) ZIP_YQ=stub-yq.tgz ;; esac
+    case $* in *subconverter*) ZIP_SUBCONVERTER=stub-converter.tgz ;; esac
+    case $* in *ui*) ZIP_UI=stub-ui.zip ;; esac
     return 0
 }
-unzip_zip() { return 0; }
+unzip_zip() {
+    printf '%s|%s|%s|%s\n' "$ZIP_KERNEL" "$ZIP_YQ" "$ZIP_SUBCONVERTER" "$ZIP_UI" \
+        >"$WORK_DIR/selected-archives"
+}
 PATH="$fake_bin:$PATH" prepare_zip kernel yq
 assert_eq 'mihomo' "$(<"$WORK_DIR/yq-skip-components")" \
     'compatible system yq skips the yq download'
@@ -603,16 +584,24 @@ make_fake_yq 'yq (https://github.com/mikefarah/yq/) version v4.53.6'
 PATH="$fake_bin:$PATH" prepare_zip kernel yq
 assert_eq 'mihomo yq' "$(<"$WORK_DIR/yq-skip-components")" \
     'existing local yq is refreshed rather than replaced by system copy'
+
+# 按需补装复用同一入口，但不能携带前次安装的内核或 yq 归档。
+prepare_zip ui
+assert_eq 'ui' "$(<"$WORK_DIR/yq-skip-components")" 'optional UI requests only UI'
+assert_eq '|||stub-ui.zip' "$(<"$WORK_DIR/selected-archives")" 'optional UI excludes previous archives'
+prepare_zip subconverter
+assert_eq '||stub-converter.tgz|' "$(<"$WORK_DIR/selected-archives")" \
+    'optional converter excludes previous archives'
 rm -f -- "$fake_bin/yq"
 unset -f download_zip
 eval "$_real_unzip_zip"
 
-# ── 部分组件集（provision_component 场景）：仅 UI 时其他组件不动 ──
+# ── 部分组件集（按需补装场景）：仅 UI 时其他组件不动 ──
 configure_home ui-only
 seed_existing_components
 stdout_file="$WORK_DIR/ui-only.stdout"
 stderr_file="$WORK_DIR/ui-only.stderr"
-ZIP_KERNEL= ZIP_YQ= ZIP_SUBCONVERTER= ZIP_UI="$ARCHIVE_DIR/ui.zip" \
+ZIP_KERNEL='' ZIP_YQ='' ZIP_SUBCONVERTER='' ZIP_UI="$ARCHIVE_DIR/ui.zip" \
     unzip_zip >"$stdout_file" 2>"$stderr_file" ||
     fail "ui-only provisioning failed: $(<"$stderr_file")"
 assert_eq old-kernel "$(<"$BIN_KERNEL")" 'ui-only provisioning keeps the kernel'
@@ -629,7 +618,7 @@ configure_home empty-set
 stdout_file="$WORK_DIR/empty-set.stdout"
 stderr_file="$WORK_DIR/empty-set.stderr"
 rc=0
-ZIP_KERNEL= ZIP_YQ= ZIP_SUBCONVERTER= ZIP_UI= unzip_zip \
+ZIP_KERNEL='' ZIP_YQ='' ZIP_SUBCONVERTER='' ZIP_UI='' unzip_zip \
     >"$stdout_file" 2>"$stderr_file" || rc=$?
 assert_eq 1 "$rc" 'empty component set is rejected'
 assert_contains "$stderr_file" '没有待安装的组件归档' 'empty set diagnostic is actionable'

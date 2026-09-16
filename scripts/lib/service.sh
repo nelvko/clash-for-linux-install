@@ -118,6 +118,7 @@ _service_nohup_stop_locked() {
 }
 
 service_start() {
+    _require_base_config || return 1
     detect_service_manager
     case "$service_manager" in
     systemd)
@@ -130,6 +131,9 @@ service_start() {
         _service_run_without_operation_lock rc-service "$CLASHCTL_KERNEL" start
         ;;
     runit)
+        # runit 需要先加入监督目录才能启动；此时主配置与 runtime 必须已有效。
+        _valid_config "$CLASH_CONFIG_RUNTIME" || return 1
+        service_enable || return 1
         _service_run_without_operation_lock sv up "$CLASHCTL_KERNEL"
         ;;
     nohup | *)
@@ -145,7 +149,11 @@ service_start() {
 }
 
 service_sudo_start() {
-    _is_root && service_start && return 0
+    if _is_root; then
+        service_start
+        return
+    fi
+    _require_base_config || return 1
     detect_service_manager
     local owner_uid helper rc=0
     owner_uid=$(id -u) || return 1
@@ -247,35 +255,6 @@ service_is_active() {
         ;;
     nohup | *)
         _service_owned_pids >/dev/null 2>&1 || _service_privileged_marker_exists
-        ;;
-    esac
-}
-
-service_is_enabled() {
-    detect_service_manager
-    case "$service_manager" in
-    systemd)
-        systemctl is-enabled --quiet "$CLASHCTL_KERNEL" 2>/dev/null
-        ;;
-    sysvinit)
-        if command -v chkconfig >/dev/null 2>&1; then
-            chkconfig "$CLASHCTL_KERNEL" 2>/dev/null | grep -qsE ':[[:space:]]*on'
-            return
-        fi
-        local link
-        for link in /etc/rc?.d/S[0-9][0-9]"$CLASHCTL_KERNEL"; do
-            [ -L "$link" ] && return 0
-        done
-        return 1
-        ;;
-    openrc)
-        rc-update show default 2>/dev/null | grep -qs "[[:space:]]${CLASHCTL_KERNEL}[[:space:]]"
-        ;;
-    runit)
-        [ -L "$(_service_runit_enable_link)" ]
-        ;;
-    nohup | *)
-        return 1
         ;;
     esac
 }
@@ -534,7 +513,8 @@ install_service() (
     [ "$service_manager" != systemd ] || mode=0644
     install -D -m "$mode" "$candidate" "$target" || return 1
     [ "$service_manager" != systemd ] || systemctl daemon-reload || return 1
-    service_enable
+    # 这里只注册服务；有效配置启动成功后才设置自启。
+    return 0
 )
 
 uninstall_service() {

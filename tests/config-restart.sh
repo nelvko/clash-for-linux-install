@@ -29,6 +29,10 @@ assert_contains() {
 CLASHCTL_KERNEL=mihomo
 export CLASHCTL_KERNEL
 
+CLASH_CONFIG_RUNTIME="$WORK_DIR/runtime.yaml"
+printf runtime >"$CLASH_CONFIG_RUNTIME"
+ENABLE_CALLS=0 ENABLE_RC=0
+service_enable() { ENABLE_CALLS=$((ENABLE_CALLS + 1)); return "$ENABLE_RC"; }
 MERGE_RC=0
 TUN_WAS_ACTIVE=0
 TUN_ENABLED=0
@@ -78,6 +82,7 @@ _ui_error() { printf '[ERROR] %s\n' "$*" >&2; }
 _errorcat() { printf '[ERROR] %s\n' "$*" >&2; return 1; }
 
 reset_case() {
+    ENABLE_CALLS=0 ENABLE_RC=0
     MERGE_RC=0
     TUN_WAS_ACTIVE=0
     TUN_ENABLED=0
@@ -160,5 +165,30 @@ TUN_WAS_ACTIVE=1
 TUN_ENABLED=1
 run_restart tun-success
 assert_eq 0 "$RUN_RC" 'Tun restart succeeds when service and interface are ready'
+
+reset_case
+SERVICE_ACTIVE=0
+run_restart first-start
+assert_eq 0 "$RUN_RC" 'starting stopped service succeeds'
+assert_eq 1 "$ENABLE_CALLS" 'starting stopped service enables autostart'
+
+reset_case
+SERVICE_ACTIVE=0
+START_RESULT_ACTIVE=0
+run_restart first-start-failure
+assert_eq 2 "$RUN_RC" 'initial start failure is reported'
+assert_eq 0 "$ENABLE_CALLS" 'failed start does not enable autostart'
+
+reset_case
+SERVICE_ACTIVE=0
+ENABLE_RC=1
+run_restart enable-failure
+assert_eq 2 "$RUN_RC" 'autostart failure is reported'
+assert_contains "$RUN_STDERR" '设置开机自启失败' 'autostart failure diagnosis'
+
+reset_case
+run_restart active-refresh
+assert_eq 0 "$RUN_RC" 'running service refresh succeeds'
+assert_eq 0 "$ENABLE_CALLS" 'running service refresh preserves autostart preference'
 
 printf 'config-restart: ok\n'

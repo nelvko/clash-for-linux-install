@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 
 _install_initialize() {
-    [ ! -f "$CLASHCTL_HOME/.env" ] || . "$CLASHCTL_HOME/.env"
+    export CLASHCTL_SRC="$CLASHCTL_HOME"
+    . "$CLASHCTL_SRC/scripts/preflight.sh" || return 1
     local kernel=${CLASHCTL_KERNEL:-mihomo} branch=${CLASHCTL_UPDATE_BRANCH:-master}
     local proxy=${GH_PROXY:-} subscription='' rc secret
     export -n subscription secret
-    export CLASHCTL_SRC="$CLASHCTL_HOME"
-    . "$CLASHCTL_SRC/scripts/preflight.sh" || return 1
     export CLASHCTL_KERNEL="$kernel" CLASHCTL_UPDATE_BRANCH="$branch" GH_PROXY="$proxy"
-    BIN_KERNEL=$(bin_kernel_path)
+    BIN_KERNEL=$(bin_kernel_path) || return 1
     operation_lock_acquire || return 1
     valid_required || return 1
     detect_service_manager
@@ -31,20 +30,14 @@ _install_initialize() {
     _set_env INIT_TYPE "$service_manager" || return 1
     . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" || return 1
 
-    _ui_step '初始化配置与服务'
-    _merge_config || return 1
-    _detect_proxy_port || return 1
-    _detect_ext_addr || return 1
-    secret=$(_get_secret) || return 1
+    _ui_step '初始化 Mixin 与服务定义'
+    # 密钥直接写入 Mixin，无主配置时不生成 runtime。
+    secret=$("$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_MIXIN") || return 1
     if [ -z "$secret" ]; then
         secret=$(_get_random_val) || return 1
         SECRET=$secret "$BIN_YQ" -i '.secret = env(SECRET)' "$CLASH_CONFIG_MIXIN" || return 1
-        _merge_config || return 1
     fi
     install_service || return 1
-    service_start || return 1
-    sleep 1
-    service_is_active || { _ui_error '服务未能启动，请检查内核日志'; return 1; }
     apply_rc || { rc=$?; [ "$rc" -eq 2 ] || return "$rc"; }
 
     if [ "${CI+x}" != x ] && ( : </dev/tty ) 2>/dev/null; then
@@ -53,6 +46,11 @@ _install_initialize() {
     fi
     if [ -n "$subscription" ]; then
         clashsub add --use "$subscription" || return 1
+    elif [ -s "$CLASH_CONFIG_BASE" ]; then
+        on_service_only || return 1
+    else
+        _ui_info '尚未配置订阅，代理未启动'
+        _ui_detail '添加并启用订阅' 'clashctl sub add --use <URL>'
     fi
     _ui_ok '安装完成'
     _ui_detail '加载命令' "重开终端，或执行 export CLASHCTL_HOME=$CLASHCTL_HOME; source \$CLASHCTL_HOME/scripts/cmd/clashctl.sh"
@@ -80,18 +78,26 @@ main() (
         command -v "$arg" >/dev/null || { printf '缺少依赖: %s\n' "$arg" >&2; return 1; }
     done
     # 服务模板使用绝对路径；拒绝会影响模板或 Shell 解析的字符。
-    [[ $install_home == /* && $install_home != / && $install_home != "$HOME" && $install_home != *[^a-zA-Z0-9_./-]* ]] || {
+    [[ $install_home == /* && $install_home != *[^a-zA-Z0-9_./-]* ]] || {
         printf '安装目录必须是绝对路径，且只包含字母、数字、_、.、/、-\n' >&2
         return 1
     }
+    install_home=$(readlink -m -- "$install_home") || return 1
+    if [ "$install_home" = / ] || [ "$install_home" = "$(cd -- "$HOME" && pwd -P)" ]; then
+        printf '不能使用根目录或用户主目录作为安装目录\n' >&2
+        return 1
+    fi
     if [ -e "$install_home" ] || [ -L "$install_home" ]; then
         # 允许直接执行安装目录中的脚本重试初始化，不覆盖或重新下载目录。
         local script_dir=''
         if [ -f "${BASH_SOURCE[0]:-}" ]; then
             script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
         fi
-        if [ ! -d "$install_home/.git" ] || [ "$script_dir" != "$(cd -- "$install_home" && pwd -P)" ]; then
-            printf '安装目录已存在: %s；已安装时请运行 clashupdate\n' "$install_home" >&2
+        if [ ! -d "$install_home/.git" ] || [ -L "$install_home/.git" ] ||
+            [ ! -f "$install_home/.git/clashctl-home" ] || [ -L "$install_home/.git/clashctl-home" ] ||
+            [ "$(cat -- "$install_home/.git/clashctl-home")" != "$install_home" ] ||
+            [ "$script_dir" != "$install_home" ]; then
+            printf '目录已存在且不是可重试的安装目录: %s；请使用新的安装目录\n' "$install_home" >&2
             return 1
         fi
     else
@@ -102,7 +108,15 @@ main() (
         [ -z "$proxy" ] || url="${proxy%/}/$url"
         git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 \
             clone --depth 1 --branch "$branch" -- "$url" "$stage"
-        [ -f "$stage/scripts/preflight.sh" ] || { printf '安装源码不完整\n' >&2; return 1; }
+        for arg in scripts/preflight.sh .env.example scripts/cmd/update.sh; do
+            if [ ! -f "$stage/$arg" ]; then
+                printf '分支 %s 的源码不兼容此安装器（缺少 %s），未写入安装目录\n' "$branch" "$arg" >&2
+                printf '管道安装时请将分支变量放在 bash 前：curl ... | CLASHCTL_UPDATE_BRANCH=<分支> bash\n' >&2
+                return 1
+            fi
+        done
+        # Git 私有元数据不随源码克隆或更新传播；记录物理路径以拒绝误删源码和副本。
+        (umask 077; printf '%s\n' "$install_home" >"$stage/.git/clashctl-home")
         mv -T -- "$stage" "$install_home"
         stage=''
     fi
