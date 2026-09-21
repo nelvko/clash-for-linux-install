@@ -46,7 +46,13 @@ curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/nelvko/clash-f
 curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/iu/install.sh | CLASHCTL_UPDATE_BRANCH=iu bash
 ```
 
-写在 `curl` 前面的变量不会传给右侧 `bash`。若加速前缀失效，可换其他[可用镜像](https://ghproxy.link/)。
+写在 `curl` 前面的变量不会传给右侧 `bash`。也可以改用 `--gh-proxy` 旗标（写在 `bash` 之后），避免环境变量位置踩坑：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | bash --gh-proxy https://gh-proxy.org
+```
+
+旗标值会写入 `.env`，后续 `clashctl update` 沿用同一前缀。若加速前缀失效，可换其他[可用镜像](https://ghproxy.link/)。
 
 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
 

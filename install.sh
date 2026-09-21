@@ -160,11 +160,19 @@ main() (
     local install_home=${CLASHCTL_HOME:-$HOME/.clashctl}
     local branch=${CLASHCTL_UPDATE_BRANCH:-master} kernel=mihomo
     local proxy=${GH_PROXY:-} stage='' arg method
-    for arg in "$@"; do
+    while [ "$#" -gt 0 ]; do
+        arg=$1
+        shift
         case $arg in
         mihomo | clash) kernel=$arg ;;
+        --gh-proxy=?*) proxy=${arg#--gh-proxy=} ;;
+        --gh-proxy)
+            [ "$#" -gt 0 ] || { printf '%s\n' '--gh-proxy 需要一个值' >&2; return 1; }
+            proxy=$1
+            shift
+            ;;
         -h | --help)
-            printf '用法: bash install.sh [mihomo|clash]\n环境变量: CLASHCTL_HOME、CLASHCTL_UPDATE_BRANCH、GH_PROXY\n'
+            printf '用法: bash install.sh [mihomo|clash] [--gh-proxy <URL>]\n环境变量: CLASHCTL_HOME、CLASHCTL_UPDATE_BRANCH、GH_PROXY\n'
             return 0 ;;
         *) printf '未知安装参数\n' >&2; return 1 ;;
         esac
