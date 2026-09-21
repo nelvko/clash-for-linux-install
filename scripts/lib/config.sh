@@ -84,7 +84,9 @@ _valid_config() {
   [[ ! -e "$config" || "$(wc -l <"$config")" -lt 1 ]] && return 1
 
   local test_log
-  test_log=$("$BIN_KERNEL" -d "$(dirname "$config")" -f "$config" -t 2>&1) || {
+  # 校验须与服务同工作目录（resources/ 内含随仓库分发的 geodata）：
+  # 配置已迁到 data/，若用 -d "$(dirname config)" 内核会在校验期现下载 geodata。
+  test_log=$("$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$config" -t 2>&1) || {
     printf '%s\n' "$test_log" >&2
     grep -qs "unsupport proxy type" <<<"$test_log" && {
       local prefix="检测到订阅中包含不受支持的代理协议"
@@ -96,6 +98,25 @@ _valid_config() {
     }
     return 1
   }
+}
+
+# 主配置与订阅使用相同的节点结构约束：解析失败也必须拒绝。
+_has_proxy_nodes() {
+  [ -s "$1" ] && "$BIN_YQ" -e '
+      ((.proxies | type) == "!!seq" and (.proxies | length) > 0) or
+      ((.proxy-providers | type) == "!!map" and (.proxy-providers | length) > 0)
+    ' "$1" >/dev/null 2>&1
+}
+
+# service.sh 启动服务前的门禁：主配置必须存在、有节点且通过内核校验。
+_require_base_config() {
+  if _has_proxy_nodes "$CLASH_CONFIG_BASE" &&
+    _valid_config "$CLASH_CONFIG_BASE" >/dev/null 2>&1; then
+    return 0
+  fi
+  _ui_error '尚未配置有效的主配置，Mixin 不能单独运行'
+  _ui_detail '添加并启用订阅' 'clashctl sub add --use <URL>'
+  return 1
 }
 
 _merge_config() {

@@ -1,8 +1,45 @@
 #!/usr/bin/env bash
 
+if ! declare -F _service_process_record_pid >/dev/null 2>&1; then
+    _service_process_lib_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+    # shellcheck source=scripts/lib/service-process.sh
+    . "${_service_process_lib_dir}/service-process.sh"
+    unset _service_process_lib_dir
+fi
+
+if ! declare -F operation_lock_close_fd >/dev/null 2>&1; then
+    _service_operation_lock_lib_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+    # shellcheck source=scripts/lib/operation-lock.sh
+    . "${_service_operation_lock_lib_dir}/operation-lock.sh"
+    unset _service_operation_lock_lib_dir
+fi
+
 service_manager=
 service_log_path=
 service_pid_path=
+
+_service_run_without_operation_lock() {
+    if [ -z "${CLASHCTL_OPERATION_LOCK_FD:-}" ]; then
+        "$@"
+        return
+    fi
+    (
+        operation_lock_close_fd || exit 1
+        "$@"
+    )
+}
+
+_service_owned_pids() {
+    _service_process_record_pid "$service_pid_path" 2>/dev/null
+}
+
+_service_privileged_marker_exists() {
+    local record
+    _is_root && return 1
+    _service_privileged_runtime_is_secure /run/clashctl || return 1
+    record=$(_service_privileged_record_path /run/clashctl "$(id -u)" "$CLASHCTL_KERNEL") || return 1
+    _service_privileged_record_is_secure "$record"
+}
 
 detect_service_manager() {
     [ -n "$service_manager" ] && return 0
@@ -36,49 +73,113 @@ detect_service_manager() {
     service_log_path="/var/log/${CLASHCTL_KERNEL}.log"
     service_pid_path="/run/${CLASHCTL_KERNEL}.pid"
     [ "$service_manager" = "nohup" ] && {
-        service_log_path="${CLASH_RESOURCES_DIR}/${CLASHCTL_KERNEL}.log"
-        service_pid_path="${CLASH_RESOURCES_DIR}/${CLASHCTL_KERNEL}.pid"
+        service_log_path="${CLASH_DATA_DIR}/${CLASHCTL_KERNEL}.log"
+        service_pid_path="${CLASH_DATA_DIR}/${CLASHCTL_KERNEL}.pid"
     }
 }
 
+_service_nohup_start_locked() {    local pid expected_argv
+    expected_argv=$(_service_process_values_argv_hex \
+        "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME") || return 1
+    if _service_process_record_pid "$service_pid_path" >/dev/null 2>&1; then
+        [ "$_SERVICE_RECORD_ARGV" = "$expected_argv" ]
+        return
+    fi
+    /usr/bin/rm -f -- "$service_pid_path" || return 1
+    (
+        operation_lock_close_fd || exit 1
+        exec nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME"
+    ) </dev/null >"$service_log_path" 2>&1 9>&- &
+    pid=$!
+    _service_process_record_create \
+        "$service_pid_path" "$pid" "$BIN_KERNEL" \
+        "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" || {
+        if [ "${_SERVICE_SNAPSHOT_PID:-}" = "$pid" ]; then
+            _service_process_stop_snapshot \
+                "$pid" "$_SERVICE_SNAPSHOT_STARTTIME" \
+                "$_SERVICE_SNAPSHOT_ARGV" "$_SERVICE_SNAPSHOT_EXE_ID"
+        elif [ "${_SERVICE_PROCESS_BIRTH_PID:-}" = "$pid" ]; then
+            _service_process_stop_birth "$pid" "$_SERVICE_PROCESS_BIRTH_STARTTIME"
+        fi
+        /usr/bin/rm -f -- "$service_pid_path"
+        return 1
+    }
+}
+
+_service_nohup_stop_locked() {
+    [ -e "$service_pid_path" ] || [ -L "$service_pid_path" ] || return 0
+    if ! _service_process_record_load "$service_pid_path"; then
+        /usr/bin/rm -f -- "$service_pid_path"
+        return 0
+    fi
+    _service_process_stop_recorded "$service_pid_path" || return 1
+    [ "${_SERVICE_PROCESS_RECORD_CAN_REMOVE:-0}" -eq 0 ] ||
+        /usr/bin/rm -f -- "$service_pid_path"
+}
+
 service_start() {
+    _require_base_config || return 1
     detect_service_manager
     case "$service_manager" in
     systemd)
-        systemctl start "$CLASHCTL_KERNEL"
+        _service_run_without_operation_lock systemctl start "$CLASHCTL_KERNEL"
         ;;
     sysvinit)
-        service "$CLASHCTL_KERNEL" start
+        _service_run_without_operation_lock service "$CLASHCTL_KERNEL" start
         ;;
     openrc)
-        rc-service "$CLASHCTL_KERNEL" start
+        _service_run_without_operation_lock rc-service "$CLASHCTL_KERNEL" start
         ;;
     runit)
-        sv up "$CLASHCTL_KERNEL"
+        # runit 需要先加入监督目录才能启动；此时主配置与 runtime 必须已有效。
+        _valid_config "$CLASH_CONFIG_RUNTIME" || return 1
+        service_enable || return 1
+        _service_run_without_operation_lock sv up "$CLASHCTL_KERNEL"
         ;;
     nohup | *)
-        (
-            nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME" </dev/null >"$service_log_path" 2>&1 &
-        )
+        local lock rc=0
+        /usr/bin/install -d "$(dirname -- "$service_pid_path")" || return 1
+        _service_process_lock_acquire "$service_pid_path" || return 1
+        lock=$_SERVICE_PROCESS_LOCK_PATH
+        _service_nohup_start_locked || rc=$?
+        _service_process_lock_release "$lock" || rc=1
+        return "$rc"
         ;;
     esac
 }
 
 service_sudo_start() {
-    _is_root && service_start && return 0
+    if _is_root; then
+        service_start
+        return
+    fi
+    _require_base_config || return 1
     detect_service_manager
-    (
-        sudo sh -c "nohup '$BIN_KERNEL' -d '$CLASH_RESOURCES_DIR' -f '$CLASH_CONFIG_RUNTIME' </dev/null > '$service_log_path' 2>&1 &"
-        stty opost 2>/dev/null
-    )
+    local owner_uid helper rc=0
+    owner_uid=$(id -u) || return 1
+    helper=${_SERVICE_PROCESS_HELPER_FILE:-}
+    [ -r "$helper" ] || return 1
+    /usr/bin/install -d "$(dirname -- "$service_log_path")" || return 1
+    : >>"$service_log_path" || return 1
+    # The caller opens the log as itself; the privileged helper only inherits stdout.
+    # shellcheck disable=SC2024
+    _service_run_without_operation_lock sudo bash "$helper" privileged-start \
+        "$owner_uid" "$CLASHCTL_KERNEL" "$BIN_KERNEL" \
+        "$CLASH_RESOURCES_DIR" "$CLASH_CONFIG_RUNTIME" \
+        >>"$service_log_path" || rc=$?
+    stty opost 2>/dev/null || true
+    return "$rc"
 }
 
 service_sudo_stop() {
     _is_root && service_stop && return 0
-    sudo pkill -TERM -x "$CLASHCTL_KERNEL" 2>/dev/null
-    sleep 0.2
-    sudo pkill -KILL -x "$CLASHCTL_KERNEL" 2>/dev/null
-    stty opost 2>/dev/null
+    local owner_uid helper rc=0
+    owner_uid=$(id -u) || return 1
+    helper=${_SERVICE_PROCESS_HELPER_FILE:-}
+    [ -r "$helper" ] || return 1
+    sudo bash "$helper" privileged-stop "$owner_uid" "$CLASHCTL_KERNEL" || rc=$?
+    stty opost 2>/dev/null || true
+    return "$rc"
 }
 
 service_stop() {
@@ -97,32 +198,13 @@ service_stop() {
         sv down "$CLASHCTL_KERNEL"
         ;;
     nohup | *)
-        pkill -TERM -x "$CLASHCTL_KERNEL" 2>/dev/null
-        sleep 0.2
-        pkill -KILL -x "$CLASHCTL_KERNEL" 2>/dev/null
-        ;;
-    esac
-}
-
-service_restart() {
-    detect_service_manager
-    case "$service_manager" in
-    systemd)
-        systemctl restart "$CLASHCTL_KERNEL"
-        ;;
-    sysvinit)
-        service "$CLASHCTL_KERNEL" restart
-        ;;
-    openrc)
-        rc-service "$CLASHCTL_KERNEL" restart
-        ;;
-    runit)
-        sv restart "$CLASHCTL_KERNEL"
-        ;;
-    nohup | *)
-        service_stop >/dev/null 2>&1
-        sleep 0.1
-        service_start
+        local lock rc=0
+        /usr/bin/install -d "$(dirname -- "$service_pid_path")" || return 1
+        _service_process_lock_acquire "$service_pid_path" || return 1
+        lock=$_SERVICE_PROCESS_LOCK_PATH
+        _service_nohup_stop_locked || rc=$?
+        _service_process_lock_release "$lock" || rc=1
+        return "$rc"
         ;;
     esac
 }
@@ -143,7 +225,15 @@ service_status() {
         sv status "$CLASHCTL_KERNEL" "$@"
         ;;
     nohup | *)
-        pgrep -fa "$BIN_KERNEL"
+        local pid
+        pid=$(_service_owned_pids) || pid=
+        if [ -n "$pid" ]; then
+            printf '%s\n' "$CLASHCTL_KERNEL 正在运行 (PID $pid)"
+        elif _service_privileged_marker_exists; then
+            printf '%s\n' "$CLASHCTL_KERNEL 正以特权模式运行"
+        else
+            return 1
+        fi
         ;;
     esac
 }
@@ -164,8 +254,123 @@ service_is_active() {
         sv status "$CLASHCTL_KERNEL" 2>/dev/null | grep -qs '^run'
         ;;
     nohup | *)
-        pgrep -fa "$BIN_KERNEL" >/dev/null 2>&1
+        _service_owned_pids >/dev/null 2>&1 || _service_privileged_marker_exists
         ;;
+    esac
+}
+
+_service_runit_enable_link() {
+    printf '%s\n' "/etc/runit/runsvdir/default/${CLASHCTL_KERNEL}"
+}
+
+_service_runit_link_state() {
+    local link=$1
+    if [ -L "$link" ]; then
+        printf 'symlink\t%s\n' "$(readlink -- "$link")"
+    elif [ -e "$link" ]; then
+        printf 'other\t\n'
+    else
+        printf 'absent\t\n'
+    fi
+}
+
+_service_atomic_symlink() {
+    local target=$1 link=$2 tmp
+    tmp="${link}.clashctl-new.$$.$RANDOM"
+    ln -s -- "$target" "$tmp" || return 1
+    if ! /bin/mv -fT -- "$tmp" "$link"; then
+        /usr/bin/rm -f -- "$tmp"
+        return 1
+    fi
+}
+
+service_enable() {
+    detect_service_manager
+    case "$service_manager" in
+    systemd)
+        systemctl enable --quiet "$CLASHCTL_KERNEL"
+        ;;
+    sysvinit)
+        if command -v chkconfig >/dev/null 2>&1; then
+            chkconfig --add "$CLASHCTL_KERNEL" >/dev/null &&
+                chkconfig "$CLASHCTL_KERNEL" on >/dev/null
+        elif command -v update-rc.d >/dev/null 2>&1; then
+            update-rc.d "$CLASHCTL_KERNEL" defaults >/dev/null &&
+                update-rc.d "$CLASHCTL_KERNEL" enable >/dev/null
+        else
+            return 127
+        fi
+        ;;
+    openrc)
+        rc-update add "$CLASHCTL_KERNEL" default >/dev/null
+        ;;
+    runit)
+        local service_target enable_link desired_target current_kind current_target
+        service_target=$(_service_target) || return 1
+        enable_link=$(_service_runit_enable_link)
+        desired_target=$(dirname -- "$service_target")
+        IFS=$'\t' read -r current_kind current_target < <(_service_runit_link_state "$enable_link")
+        [ "$current_kind" = absent ] ||
+            { [ "$current_kind" = symlink ] && [ "$current_target" = "$desired_target" ]; } || return 1
+        /usr/bin/install -d "$(dirname -- "$enable_link")" &&
+            _service_atomic_symlink "$desired_target" "$enable_link"
+        ;;
+    nohup | *)
+        return 0
+        ;;
+    esac
+}
+
+service_disable() {
+    detect_service_manager
+    case "$service_manager" in
+    systemd)
+        systemctl disable --quiet "$CLASHCTL_KERNEL"
+        ;;
+    sysvinit)
+        if command -v chkconfig >/dev/null 2>&1; then
+            chkconfig "$CLASHCTL_KERNEL" off >/dev/null
+        elif command -v update-rc.d >/dev/null 2>&1; then
+            update-rc.d "$CLASHCTL_KERNEL" disable >/dev/null
+        else
+            return 127
+        fi
+        ;;
+    openrc)
+        rc-update del "$CLASHCTL_KERNEL" default >/dev/null
+        ;;
+    runit)
+        local enable_link current_kind current_target desired_target=
+        enable_link=$(_service_runit_enable_link)
+        IFS=$'\t' read -r current_kind current_target < <(_service_runit_link_state "$enable_link")
+        [ "$current_kind" != absent ] || return 0
+        [ "$current_kind" = symlink ] || return 1
+        desired_target=$(_service_target 2>/dev/null) || desired_target=
+        [ -z "$desired_target" ] || desired_target=$(dirname -- "$desired_target")
+        if [ "$current_target" != "$desired_target" ]; then
+            return 1
+        fi
+        /usr/bin/rm -f -- "$enable_link"
+        ;;
+    nohup | *)
+        return 0
+        ;;
+    esac
+}
+
+_service_unregister() {
+    detect_service_manager
+    case "$service_manager" in
+    sysvinit)
+        if command -v chkconfig >/dev/null 2>&1; then
+            chkconfig --del "$CLASHCTL_KERNEL" >/dev/null
+        elif command -v update-rc.d >/dev/null 2>&1; then
+            update-rc.d -f "$CLASHCTL_KERNEL" remove >/dev/null
+        else
+            return 127
+        fi
+        ;;
+    *) return 0 ;;
     esac
 }
 
@@ -197,19 +402,28 @@ service_follow_log() {
     esac
 }
 
-service_read_log() {
+_service_target() {
     detect_service_manager
+
     case "$service_manager" in
     systemd)
-        journalctl -u "$CLASHCTL_KERNEL" --no-pager
+        printf '%s\n' "/etc/systemd/system/${CLASHCTL_KERNEL}.service"
+        ;;
+    sysvinit | openrc)
+        printf '%s\n' "/etc/init.d/${CLASHCTL_KERNEL}"
+        ;;
+    runit)
+        printf '%s\n' "/etc/sv/${CLASHCTL_KERNEL}/run"
         ;;
     *)
-        cat "$service_log_path" 2>/dev/null
+        return 1
         ;;
     esac
 }
 
-install_service() {
+# 将服务单元模板渲染（替换占位符）到 <dst>；无服务管理器时返回 1
+_render_service_unit() {
+    local dst=$1
     detect_service_manager
 
     local template_dir="${CLASHCTL_SRC}/scripts/init"
@@ -217,31 +431,27 @@ install_service() {
     local cmd_path="${BIN_KERNEL}"
     local cmd_arg="-d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME}"
     local cmd_full="${BIN_KERNEL} -d ${CLASH_RESOURCES_DIR} -f ${CLASH_CONFIG_RUNTIME}"
-    local service_src service_target
+    local service_src
 
     case "$service_manager" in
     systemd)
         service_src="${template_dir}/systemd.sh"
-        service_target="/etc/systemd/system/${CLASHCTL_KERNEL}.service"
         ;;
     sysvinit)
         service_src="${template_dir}/sysvinit.sh"
-        service_target="/etc/init.d/${CLASHCTL_KERNEL}"
         ;;
     openrc)
         service_src="${template_dir}/openrc.sh"
-        service_target="/etc/init.d/${CLASHCTL_KERNEL}"
         ;;
     runit)
         service_src="${template_dir}/runit.sh"
-        service_target="/etc/sv/${CLASHCTL_KERNEL}/run"
         ;;
-    nohup | *)
-        return 0
+    *)
+        return 1
         ;;
     esac
 
-    /usr/bin/install -D -m +x "$service_src" "$service_target"
+    /usr/bin/install -D -m 0644 "$service_src" "$dst" || return 1
     sed -i \
         -e "s#placeholder_cmd_path#$cmd_path#g" \
         -e "s#placeholder_cmd_args#$cmd_arg#g" \
@@ -250,129 +460,73 @@ install_service() {
         -e "s#placeholder_pid_path#$service_pid_path#g" \
         -e "s#placeholder_kernel_name#$CLASHCTL_KERNEL#g" \
         -e "s#placeholder_kernel_desc#$kernel_desc#g" \
-        "$service_target"
+        "$dst"
+}
 
-    case "$service_manager" in
+_service_definition_is_owned() {
+    local target=$1 command_line
+    command_line="$BIN_KERNEL -d $CLASH_RESOURCES_DIR -f $CLASH_CONFIG_RUNTIME"
+    case $service_manager in
     systemd)
-        systemctl daemon-reload || {
-            _failcat '❌' '重载 systemd 配置失败'
-            exit 1
-        }
-        _okcat '🧩' "已注册 systemd 服务：$CLASHCTL_KERNEL"
-
-        systemctl enable --quiet "$CLASHCTL_KERNEL" || {
-            _failcat '设置开机自启失败'
-            return 1
-        }
-        _okcat '🚀' '已设置开机自启'
+        grep -Fqx -- "ExecStart=$command_line" "$target" 2>/dev/null
         ;;
     sysvinit)
-        command -v chkconfig >&/dev/null && {
-            chkconfig --add "$CLASHCTL_KERNEL" >/dev/null || {
-                _failcat '❌' '注册 SysVinit 服务失败'
-                exit 1
-            }
-            _okcat '🧩' "已注册 SysVinit 服务：$CLASHCTL_KERNEL"
-
-            chkconfig "$CLASHCTL_KERNEL" on >/dev/null || {
-                _failcat '设置开机自启失败'
-                return 1
-            }
-            _okcat '🚀' '已设置开机自启'
-            return 0
-        }
-
-        command -v update-rc.d >&/dev/null && {
-            update-rc.d "$CLASHCTL_KERNEL" defaults >/dev/null || {
-                _failcat '❌' '注册 SysVinit 服务失败'
-                exit 1
-            }
-            _okcat '🧩' "已注册 SysVinit 服务：$CLASHCTL_KERNEL"
-
-            update-rc.d "$CLASHCTL_KERNEL" enable >/dev/null || {
-                _failcat '设置开机自启失败'
-                return 1
-            }
-            _okcat '🚀' '已设置开机自启'
-            return 0
-        }
-        _failcat '❌' '未找到 SysVinit 服务管理命令：chkconfig / update-rc.d'
-        exit 1
+        grep -Fqx -- "cmd=\"$command_line\"" "$target" 2>/dev/null
         ;;
     openrc)
-        rc-update add "$CLASHCTL_KERNEL" default >/dev/null || {
-            _failcat '设置开机自启失败'
-            return 1
-        }
-        _okcat '🚀' "已注册 OpenRC 服务并设置开机自启：$CLASHCTL_KERNEL"
+        grep -Fqx -- "command=\"$BIN_KERNEL\"" "$target" 2>/dev/null &&
+            grep -Fqx -- "command_args=\"-d $CLASH_RESOURCES_DIR -f $CLASH_CONFIG_RUNTIME\"" \
+                "$target" 2>/dev/null
         ;;
-
     runit)
-        local service_dir
-        service_dir="$(dirname -- "$service_target")"
-
-        mkdir -p -- "$service_dir" || {
-            _failcat '❌' '创建 runit 服务目录失败'
-            return 1
-        }
-
-        mkdir -p -- '/etc/runit/runsvdir/default' || {
-            _failcat '❌' '创建 runit 自启目录失败'
-            return 1
-        }
-
-        ln -snf -- "$service_dir" "/etc/runit/runsvdir/default/$CLASHCTL_KERNEL" || {
-            _failcat '❌' '设置开机自启失败'
-            return 1
-        }
-
-        _okcat '🚀' "已注册 runit 服务并设置开机自启：$CLASHCTL_KERNEL"
+        grep -Fqx -- "exec $command_line >$service_log_path 2>&1" "$target" 2>/dev/null
         ;;
-
-    *)
-        _failcat '❌' "不支持的服务管理器：$service_manager"
-        return 1
-        ;;
+    *) return 1 ;;
     esac
 }
 
-uninstall_service() {
-    detect_service_manager
-    service_stop >&/dev/null
-    case "$service_manager" in
-    systemd)
-        systemctl disable "$CLASHCTL_KERNEL" >&/dev/null
-        /usr/bin/rm -f -- "/etc/systemd/system/${CLASHCTL_KERNEL}.service" || {
-            _failcat '❌' '移除 systemd 服务失败'
-            return 1
-        }
-        systemctl daemon-reload >/dev/null 2>&1 || {
-            _failcat '❌' '重载 systemd 配置失败'
-            return 1
-        }
-        systemctl reset-failed "$CLASHCTL_KERNEL" >&/dev/null
 
-        _okcat '🧹' "已注销 systemd 服务：$CLASHCTL_KERNEL"
-        ;;
-    sysvinit)
-        if command -v chkconfig >/dev/null 2>&1; then
-            chkconfig "$CLASHCTL_KERNEL" off >/dev/null 2>&1 || true
-            chkconfig --del "$CLASHCTL_KERNEL" >/dev/null 2>&1 || true
-        elif command -v update-rc.d >/dev/null 2>&1; then
-            update-rc.d "$CLASHCTL_KERNEL" remove >/dev/null 2>&1 || true
-        fi
-        /usr/bin/rm -f "/etc/init.d/${CLASHCTL_KERNEL}"
-        ;;
-    openrc)
-        rc-update del "$CLASHCTL_KERNEL" default >/dev/null 2>&1 || true
-        /usr/bin/rm -f "/etc/init.d/${CLASHCTL_KERNEL}"
-        ;;
-    runit)
-        /usr/bin/rm -f "/etc/runit/runsvdir/default/${CLASHCTL_KERNEL}"
-        /usr/bin/rm -rf "/etc/sv/${CLASHCTL_KERNEL}"
-        ;;
-    nohup | *)
-        return 0
-        ;;
-    esac
+# 不接管外部同名服务；用户先自行处理冲突。
+_service_check_conflict() {
+    local target fragment
+    detect_service_manager
+    target=$(_service_target) || return 0
+    if [ -e "$target" ] || [ -L "$target" ]; then
+        [ ! -L "$target" ] && _service_definition_is_owned "$target" && return 0
+        _ui_error "同名服务已存在，请先处理后重试：$target"
+        return 1
+    fi
+    if [ "$service_manager" = systemd ]; then
+        fragment=$(systemctl show "$CLASHCTL_KERNEL.service" -p FragmentPath --value) || return 1
+        [ -z "$fragment" ] || { _ui_error "同名服务已存在：$fragment"; return 1; }
+    fi
+}
+
+install_service() (
+    local target candidate mode=0755
+    detect_service_manager
+    _service_check_conflict || return 1
+    target=$(_service_target) || return 0
+    candidate=$(mktemp) || return 1
+    trap 'rm -f -- "$candidate"' EXIT
+    _render_service_unit "$candidate" || return 1
+    [ "$service_manager" != systemd ] || mode=0644
+    install -D -m "$mode" "$candidate" "$target" || return 1
+    [ "$service_manager" != systemd ] || systemctl daemon-reload || return 1
+    # 这里只注册服务；有效配置启动成功后才设置自启。
+    return 0
+)
+
+uninstall_service() {
+    local target
+    detect_service_manager
+    _service_check_conflict || return 1
+    service_is_active && service_stop
+    service_is_active && { _ui_error '服务未能停止'; return 1; }
+    target=$(_service_target) || return 0
+    service_disable || return 1
+    _service_unregister || return 1
+    rm -f -- "$target" || return 1
+    [ "$service_manager" != systemd ] || systemctl daemon-reload || return 1
+    return 0
 }
