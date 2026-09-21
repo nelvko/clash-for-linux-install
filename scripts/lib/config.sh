@@ -48,7 +48,11 @@ _detect_proxy_port() {
     }
   done
 
-  [ "$count" -gt 0 ] && _merge_config
+  if [ "$count" -gt 0 ] && ! _merge_config; then
+    _errorcat '代理端口已调整，但运行配置更新失败'
+    return 1
+  fi
+  return 0
 }
 
 _detect_ext_addr() {
@@ -73,6 +77,7 @@ _detect_ext_addr() {
     EXT_ADDR="$ext_ip:$new_port" "$BIN_YQ" -i '.external-controller = env(EXT_ADDR)' "$CLASH_CONFIG_MIXIN"
     _merge_config
   }
+  return 0
 }
 
 _get_secret() {
@@ -226,7 +231,7 @@ _is_tun_enabled() {
   "$BIN_YQ" -e '.tun.enable == true' "$CLASH_CONFIG_RUNTIME" >&/dev/null
 }
 _merge_config_restart() {
-  local was_tun_active
+  local was_tun_active=false
 
   tunstatus >&/dev/null && was_tun_active=true
   # rc=1：合并/校验失败（runtime 已由 _merge_config 回滚为旧配置）

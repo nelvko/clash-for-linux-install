@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 
 clashon() {
-    # 安装失败或内核文件被移除时给出修复入口
+    case "${1:-}" in
+    -h | --help)
+        on_help
+        return
+        ;;
+    esac
+    # 安装失败或内核文件被移除时给出修复入口（帮助优先，不在此拦截）
     if [ ! -x "$BIN_KERNEL" ]; then
         _ui_fail "代理内核未安装（$CLASHCTL_KERNEL）"
         _ui_fail "请执行: CLASHCTL_HOME=$CLASHCTL_HOME bash $CLASHCTL_HOME/install.sh"

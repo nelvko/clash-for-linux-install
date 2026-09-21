@@ -97,6 +97,17 @@ grep -q '尚未配置订阅' "$WORK_DIR/install.out" || fail 'empty install did 
 # GH_PROXY 无隐式默认：未显式提供时保持未设（直连），不能静默套上第三方镜像。
 grep -q '^#GH_PROXY=https://gh-proxy.org$' "$CLASHCTL_HOME/.env" || fail 'GH_PROXY picked up an implicit default'
 grep -q '安装完成' "$WORK_DIR/install.out" || fail 'missing install result'
+# --gh-proxy 旗标：管道写法下参数写在右侧 bash 之后，两种形式都要生效并写入 .env。
+for flag in '--gh-proxy https://flag.proxy.test' '--gh-proxy=https://flag.proxy.test'; do
+    proxy_home="$WORK_DIR/flag-home"
+    rm -rf "$proxy_home"
+    # shellcheck disable=SC2086  # 故意按空格拆分为两个参数
+    CLASHCTL_HOME="$proxy_home" CI=1 bash "$REPO_DIR/install.sh" $flag >"$WORK_DIR/flag.out" 2>&1 ||
+        { cat "$WORK_DIR/flag.out"; fail "gh-proxy flag rejected: $flag"; }
+    grep -q '^GH_PROXY=https://flag.proxy.test$' "$proxy_home/.env" ||
+        fail "gh-proxy flag was not persisted: $flag"
+done
+rm -rf "$WORK_DIR/flag-home"
 # 源码不能通过重试初始化获得安装身份；克隆真实安装也不会继承 Git 私有标记。
 if CLASHCTL_HOME="$FIXTURE" bash "$FIXTURE/install.sh" >"$WORK_DIR/source-retry.out" 2>&1; then
     fail 'installer adopted source checkout as installation'
