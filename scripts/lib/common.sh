@@ -1,32 +1,108 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034
-CLASH_RESOURCES_DIR="${CLASHCTL_HOME}/resources"
-CLASH_CONFIG_BASE="${CLASH_RESOURCES_DIR}/config.yaml"
-CLASH_CONFIG_MIXIN="${CLASH_RESOURCES_DIR}/mixin.yaml"
-CLASH_CONFIG_RUNTIME="${CLASH_RESOURCES_DIR}/runtime.yaml"
-CLASH_CONFIG_TEMP="${CLASH_RESOURCES_DIR}/temp.yaml"
+# 下载默认值（.env 物化前或环境变量未设时兜底）；GH_PROXY 默认不设 = 直连，
+# 需要加速时经 --gh-proxy 旗标 / 环境变量 / .env 显式指定
+[ -n "${SUBCONVERTER_REPO:-}" ] || SUBCONVERTER_REPO=asdlokj1qpi233/subconverter
+[ "${CLASHCTL_DOWNLOAD_TIMEOUT+x}" = x ] || CLASHCTL_DOWNLOAD_TIMEOUT=60
+
+# 用户态全部在 data/（gitignore 目录），resources/ 只保留跟踪的资源文件
+CLASH_DATA_DIR="${CLASHCTL_HOME}/data"
+CLASH_CONFIG_BASE="${CLASH_DATA_DIR}/config.yaml"
+CLASH_CONFIG_MIXIN="${CLASH_DATA_DIR}/mixin.yaml"
+CLASH_CONFIG_RUNTIME="${CLASH_DATA_DIR}/runtime.yaml"
+# 旧 config.sh 的合并回滚临时文件（本次迁移未纳入 config.sh，故保留符号）
+CLASH_CONFIG_TEMP="${CLASH_DATA_DIR}/temp.yaml"
 # 订阅下载/校验失败时保留的调试产物（稳定路径，便于排障）
-CLASH_CONFIG_DEBUG="${CLASH_RESOURCES_DIR}/last-failed.yaml"
-CLASH_CONFIG_DEBUG_RAW="${CLASH_RESOURCES_DIR}/last-failed.raw"
+CLASH_CONFIG_DEBUG="${CLASH_DATA_DIR}/last-failed.yaml"
+CLASH_CONFIG_DEBUG_RAW="${CLASH_DATA_DIR}/last-failed.raw"
+
+CLASH_RESOURCES_DIR="${CLASHCTL_HOME}/resources"
 
 BIN_BASE_DIR="${CLASHCTL_HOME}/bin"
-BIN_KERNEL="${BIN_BASE_DIR}/$CLASHCTL_KERNEL"
+# fish 托管块首行标记：写入/识别/清理共用（preflight.sh 的 revoke 同引此量）
+CLASHCTL_FISH_MANAGED_MARKER='# clashctl shell-rc (managed by install.sh, do not edit)'
+# 内核二进制路径，安装和运行共用。
+bin_kernel_path() {
+    local kernel=${CLASHCTL_KERNEL:-mihomo}
+    printf '%s/%s/%s\n' "$BIN_BASE_DIR" "$kernel" "$kernel"
+}
+BIN_KERNEL=$(bin_kernel_path)
 BIN_YQ="${BIN_BASE_DIR}/yq"
+
+# 兼容性判定：仅 mikefarah yq v4（发行版打包的 Python yq 是 jq 语法，不兼容）。
+# 成功输出系统 yq 路径，不兼容/未安装时返回非零。
+_get_system_yq() {
+    local path
+    command -v yq >/dev/null 2>&1 || return 1
+    case $(yq --version 2>&1) in
+    *mikefarah*v4.*) ;;
+    *) return 1 ;;
+    esac
+    path=$(command -v yq) || return 1
+    printf '%s\n' "$path"
+}
+
+# 本地未下载 yq 时复用系统兼容副本；bin/yq 一旦存在即优先——
+# 系统 yq 日后被移除，重跑安装会重新下载（自愈）
+if [ ! -x "$BIN_YQ" ] && _system_yq=$(_get_system_yq); then
+    BIN_YQ=$_system_yq
+fi
+unset -v _system_yq
 BIN_SUBCONVERTER_DIR="${BIN_BASE_DIR}/subconverter"
 BIN_SUBCONVERTER="${BIN_SUBCONVERTER_DIR}/subconverter"
 BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
 BIN_SUBCONVERTER_LOG="${BIN_SUBCONVERTER_DIR}/latest.log"
 
-CLASH_PROFILES_DIR="${CLASH_RESOURCES_DIR}/profiles"
-CLASH_PROFILES_META="${CLASH_RESOURCES_DIR}/profiles.yaml"
-CLASH_PROFILES_LOG="${CLASH_RESOURCES_DIR}/profiles.log"
-CLASH_PROFILES_LOCK="${CLASH_RESOURCES_DIR}/profiles.lock"
+CLASH_PROFILES_DIR="${CLASH_DATA_DIR}/profiles"
 
-CLASHCTL_CRON_TAG="# clashctl-auto-update"
+CLASH_PROFILES_META="${CLASH_DATA_DIR}/profiles.yaml"
+CLASH_PROFILES_LOG="${CLASH_DATA_DIR}/profiles.log"
+CLASH_PROFILES_LOCK="${CLASH_DATA_DIR}/profiles.lock"
+
+CLASHCTL_CMD_DIR="${CLASHCTL_HOME}/scripts/cmd"
+
+# GH_PROXY 加速前缀拼接的唯一入口：设置代理时输出 "<代理>/<url>"，未设置时
+# 原样返回。勿在别处手写 ${GH_PROXY%/}/ 前缀（install.sh 根脚本 pre-source
+# 阶段除外——它用 --gh-proxy 旗标值，且尚无本文件可加载）
+gh_proxy_url() {
+    local url=$1
+    if [ -n "${GH_PROXY:-}" ]; then
+        printf '%s/%s\n' "${GH_PROXY%/}" "$url"
+    else
+        printf '%s\n' "$url"
+    fi
+}
 
 _is_port_used() {
-    { ss -tunlp 2>/dev/null || netstat -tunlp 2>/dev/null; } | grep -qs "$1"
+    local port=${1:-} sockets
+    [[ $port =~ ^[0-9]+$ ]] && [ "${#port}" -le 5 ] &&
+        ((10#$port >= 1 && 10#$port <= 65535)) || return 1
+    port=$((10#$port))
+
+    if command -v ss >/dev/null 2>&1 &&
+        sockets=$(ss -H -lntu "sport = :$port" 2>/dev/null); then
+        awk -v expected="$port" '
+            {
+                local_addr = $5
+                sub(/^.*:/, "", local_addr)
+                if (local_addr == expected) found = 1
+            }
+            END { exit(found ? 0 : 1) }
+        ' <<<"$sockets"
+        return
+    fi
+
+    command -v netstat >/dev/null 2>&1 || return 1
+    sockets=$(netstat -lntu 2>/dev/null) || return 1
+    awk -v expected="$port" '
+        {
+            local_addr = $4
+            sub(/^.*:/, "", local_addr)
+            if (local_addr == expected) found = 1
+        }
+        END { exit(found ? 0 : 1) }
+    ' <<<"$sockets"
 }
 
 _is_root() {
@@ -58,16 +134,154 @@ _get_local_ip() {
 }
 
 _get_random_val() {
-    tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 6
+    local value
+    value=$(od -An -N24 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n') || return 1
+    [ ${#value} -eq 48 ] || return 1
+    printf '%s\n' "$value"
+}
+
+# UI 颜色策略：NO_COLOR 优先；always/never 显式覆盖自动检测。
+# auto 仅在非 CI、终端能力正常且目标 fd 为 TTY 时启用颜色。
+_ui_color_enabled() {
+    local fd=${1:-2}
+
+    [ "${NO_COLOR+x}" != x ] || return 1
+    case ${CLASHCTL_COLOR:-auto} in
+    always) return 0 ;;
+    never) return 1 ;;
+    esac
+    [ "${CI+x}" != x ] || return 1
+    [ "${TERM:-dumb}" != dumb ] || return 1
+    [ -t "$fd" ]
+}
+
+# 结构化 UI 默认写 stderr；兼容旧命令时可显式选择 stdout。
+_ui_emit_fd() {
+    local fd=${1:-2} level
+    [ $# -gt 0 ] && shift
+    level=${1:-info}
+    [ $# -gt 0 ] && shift
+    local msg="$*" prefix color
+
+    case $level in
+    step)
+        prefix='[STEP]'
+        color=36
+        ;;
+    ok)
+        prefix='[ OK ]'
+        color=32
+        ;;
+    warn)
+        prefix='[WARN]'
+        color=33
+        ;;
+    error)
+        prefix='[ERROR]'
+        color=31
+        ;;
+    question)
+        prefix='[ ? ]'
+        color=35
+        ;;
+    header)
+        prefix='[INFO]'
+        color='1;36'
+        ;;
+    info | *)
+        prefix='[INFO]'
+        color=36
+        ;;
+    esac
+
+    if _ui_color_enabled "$fd"; then
+        printf '\033[%sm%s\033[0m %s\n' "$color" "$prefix" "$msg" >&"$fd"
+    else
+        printf '%s %s\n' "$prefix" "$msg" >&"$fd"
+    fi
+    return 0
+}
+
+_ui_emit() {
+    _ui_emit_fd 2 "$@"
+}
+
+_ui_step() {
+    _ui_emit step "$*"
+}
+
+_ui_info() {
+    _ui_emit info "$*"
+}
+
+_ui_ok() {
+    _ui_emit ok "$*"
+}
+
+_ui_warn() {
+    _ui_emit warn "$*"
+}
+
+_ui_error() {
+    _ui_emit error "$*"
+}
+
+_ui_header() {
+    _ui_emit header "$*"
+}
+
+_ui_info_out() {
+    _ui_emit_fd 1 info "$*"
+}
+
+_ui_ok_out() {
+    _ui_emit_fd 1 ok "$*"
+}
+
+_ui_fail() {
+    _ui_emit_fd 2 error "$*"
+    return 1
+}
+
+_ui_warn_fail() {
+    _ui_emit_fd 2 warn "$*"
+    return 1
+}
+
+_ui_prompt() {
+    local prompt=${1:-}
+
+    if _ui_color_enabled 2; then
+        printf '\033[35m[ ? ]\033[0m %s ' "$prompt" >&2
+    else
+        printf '[ ? ] %s ' "$prompt" >&2
+    fi
+    return 0
+}
+
+_ui_detail() {
+    local label=${1:-}
+    [ $# -gt 0 ] && shift
+
+    if [ $# -gt 0 ]; then
+        printf '        %s: %s\n' "$label" "$*" >&2
+    else
+        printf '        %s\n' "$label" >&2
+    fi
+    return 0
+}
+
+_ui_blank() {
+    printf '\n' >&2
+    return 0
 }
 
 _color_log() {
     local color="$1"
     local msg="$2"
 
-    # 输出目标非终端（cron / 管道 / 重定向）时不加颜色码，避免污染日志与 cron 邮件。
-    # fd1 已随调用方的 >&2 重定向，故此判断对 _okcat 与 _failcat/_errorcat 均成立。
-    [ -t 1 ] || {
+    # fd1 会随调用方重定向，因此仍按实际输出目标判定颜色。
+    _ui_color_enabled 1 || {
         printf '%s\n' "$msg"
         return
     }
@@ -83,31 +297,27 @@ _color_log() {
     printf "%b%s%b\n" "$color_code" "$msg" "$reset_code"
 }
 
+# ── 旧输出函数兼容层 ─────────────────────────────────────────────
+# 未纳入本次 install/update 迁移的命令（sub/node/config/convert/tun/ui 等）
+# 仍调用 master 时代的 _okcat/_failcat/_errorcat，这里按 _ui_* 转发，
+# 保证两套输出体系共存。后续统一到 _ui_* 时删除本块。
 _okcat() {
-    local color=#c8d6e5
     local emoji=😼
     [ $# -gt 1 ] && emoji=$1 && shift
-    local msg="${emoji} $1"
-    _color_log "$color" "$msg"
+    _ui_emit_fd 1 ok "$emoji $1"
     return 0
 }
 
 _failcat() {
-    local color=#fd79a8
     local emoji=😾
     [ $# -gt 1 ] && emoji=$1 && shift
-    local msg="${emoji} $1"
-    _color_log "$color" "$msg" >&2
-    return 1
+    _ui_fail "$emoji $1"
 }
 
 _errorcat() {
     [ $# -gt 0 ] && {
-        local color=#f92f60
-        local emoji=📢
-        [ $# -gt 1 ] && emoji=$1 && shift
-        local msg="${emoji} $1"
-        _color_log "$color" "$msg" >&2
+        [ $# -gt 1 ] && shift
+        _ui_fail "$*"
     }
     return 1
 }
@@ -150,14 +360,216 @@ _pad() {
 _set_env() {
     local key=$1
     local value=$2
-    local env_path="${CLASHCTL_HOME}/.env"
+    local env_path="${CLASHCTL_ENV_PATH:-${CLASHCTL_HOME}/.env}"
+    local quoted tmp line found=0
 
-    grep -qE "^${key}=" "$env_path" && {
-        value=${value//\\/\\\\}
-        value=${value//&/\\&}
-        value=${value//|/\\|}
-        sed -i "s|^${key}=.*|${key}=${value}|" "$env_path"
-        return $?
+    [[ $key =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
+    printf -v quoted '%q' "$value"
+    tmp=$(mktemp "${env_path}.tmp.XXXXXX") || return 1
+    chmod 0600 "$tmp" || {
+        /usr/bin/rm -f -- "$tmp"
+        return 1
     }
-    printf '%s=%s\n' "$key" "$value" >>"$env_path"
+    if [ -f "$env_path" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            case $line in
+            "$key="*)
+                printf '%s=%s\n' "$key" "$quoted" >>"$tmp" || {
+                    /usr/bin/rm -f -- "$tmp"
+                    return 1
+                }
+                found=1
+                ;;
+            *)
+                printf '%s\n' "$line" >>"$tmp" || {
+                    /usr/bin/rm -f -- "$tmp"
+                    return 1
+                }
+                ;;
+            esac
+        done <"$env_path"
+    fi
+    if [ "$found" -eq 0 ]; then
+        printf '%s=%s\n' "$key" "$quoted" >>"$tmp" || {
+            /usr/bin/rm -f -- "$tmp"
+            return 1
+        }
+    fi
+    /bin/mv -f -- "$tmp" "$env_path"
 }
+
+detect_rc() {
+    SHELL_RC_BASH=
+    SHELL_RC_ZSH=
+    SHELL_RC_FISH=
+    command -v bash >&/dev/null && {
+        SHELL_RC_BASH="${HOME}/.bashrc"
+    }
+    command -v zsh >&/dev/null && {
+        SHELL_RC_ZSH="${HOME}/.zshrc"
+    }
+    command -v fish >&/dev/null && [ -d "${HOME}/.config/fish" ] && {
+        SHELL_RC_FISH="${HOME}/.config/fish/conf.d/clashctl.fish"
+    }
+}
+
+# 幂等写入 bash/zsh 的 clashctl 引导块。返回 2 表示现有托管标记不完整，
+# 调用方必须保留原文件并提示人工处理。
+_append_source_block() {
+    local rc=$1
+    local tmp quoted mode
+
+    [ -f "$rc" ] || return 0
+    rc=$(readlink -f -- "$rc" 2>/dev/null) || return 1
+    awk '
+        $0 == "# >>> clashctl >>>" {
+            if (managed) exit 1
+            managed = 1
+            next
+        }
+        $0 == "# <<< clashctl <<<" {
+            if (!managed) exit 1
+            managed = 0
+        }
+        END { if (managed) exit 1 }
+    ' "$rc" >/dev/null || return 2
+    tmp=$(mktemp "${rc}.clashctl.XXXXXX") || return 1
+    mode=$(stat -c %a -- "$rc" 2>/dev/null) || mode=0600
+    awk '
+        /^# >>> clashctl >>>$/ { managed=1; next }
+        /^# <<< clashctl <<<$/{ managed=0; next }
+        managed { next }
+        # 同时清除旧版（master 时代）遗留的裸引导行与历史导出
+        /^export CLASHCTL_HOME=/ { next }
+        /^\. \$CLASHCTL_HOME\/scripts\/cmd\/clashctl\.sh$/ { next }
+        /^\[ -s "\$CLASHCTL_HOME\/scripts\/cmd\/clashctl\.sh" \]/ { next }
+        { print }
+    ' "$rc" >"$tmp" || {
+        /usr/bin/rm -f -- "$tmp"
+        return 1
+    }
+    if [ -s "$tmp" ] && [ "$(tail -c 1 -- "$tmp" | wc -l)" -eq 0 ]; then
+        printf '\n' >>"$tmp" || {
+            /usr/bin/rm -f -- "$tmp"
+            return 1
+        }
+    fi
+    printf -v quoted '%q' "$CLASHCTL_HOME"
+    {
+        printf '%s\n' '# >>> clashctl >>>'
+        printf 'export CLASHCTL_HOME=%s\n' "$quoted"
+        # shellcheck disable=SC2016 # 变量应在新 shell 加载 rc 时展开
+        printf '%s\n' '[ -s "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" ] && . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh"'
+        printf '%s\n' '# <<< clashctl <<<'
+    } >>"$tmp" || {
+        /usr/bin/rm -f -- "$tmp"
+        return 1
+    }
+    chmod "$mode" "$tmp" && /bin/mv -f -- "$tmp" "$rc"
+}
+
+# 只删除指向当前安装的完整托管块或相邻的旧版 export/source 两行。
+_remove_source_block() {
+    local rc=$1 tmp mode quoted parse_rc=0
+
+    [ -f "$rc" ] || return 0
+    rc=$(readlink -f -- "$rc" 2>/dev/null) || return 1
+    tmp=$(mktemp "${rc}.clashctl.XXXXXX") || return 1
+    mode=$(stat -c %a -- "$rc" 2>/dev/null) || mode=0600
+    printf -v quoted '%q' "$CLASHCTL_HOME"
+
+    CLASHCTL_RC_EXPORT="export CLASHCTL_HOME=$quoted" \
+        CLASHCTL_RC_LEGACY="export CLASHCTL_HOME=$CLASHCTL_HOME" awk '
+        BEGIN {
+            expected = ENVIRON["CLASHCTL_RC_EXPORT"]
+            legacy = ENVIRON["CLASHCTL_RC_LEGACY"]
+            guard = "[ -s \"$CLASHCTL_HOME/scripts/cmd/clashctl.sh\" ] && . \"$CLASHCTL_HOME/scripts/cmd/clashctl.sh\""
+            source = ". $CLASHCTL_HOME/scripts/cmd/clashctl.sh"
+        }
+        pending != "" {
+            if ($0 == guard || $0 == source) { pending = ""; removed = 1; next }
+            print pending
+            pending = ""
+        }
+        !managed && $0 == "# >>> clashctl >>>" {
+            managed = 1; owned = 0; foreign = 0
+            buffered = $0 ORS
+            next
+        }
+        managed {
+            buffered = buffered $0 ORS
+            if ($0 == expected || $0 == legacy) owned = 1
+            else if ($0 ~ /^export CLASHCTL_HOME=/ || $0 == "# >>> clashctl >>>") foreign = 1
+            if ($0 == "# <<< clashctl <<<") {
+                if (owned && !foreign) removed = 1
+                else printf "%s", buffered
+                managed = 0; buffered = ""
+            }
+            next
+        }
+        $0 == expected || $0 == legacy { pending = $0; next }
+        { print }
+        END {
+            if (managed) printf "%s", buffered
+            if (pending != "") print pending
+            if (!removed) exit 2
+        }
+    ' "$rc" >"$tmp" || parse_rc=$?
+    # 无匹配时保留原文件及其时间戳，包括没有末尾换行的情况。
+    if [ "$parse_rc" -eq 2 ]; then
+        /usr/bin/rm -f -- "$tmp"
+        return 0
+    fi
+    if [ "$parse_rc" -ne 0 ] || ! chmod "$mode" "$tmp" || ! /bin/mv -f -- "$tmp" "$rc"; then
+        /usr/bin/rm -f -- "$tmp"
+        return 1
+    fi
+}
+
+_fish_home_export() {
+    local quoted=${CLASHCTL_HOME//\\/\\\\}
+    quoted=${quoted//\'/\\\'}
+    printf "set -gx CLASHCTL_HOME '%s'\n" "$quoted"
+}
+
+# 将 clashctl.fish 以内容快照方式写入 fish 配置；内容无变化时也视为成功。
+_write_fish_rc() {
+    [ -n "$SHELL_RC_FISH" ] || return 2
+
+    if [ -e "$SHELL_RC_FISH" ] || [ -L "$SHELL_RC_FISH" ]; then
+        [ ! -L "$SHELL_RC_FISH" ] &&
+            head -n 1 -- "$SHELL_RC_FISH" 2>/dev/null |
+            grep -Fqx "$CLASHCTL_FISH_MANAGED_MARKER" || return 3
+    fi
+
+    local fish_dir
+    fish_dir=$(dirname -- "$SHELL_RC_FISH")
+    mkdir -p -- "$fish_dir" || return 1
+    local tmp
+    tmp=$(mktemp "${fish_dir}/.clashctl.fish.XXXXXX") || return 1
+    {
+        printf '%s\n' "$CLASHCTL_FISH_MANAGED_MARKER"
+        _fish_home_export
+        printf '\n'
+        cat -- "$CLASHCTL_CMD_DIR/clashctl.fish"
+    } >"$tmp" || {
+        /usr/bin/rm -f -- "$tmp"
+        return 1
+    }
+    if cmp -s -- "$tmp" "$SHELL_RC_FISH"; then
+        /usr/bin/rm -f -- "$tmp"
+        return 0
+    fi
+    if ! chmod 0644 -- "$tmp" || ! /bin/mv -f -- "$tmp" "$SHELL_RC_FISH"; then
+        /usr/bin/rm -f -- "$tmp"
+        return 1
+    fi
+}
+
+# UI 和订阅转换器沿用按需下载。
+_ci_provision() (
+    export CLASHCTL_SRC="$CLASHCTL_HOME"
+    operation_lock_acquire || return 1
+    . "$CLASHCTL_SRC/scripts/preflight.sh" || return 1
+    prepare_zip "$1"
+)

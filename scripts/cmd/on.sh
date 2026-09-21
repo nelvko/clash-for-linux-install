@@ -1,44 +1,52 @@
 #!/usr/bin/env bash
 
 clashon() {
-    case "$1" in
+    # 安装失败或内核文件被移除时给出修复入口
+    if [ ! -x "$BIN_KERNEL" ]; then
+        _ui_fail "代理内核未安装（$CLASHCTL_KERNEL）"
+        _ui_fail "请执行: CLASHCTL_HOME=$CLASHCTL_HOME bash $CLASHCTL_HOME/install.sh"
+        return 1
+    fi
+    case "${1:-}" in
     -e | --env-only)
-        on_env_only
+        _require_base_config || return 1
+        service_is_active >&/dev/null || {
+            _ui_fail "$CLASHCTL_KERNEL 未运行，请使用 clashctl on 开启代理环境"
+            return 1
+        }
         ;;
     -s | --service-only)
         on_service_only
+        return
         ;;
     -h | --help)
         on_help
+        return
         ;;
     *)
         on_service_only || return
-        on_env_only
         ;;
     esac
-}
-
-on_env_only() {
-    service_is_active >&/dev/null || {
-        _failcat "$CLASHCTL_KERNEL 未运行，请使用 clashctl on 开启代理环境"
-        return 1
-    }
-    set_system_proxy
-    _okcat "终端代理已启用"
+    set_system_proxy || return 1
+    _ui_ok_out "终端代理已启用"
 }
 
 on_service_only() {
     service_is_active >&/dev/null && {
-        _okcat "$CLASHCTL_KERNEL 已运行"
+        _require_base_config || return 1
+        _ui_ok_out "$CLASHCTL_KERNEL 已运行"
         return 0
     }
-    _detect_proxy_port
-    service_start
+    _merge_config || return 1
+    _detect_proxy_port || return 1
+    _detect_ext_addr || return 1
+    service_start || return 1
     service_is_active >&/dev/null || {
-        _failcat "$CLASHCTL_KERNEL 启动失败"
+        _ui_fail "$CLASHCTL_KERNEL 启动失败"
         return 1
     }
-    _okcat "$CLASHCTL_KERNEL 已启动"
+    service_enable || return 1
+    _ui_ok_out "$CLASHCTL_KERNEL 已启动"
 }
 
 on_help() {
@@ -58,13 +66,24 @@ EOF
 }
 
 set_system_proxy() {
-    local mixed_port http_port socks_port auth
-    IFS='|' read -r mixed_port http_port socks_port auth < <(
-        "$BIN_YQ" '[.mixed-port // "", .port // "", .socks-port // "", .authentication[0] // ""] | join("|")' "$CLASH_CONFIG_RUNTIME"
-    )
+    local mixed_port http_port socks_port auth proxy_values
+    proxy_values=$(
+        "$BIN_YQ" \
+            '[.mixed-port // "", .port // "", .socks-port // "", .authentication[0] // ""] | join("|")' \
+            "$CLASH_CONFIG_RUNTIME"
+    ) || {
+        _ui_error '无法读取运行配置中的代理连接信息'
+        return 1
+    }
+    IFS='|' read -r mixed_port http_port socks_port auth <<<"$proxy_values"
     [ -n "$auth" ] && auth=$auth@
 
-    local bind_addr=$(_get_bind_addr)
+    local bind_addr
+    bind_addr=$(_get_bind_addr) || return 1
+    if [ -z "$mixed_port" ] && { [ -z "$http_port" ] || [ -z "$socks_port" ]; }; then
+        _ui_error '运行配置缺少可用的 HTTP 或 SOCKS 代理端口'
+        return 1
+    fi
     local http_proxy_addr="http://${auth}${bind_addr}:${http_port:-${mixed_port}}"
     local socks_proxy_addr="socks5h://${auth}${bind_addr}:${socks_port:-${mixed_port}}"
     local no_proxy_addr="localhost,127.0.0.1,::1"
@@ -80,6 +99,7 @@ set_system_proxy() {
 
     export no_proxy=$no_proxy_addr
     export NO_PROXY=$no_proxy
+    return 0
 }
 
 _dump_proxy_env_fish() {

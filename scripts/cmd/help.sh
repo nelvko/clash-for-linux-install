@@ -18,6 +18,7 @@ Commands:
   secret                Web 密钥
   log                   查看日志
   upgrade               升级内核
+  update                更新脚本
 
 Global Options:
   -h, --help            显示帮助信息

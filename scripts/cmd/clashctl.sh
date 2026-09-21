@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 
-. "$CLASHCTL_HOME"/.env
+# 首次初始化时 .env 尚未创建
+[ -f "$CLASHCTL_HOME"/.env ] && . "$CLASHCTL_HOME"/.env
 
 for lib_file in "$CLASHCTL_HOME"/scripts/lib/*.sh; do
+    # shellcheck disable=SC1090  # 运行时按安装目录加载公共库
     . "$lib_file"
 done
 
 for cmd_file in "$CLASHCTL_HOME"/scripts/cmd/*.sh; do
     case "$cmd_file" in *clashctl.*) continue ;; esac
+    # shellcheck disable=SC1090  # 运行时按安装目录加载子命令
     . "$cmd_file"
 done
 
@@ -22,8 +25,8 @@ clashctl() {
 
     local target="clash${sub_cmd}"
     declare -F "$target" >&/dev/null || {
-        _failcat "Unknown subcommand: $target"
-        _failcat "Use 'clashctl help' for usage information."
+        _ui_fail "Unknown subcommand: $target"
+        _ui_fail "Use 'clashctl help' for usage information."
         return
     }
     "$target" "$@"
