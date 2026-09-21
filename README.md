@@ -17,42 +17,20 @@
 
 ## ✨ Features
 
-- **开箱即用**：一键部署 `mihomo` / `clash` 内核、Web 面板及运行依赖。
-- **广泛兼容**：支持 `root` / 普通用户，适配主流 `Linux` 发行版、容器环境及 `systemd` / `OpenRC` 等 `init` 系统。
+- **开箱即用**：一条命令部署 `mihomo` / `clash` 内核、Web 面板及运行依赖。有 `Git` 时克隆仓库，没有则下载源码压缩包。
+- **广泛兼容**：支持 `root` / 普通用户，适配主流 `Linux` 发行版、容器环境，以及 `systemd` / `OpenRC` / `runit` / `SysVinit` / `nohup`。
 - **统一管理**：通过 `clashctl` 管理代理启停、状态查看、日志追踪、Web 面板、TUN 模式、访问密钥与内核升级等。
 - **订阅管理**：支持多订阅源配置、一键新增、切换、更新等，并集成 [subconverter](https://github.com/tindy2013/subconverter) 实现订阅格式转换。
+- **配置可控**：主配置与 Mixin 分层合并；`clashctl update` 更新脚本时不影响你的订阅与自定义配置。
 
 ## 🚀 Installation
-
-一条命令安装（有 `Git` 时克隆仓库，没有则下载源码压缩包）：
-
-```bash
-curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | bash
-```
-
-默认安装到 `~/.clashctl`，装完**重开终端**加载命令。订阅链接可在安装时输入，也可跳过——跳过时只装组件和命令，不启动代理、不设自启。
-
-### 安装选项
-
-| 环境变量 | 作用 | 默认 |
-|---|---|---|
-| `CLASHCTL_HOME` | 安装目录 | `~/.clashctl` |
-| `CLASHCTL_UPDATE_BRANCH` | 安装/更新所跟踪的分支 | `master` |
-| `GH_PROXY` | GitHub 加速前缀；不设或设为空串则直连 | 不设（直连） |
-
-管道安装时，变量必须写在右侧 `bash` 之前，例如安装 `iu` 分支：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/iu/install.sh | CLASHCTL_UPDATE_BRANCH=iu bash
-```
-
-写在 `curl` 前面的变量不会传给右侧 `bash`。也可以改用 `--gh-proxy` 旗标（写在 `bash` 之后），避免环境变量位置踩坑：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | bash --gh-proxy https://gh-proxy.org
 ```
 
-旗标值会写入 `.env`，后续 `clashctl update` 沿用同一前缀。若加速前缀失效，可换其他[可用镜像](https://ghproxy.link/)。
+- 上述命令使用了[加速下载代理](https://gh-proxy.org/),若失效请更换其他[可用地址](https://ghproxy.link/)。`--gh-proxy` 的值会写入 `.env`，后续 `clashctl update` 沿用同一前缀。
+- 默认安装到 `~/.clashctl`，可用 `CLASHCTL_HOME` 指定其他目录。
 
 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
 
@@ -63,21 +41,17 @@ curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/mast
 ```bash
 clashctl on              # 开启代理
 clashctl off             # 关闭代理
-clashctl status          # 查看内核状态
+
+clashctl status          # 查看代理状态
 clashctl ui              # 查看 Web 面板地址
 
-clashctl sub add <url>   # 添加并启用订阅
-clashctl sub update      # 更新订阅
-clashctl node            # 切换节点
+clashctl sub             # 订阅管理
+clashctl node            # 节点管理
 
-clashctl update          # 更新脚本（保留订阅与自定义配置）
-
-clashctl -h              # 查看全部命令
+clashctl update          # 更新项目
 ```
 
 ## 🧹 Uninstall
-
-在安装目录下执行以下命令即可干净卸载（清除内核、配置及服务）：
 
 ```bash
 bash ~/.clashctl/uninstall.sh
