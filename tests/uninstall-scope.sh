@@ -2,6 +2,7 @@
 # 临时安装目录和用户目录，systemctl 桩记录调用，绝不操作宿主服务。
 # shellcheck disable=SC2016  # 引导文件中的变量必须原样写入
 set -euo pipefail
+unset CLASHCTL_HOME
 REPO_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf -- "$WORK_DIR"' EXIT
@@ -52,19 +53,19 @@ run_uninstall() {
         bash "$1/uninstall.sh" --yes >"$WORK_DIR/output" 2>&1
 }
 
-# 源码目录即使有 .git 或 .env 也不能卸载，更不能受继承的安装路径影响。
+# 没有安装时，源码入口只能报告未找到安装，不能加载或删除源码。
 setup_source "$WORK_DIR/clone"
 write_rc "$WORK_DIR/other-install"
 cp -a "$WORK_DIR/user" "$WORK_DIR/user.expected"
 printf 'exit 77\n' >"$WORK_DIR/clone/scripts/preflight.sh"
 if run_uninstall "$WORK_DIR/clone"; then fail 'fresh source clone was accepted for uninstall'; fi
 [ -f "$WORK_DIR/clone/uninstall.sh" ] || fail 'source clone was removed'
-grep -q '缺少匹配的安装标记' "$WORK_DIR/output" || fail 'missing source directory rejection'
+grep -q '未找到 clashctl 安装' "$WORK_DIR/output" || fail 'missing installation diagnosis'
 printf 'CLASHCTL_KERNEL=clash\nINIT_TYPE=systemd\n' >"$WORK_DIR/clone/.env"
 setup_install "$WORK_DIR/other-install"
 if (cd "$WORK_DIR/clone" && HOME="$WORK_DIR/user" CLASHCTL_HOME="$WORK_DIR/other-install" \
     bash uninstall.sh --yes) >"$WORK_DIR/output" 2>&1; then
-    fail 'source clone with environment was accepted for uninstall'
+    fail 'source entry accepted an installation without initialization state'
 fi
 [ -f "$WORK_DIR/clone/.env" ] || fail 'source clone with environment was removed'
 [ -f "$WORK_DIR/other-install/uninstall.sh" ] || fail 'source uninstall removed another installation'
@@ -85,11 +86,30 @@ ln -s "$WORK_DIR/external-marker" "$WORK_DIR/copied/.clashctl-install"
 if run_uninstall "$WORK_DIR/copied"; then fail 'symlink marker was accepted'; fi
 # 安装器留下的未初始化目录有真实标记，仍可清理，且不加载 preflight。
 setup_install "$WORK_DIR/interrupted"
+printf '%s\n' "$WORK_DIR/interrupted" >"$WORK_DIR/interrupted/.clashctl-uninitialized"
 printf 'exit 77\n' >"$WORK_DIR/interrupted/scripts/preflight.sh"
 run_uninstall "$WORK_DIR/interrupted" || fail 'interrupted installation cleanup failed'
 [ ! -e "$WORK_DIR/interrupted" ] || fail 'interrupted installation remains'
 [ ! -e "$UNINSTALL_CALLS" ] || fail 'interrupted install cleanup invoked system services'
 diff -r "$WORK_DIR/user.expected" "$WORK_DIR/user" || fail 'interrupted cleanup changed shell integration'
+
+# .env 丢失不能冒充安装中断；退出前不得操作服务、引导或目录。
+setup_install "$WORK_DIR/env-lost"
+printf 'CLASHCTL_KERNEL=clash\n' >"$WORK_DIR/env-lost/.env"
+rm "$WORK_DIR/env-lost/.env"
+touch "$UNINSTALL_ACTIVE"
+if run_uninstall "$WORK_DIR/env-lost"; then fail 'missing environment was treated as uninitialized'; fi
+[[ -d "$WORK_DIR/env-lost" && -f "$UNINSTALL_ACTIVE" ]] || fail 'missing environment cleanup changed installation state'
+[ ! -e "$UNINSTALL_CALLS" ] || fail 'missing environment touched services'
+grep -q '.env 缺失' "$WORK_DIR/output" || fail 'missing environment has no recovery message'
+diff -r "$WORK_DIR/user.expected" "$WORK_DIR/user" || fail 'missing environment changed shell integration'
+printf '%s\n' "$WORK_DIR/other-install" >"$WORK_DIR/env-lost/.clashctl-uninitialized"
+if run_uninstall "$WORK_DIR/env-lost"; then fail 'foreign initialization marker was accepted'; fi
+rm "$WORK_DIR/env-lost/.clashctl-uninitialized"
+printf '%s\n' "$WORK_DIR/env-lost" >"$WORK_DIR/uninitialized-marker"
+ln -s "$WORK_DIR/uninitialized-marker" "$WORK_DIR/env-lost/.clashctl-uninitialized"
+if run_uninstall "$WORK_DIR/env-lost"; then fail 'symlink initialization marker was accepted'; fi
+rm "$UNINSTALL_ACTIVE"
 
 # 无效 .env 不能沿用父进程内核，也不能删目录或 Shell 引导。
 setup_install "$WORK_DIR/invalid"
@@ -115,7 +135,7 @@ touch "$UNINSTALL_ACTIVE"
 if FAIL_STOP=1 run_uninstall "$WORK_DIR/installed"; then fail 'failed service stop was ignored'; fi
 [ -f "$WORK_DIR/installed/service.unit" ] || fail 'failed stop removed service definition'
 grep -q '# >>> clashctl >>>' "$WORK_DIR/user/.bashrc" || fail 'failed stop removed shell integration'
-run_uninstall "$WORK_DIR/installed" || { cat "$WORK_DIR/output"; fail 'installed cleanup failed'; }
+CLASHCTL_HOME="$WORK_DIR/other-install" run_uninstall "$WORK_DIR/installed" || { cat "$WORK_DIR/output"; fail 'installed cleanup failed'; }
 [ ! -d "$WORK_DIR/installed" ] || fail 'installation directory remains'
 [ ! -e "$UNINSTALL_ACTIVE" ] || fail 'service was not stopped'
 grep -q '^stop clash$' "$UNINSTALL_CALLS" || fail 'uninstall did not use stored kernel'
@@ -124,6 +144,49 @@ for rc in .bashrc .zshrc; do
     [ "$(cat "$WORK_DIR/user/$rc")" = '# user setting' ] || fail 'owned shell integration was not removed cleanly'
 done
 [ ! -e "$WORK_DIR/user/.config/fish/conf.d/clashctl.fish" ] || fail 'owned fish integration remains'
+
+# TUN 停止只经现有特权接口；拒绝提权时保留目录和引导，允许重试。
+setup_install "$WORK_DIR/tun"
+printf 'CLASHCTL_KERNEL=clash\nINIT_TYPE=nohup\n' >"$WORK_DIR/tun/.env"
+cat >>"$WORK_DIR/tun/scripts/lib/service.sh" <<'STUB'
+detect_service_manager() { service_manager=nohup; }
+_service_target() { return 1; }
+_service_privileged_marker_exists() { [ -f "$UNINSTALL_ACTIVE" ]; }
+service_is_active() { _service_privileged_marker_exists; }
+service_stop() { return 0; }
+service_sudo_stop() {
+    printf 'privileged-stop\n' >>"$UNINSTALL_CALLS"
+    [ "${FAIL_PRIVILEGED_STOP:-0}" = 0 ] || return 1
+    rm -f "$UNINSTALL_ACTIVE"
+}
+STUB
+write_rc "$WORK_DIR/tun"
+touch "$UNINSTALL_ACTIVE"
+if FAIL_PRIVILEGED_STOP=1 run_uninstall "$WORK_DIR/tun"; then fail 'privileged stop failure was ignored'; fi
+[[ -d "$WORK_DIR/tun" && -f "$UNINSTALL_ACTIVE" ]] || fail 'failed privileged stop removed installation'
+grep -q '# >>> clashctl >>>' "$WORK_DIR/user/.bashrc" || fail 'failed privileged stop removed shell integration'
+run_uninstall "$WORK_DIR/tun" || fail 'privileged uninstall failed'
+[[ ! -d "$WORK_DIR/tun" && ! -e "$UNINSTALL_ACTIVE" ]] || fail 'privileged uninstall retained installation or process'
+grep -q '^privileged-stop$' "$UNINSTALL_CALLS" || fail 'privileged stop was not used'
+
+# --yes 也披露删除范围；父 Shell 代理不会被子进程改变，缓存归属不明时报告并保留。
+setup_install "$WORK_DIR/messages"
+printf 'CLASHCTL_KERNEL=clash\n' >"$WORK_DIR/messages/.env"
+mkdir -p "$WORK_DIR/cache/clashctl"
+printf 'foreign-cache\n' >"$WORK_DIR/cache/clashctl/proxy.fish"
+http_proxy=http://127.0.0.1:7890 XDG_CACHE_HOME="$WORK_DIR/cache" run_uninstall "$WORK_DIR/messages" || fail 'uninstall with proxy failed'
+grep -q '含订阅和自定义配置' "$WORK_DIR/output" || fail 'missing data deletion notice'
+grep -q 'unset http_proxy' "$WORK_DIR/output" || fail 'missing parent shell cleanup command'
+grep -Fq "$WORK_DIR/cache/clashctl/proxy.fish" "$WORK_DIR/output" || fail 'residual cache was not reported'
+[ "$(cat "$WORK_DIR/cache/clashctl/proxy.fish")" = foreign-cache ] || fail 'unowned cache was changed'
+
+# 拒绝额外参数、EOF 和默认否，不能因 --yes 在首位而忽略误拼参数。
+setup_install "$WORK_DIR/cancelled"
+printf '%s\n' "$WORK_DIR/cancelled" >"$WORK_DIR/cancelled/.clashctl-uninitialized"
+if bash "$WORK_DIR/cancelled/uninstall.sh" --yes --typo >"$WORK_DIR/output" 2>&1; then fail 'extra argument was ignored'; fi
+if bash "$WORK_DIR/cancelled/uninstall.sh" </dev/null >"$WORK_DIR/output" 2>&1; then fail 'EOF confirmed uninstall'; fi
+if printf '\n' | bash "$WORK_DIR/cancelled/uninstall.sh" >"$WORK_DIR/output" 2>&1; then fail 'empty input confirmed uninstall'; fi
+[ -d "$WORK_DIR/cancelled" ] || fail 'cancelled uninstall removed installation'
 
 # 已初始化的旧安装也不能清理指向其他安装的引导。
 setup_install "$WORK_DIR/old"
@@ -138,4 +201,30 @@ printf '\nrevoke_rc() { return 1; }\n' >>"$WORK_DIR/rc-failed/scripts/preflight.
 if run_uninstall "$WORK_DIR/rc-failed"; then fail 'failed shell cleanup was ignored'; fi
 [ -d "$WORK_DIR/rc-failed" ] || fail 'failed shell cleanup removed installation'
 ! grep -q '卸载完成' "$WORK_DIR/output" || fail 'failed shell cleanup reported success'
+
+# 源码入口：显式环境变量优先于默认目录，只加载目标安装中的配置与库。
+default_home="$WORK_DIR/user/.clashctl"
+custom_home="$WORK_DIR/custom-install"
+for target in "$default_home" "$custom_home"; do
+    setup_install "$target"
+    printf 'CLASHCTL_KERNEL=clash\nINIT_TYPE=systemd\n' >"$target/.env"
+done
+if CLASHCTL_HOME="$WORK_DIR/missing" run_uninstall "$WORK_DIR/clone"; then fail 'invalid explicit target fell back to default'; fi
+if CLASHCTL_HOME="$WORK_DIR/clone" run_uninstall "$WORK_DIR/clone"; then fail 'source directory was accepted as explicit installation'; fi
+if CLASHCTL_HOME="$default_home" run_uninstall "$WORK_DIR/copied"; then fail 'invalid local marker fell back to another installation'; fi
+[[ -d "$default_home" && -d "$custom_home" ]] || fail 'invalid selection removed an installation'
+ln -s "$custom_home" "$WORK_DIR/custom-link"
+if printf 'n\n' | HOME="$WORK_DIR/user" CLASHCTL_HOME="$WORK_DIR/custom-link" \
+    bash "$WORK_DIR/clone/uninstall.sh" >"$WORK_DIR/output" 2>&1; then
+    fail 'declining detected installation still uninstalled it'
+fi
+grep -Fq "$custom_home" "$WORK_DIR/output" || fail 'confirmation did not show physical installation path'
+[ -d "$custom_home" ] || fail 'declined installation was deleted'
+CLASHCTL_HOME="$WORK_DIR/custom-link" run_uninstall "$WORK_DIR/clone" || { cat "$WORK_DIR/output"; fail 'explicit installation discovery failed'; }
+[ ! -d "$custom_home" ] || fail 'explicit installation remains'
+[ -d "$default_home" ] || fail 'explicit selection removed default installation'
+run_uninstall "$WORK_DIR/clone" || { cat "$WORK_DIR/output"; fail 'default installation discovery failed'; }
+[ ! -d "$default_home" ] || fail 'default installation remains'
+[[ -f "$WORK_DIR/clone/.env" && -f "$WORK_DIR/clone/uninstall.sh" ]] || fail 'source installation discovery modified source'
+
 printf 'uninstall-scope: ok\n'

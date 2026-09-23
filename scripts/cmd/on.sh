@@ -6,67 +6,23 @@ clashon() {
         on_help
         return
         ;;
-    esac
-    # 安装失败或内核文件被移除时给出修复入口（帮助优先，不在此拦截）
-    if [ ! -x "$BIN_KERNEL" ]; then
-        _ui_fail "代理内核未安装（$CLASHCTL_KERNEL）"
-        _ui_fail "请执行: CLASHCTL_HOME=$CLASHCTL_HOME bash $CLASHCTL_HOME/install.sh"
-        return 1
-    fi
-    case "${1:-}" in
-    -e | --env-only)
-        _require_base_config || return 1
-        service_is_active >&/dev/null || {
-            _ui_fail "$CLASHCTL_KERNEL 未运行，请使用 clashctl on 开启代理环境"
-            return 1
-        }
-        ;;
-    -s | --service-only)
-        on_service_only
-        return
-        ;;
-    -h | --help)
-        on_help
-        return
-        ;;
-    *)
-        on_service_only || return
-        ;;
+    '') clashstart || return ;;
+    *) _ui_fail '用法: clashctl on [--help]'; return 1 ;;
     esac
     set_system_proxy || return 1
-    _ui_ok_out "终端代理已启用"
-}
-
-on_service_only() {
-    service_is_active >&/dev/null && {
-        _require_base_config || return 1
-        _ui_ok_out "$CLASHCTL_KERNEL 已运行"
-        return 0
-    }
-    _merge_config || return 1
-    _detect_proxy_port || return 1
-    _detect_ext_addr || return 1
-    service_start || return 1
-    service_is_active >&/dev/null || {
-        _ui_fail "$CLASHCTL_KERNEL 启动失败"
-        return 1
-    }
-    service_enable || return 1
-    _ui_ok_out "$CLASHCTL_KERNEL 已启动"
+    _ui_ok_out "当前终端代理已启用"
 }
 
 on_help() {
     cat <<EOF
 
-clashctl on - 开启代理环境
+clashctl on - 启用当前终端代理，内核未运行时自动启动
 
 Usage:
   clashctl on [OPTIONS]
 
 Options:
-  -s, --service-only 仅启动 $CLASHCTL_KERNEL 服务
-  -e, --env-only     仅开启终端代理
-  -h, --help         显示帮助信息
+  -h, --help  显示帮助信息
 
 EOF
 }

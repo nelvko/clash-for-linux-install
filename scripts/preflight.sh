@@ -169,7 +169,7 @@ _managed_cache_file_discard() {
     archive_dir=$(cd -P -- "$archive_parent" 2>/dev/null && pwd -P) || return 2
     [ "$archive_dir" = "$cache_dir" ] || return 2
 
-    /usr/bin/rm -f -- "$archive" || return 1
+    command rm -f -- "$archive" || return 1
     [ ! -e "$archive" ] && [ ! -L "$archive" ]
 }
 
@@ -223,12 +223,12 @@ _download_archive() {
     if [ -e "$target" ] || [ -L "$target" ]; then
         _ui_warn "忽略损坏的依赖缓存：$label"
         _ui_detail "文件" "$target"
-        /usr/bin/rm -f -- "$target" || {
+        command rm -f -- "$target" || {
             _ui_error "无法移除损坏的依赖缓存：$label"
             return 1
         }
     fi
-    /usr/bin/rm -f -- "$part" || {
+    command rm -f -- "$part" || {
         _ui_error "无法清理上次下载的残片：$label"
         _ui_detail "残片" "$part"
         return 1
@@ -502,7 +502,7 @@ _component_prepare_ui() {
 
     /usr/bin/install -d -m 0700 -- "$extract_dir" || return 1
     if ! unzip -oqq "$archive" -d "$extract_dir" 2>/dev/null; then
-        /usr/bin/rm -rf -- "$extract_dir" || return 1
+        command rm -rf -- "$extract_dir" || return 1
         /usr/bin/install -d -m 0700 -- "$extract_dir" || return 1
         _component_extract_tar "$archive" "$extract_dir" || return 1
     fi
@@ -518,17 +518,17 @@ _component_cleanup() {
     [ -n "$stage" ] || return 0
     if [ "$pending" = true ]; then
         if [ -e "$stage/previous" ] || [ -L "$stage/previous" ]; then
-            if ! /usr/bin/rm -rf -- "$target" ||
+            if ! command rm -rf -- "$target" ||
                 ! /bin/mv -T -- "$stage/previous" "$target"; then
                 _ui_error "组件恢复失败，已保留暂存目录"
                 _ui_detail "暂存" "$stage"
                 return 1
             fi
         elif [ "$had_previous" = false ]; then
-            /usr/bin/rm -rf -- "$target" || return 1
+            command rm -rf -- "$target" || return 1
         fi
     fi
-    /usr/bin/rm -rf -- "$stage"
+    command rm -rf -- "$stage"
 }
 
 _install_component() (
@@ -683,7 +683,7 @@ apply_rc() {
     return 2
 }
 revoke_rc() {
-    detect_rc
+    detect_rc --installed
 
     local rc failures=0
     for rc in "$SHELL_RC_BASH" "$SHELL_RC_ZSH"; do
@@ -699,7 +699,7 @@ revoke_rc() {
         if [ ! -L "$SHELL_RC_FISH" ] &&
             [ "$(head -n 1 -- "$SHELL_RC_FISH")" = "$CLASHCTL_FISH_MANAGED_MARKER" ] &&
             [ "$(sed -n '2p' "$SHELL_RC_FISH")" = "$(_fish_home_export)" ]; then
-            /usr/bin/rm -f -- "$SHELL_RC_FISH" || {
+            command rm -f -- "$SHELL_RC_FISH" || {
                 _ui_error "无法清理 Fish 配置"
                 _ui_detail "文件" "$SHELL_RC_FISH"
                 failures=1

@@ -31,7 +31,7 @@ export INIT_TYPE=nohup
 . "$HOME_DIR/scripts/cmd/clashctl.sh"
 
 # 1) 每个公开子命令都必须有 clashXXX 函数
-for sub in on off status ui sub node tun mixin secret log upgrade update help; do
+for sub in on off start stop status ui sub node tun mixin secret log upgrade update help; do
     declare -F "clash${sub}" >/dev/null 2>&1 ||
         fail "subcommand not loaded: clashctl ${sub} (clash${sub} undefined)"
 done
@@ -45,7 +45,7 @@ grep -q 'Unknown subcommand' "$WORK_DIR/unknown.out" ||
 
 # 3) help 必须能执行且列出核心命令
 clashctl help >"$WORK_DIR/help.out" 2>&1 || fail 'clashctl help failed'
-for word in on off status ui sub node update; do
+for word in on off start stop status ui sub node update; do
     grep -q "  $word " "$WORK_DIR/help.out" ||
         fail "help does not list: $word"
 done
@@ -53,7 +53,7 @@ done
 # 4) 声明支持 -h/--help 的子命令，其 --help 不应因缺依赖而崩溃。
 #    其余命令（如 status/log）本就没有 help 分支，不在此断言。
 #    -h 是最轻的路径，能在无内核/无配置下验证函数体前半段接线正确。
-for sub in on off sub node tun mixin secret upgrade update; do
+for sub in on off start stop sub node tun mixin secret upgrade update; do
     rc=0
     clashctl "$sub" --help >"$WORK_DIR/$sub-help.out" 2>&1 || rc=$?
     [ "$rc" -eq 0 ] ||

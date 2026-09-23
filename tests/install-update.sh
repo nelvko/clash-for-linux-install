@@ -16,7 +16,7 @@ cp "$REPO_DIR/install.sh" "$FIXTURE/"
 cp "$REPO_DIR/uninstall.sh" "$FIXTURE/"
 cp "$REPO_DIR/.env.example" "$FIXTURE/"
 cp "$REPO_DIR/resources/"{mixin.yaml.example,profiles.yaml} "$FIXTURE/resources/"
-printf 'data/\nbin/\n.env\n.clashctl-install\n.clashctl-files\n' >"$FIXTURE/.gitignore"
+printf 'data/\nbin/\n.env\n.clashctl-install\n.clashctl-uninitialized\n.clashctl-files\n' >"$FIXTURE/.gitignore"
 cat >"$FIXTURE/scripts/preflight.sh" <<'STUB'
 [ ! -f "$CLASHCTL_HOME/.env" ] || . "$CLASHCTL_HOME/.env"
 CLASH_DATA_DIR="$CLASHCTL_HOME/data"
@@ -26,12 +26,17 @@ CLASH_CONFIG_BASE="$CLASH_DATA_DIR/config.yaml"
 CLASH_CONFIG_MIXIN="$CLASH_DATA_DIR/mixin.yaml"
 BIN_YQ=fixture_yq
 fixture_yq() { printf existing-secret; }
-bin_kernel_path() { printf '%s/bin/mihomo/mihomo' "$CLASHCTL_HOME"; }
+bin_kernel_path() { printf '%s/bin/%s/%s' "$CLASHCTL_HOME" "$CLASHCTL_KERNEL" "$CLASHCTL_KERNEL"; }
 operation_lock_acquire() { :; }
 valid_required() { :; }
 detect_service_manager() { service_manager=nohup; }
 _service_check_conflict() { :; }
-prepare_zip() { mkdir -p "$CLASHCTL_HOME/bin"; printf kernel >"$CLASHCTL_HOME/bin/kernel"; }
+prepare_zip() {
+    [ "${FAIL_PREPARE:-0}" = 0 ] || return 1
+    mkdir -p "$CLASHCTL_HOME/bin"
+    printf kernel >"$CLASHCTL_HOME/bin/kernel"
+    printf '%s|%s|%s\n' "$CLASHCTL_KERNEL" "$CLASHCTL_UPDATE_BRANCH" "$GH_PROXY" >"$CLASHCTL_HOME/data/download-options"
+}
 _set_env() { printf '%s=%q\n' "$1" "$2" >>"$CLASHCTL_HOME/.env"; }
 _merge_config() { printf runtime >"$CLASH_DATA_DIR/runtime.yaml"; }
 _detect_proxy_port() { :; }
@@ -41,13 +46,17 @@ install_service() { :; }
 service_start() { [ "${FAIL_START:-0}" = 0 ] && touch "$CLASH_DATA_DIR/started"; }
 service_is_active() { [ -f "$CLASH_DATA_DIR/started" ]; }
 service_enable() { touch "$CLASH_DATA_DIR/enabled"; }
-on_service_only() { _merge_config && service_start && service_enable; }
+clashstart() { _merge_config && service_start && service_enable; }
 clashsub() {
     printf '%s' "$3" >"$CLASH_DATA_DIR/subscription"
     printf main-config >"$CLASH_CONFIG_BASE"
-    on_service_only
+    clashstart
 }
-apply_rc() { touch "$CLASH_DATA_DIR/shell-ready"; }
+apply_rc() {
+    touch "$CLASH_DATA_DIR/shell-ready"
+    SHELL_RC_BASH="$CLASH_DATA_DIR/.bashrc"
+    touch "$SHELL_RC_BASH"
+}
 uninstall_service() { [ "${FAIL_STOP:-0}" = 0 ]; }
 revoke_rc() { :; }
 _ui_error() { printf '%s\n' "$*" >&2; }
@@ -55,7 +64,7 @@ _ui_info() { printf '%s\n' "$*"; }
 _ui_step() { :; }
 _ui_ok() { printf '%s\n' "$*"; }
 _ui_warn() { printf '%s\n' "$*"; }
-_ui_detail() { :; }
+_ui_detail() { printf '        %s: %s\n' "$1" "${2:-}"; }
 STUB
 printf 'fixture_version=old\n' >"$FIXTURE/scripts/cmd/clashctl.sh"
 "$REAL_GIT" -C "$FIXTURE" init -q -b master
@@ -92,31 +101,114 @@ env -u GH_PROXY -u CLASHCTL_UPDATE_BRANCH bash -c 'cat "$1" | bash' _ "$REPO_DIR
 grep -q '尚未配置订阅' "$WORK_DIR/install.out" || fail 'empty install did not explain missing configuration'
 [ -f "$CLASHCTL_HOME/data/shell-ready" ] || fail 'pipeline did not install shell integration'
 [ -f "$CLASHCTL_HOME/.env" ] || fail 'pipeline did not write environment'
+[ ! -e "$CLASHCTL_HOME/.clashctl-uninitialized" ] || fail 'initialized installation retains uninitialized marker'
 [ "$(head -n 1 "$CLASHCTL_HOME/.clashctl-install")" = "$CLASHCTL_HOME" ] || fail 'pipeline did not record installation path'
 [ "$(stat -c %a "$CLASHCTL_HOME/.clashctl-install")" = 600 ] || fail 'installation marker is not private'
 # GH_PROXY 无隐式默认：未显式提供时保持未设（直连），不能静默套上第三方镜像。
 grep -q '^#GH_PROXY=https://gh-proxy.org$' "$CLASHCTL_HOME/.env" || fail 'GH_PROXY picked up an implicit default'
 grep -q '安装完成' "$WORK_DIR/install.out" || fail 'missing install result'
+grep -q '添加订阅（bash）: source .*\.bashrc && clashctl sub add --use "<URL>" && clashctl on' "$WORK_DIR/install.out" || fail 'missing actionable next step'
+if grep -q 'find: warning:' "$WORK_DIR/install.out"; then fail 'source validation emitted a find warning'; fi
+# 下载运行组件失败时仍可凭安装阶段标记清理，不能依靠 .env 缺失猜测。
+interrupted_home="$WORK_DIR/prepare-failed"
+if FAIL_PREPARE=1 CLASHCTL_HOME="$interrupted_home" bash "$REPO_DIR/install.sh" >"$WORK_DIR/prepare-failed.out" 2>&1; then
+    fail 'component preparation failure was ignored'
+fi
+[ ! -e "$interrupted_home/.env" ] || fail 'failed preparation wrote environment'
+[ "$(cat "$interrupted_home/.clashctl-uninitialized")" = "$interrupted_home" ] || fail 'missing uninitialized path marker'
+bash "$interrupted_home/uninstall.sh" --yes >"$WORK_DIR/prepare-uninstall.out" 2>&1 || fail 'interrupted installation cannot be cleaned'
+[ ! -d "$interrupted_home" ] || fail 'interrupted installation remains'
 # --gh-proxy 旗标：管道写法下参数写在右侧 bash 之后，两种形式都要生效并写入 .env。
 for flag in '--gh-proxy https://flag.proxy.test' '--gh-proxy=https://flag.proxy.test'; do
     proxy_home="$WORK_DIR/flag-home"
     rm -rf "$proxy_home"
-    # shellcheck disable=SC2086  # 故意按空格拆分为两个参数
-    CLASHCTL_HOME="$proxy_home" CI=1 bash "$REPO_DIR/install.sh" $flag >"$WORK_DIR/flag.out" 2>&1 ||
+    # shellcheck disable=SC2002,SC2086  # 验证管道入口，并故意拆分旗标和值。
+    cat "$REPO_DIR/install.sh" | CLASHCTL_HOME="$proxy_home" CI=1 bash -s -- $flag >"$WORK_DIR/flag.out" 2>&1 ||
         { cat "$WORK_DIR/flag.out"; fail "gh-proxy flag rejected: $flag"; }
     grep -q '^GH_PROXY=https://flag.proxy.test$' "$proxy_home/.env" ||
         fail "gh-proxy flag was not persisted: $flag"
 done
 rm -rf "$WORK_DIR/flag-home"
+# 执行 README 原文中的管道命令，只把入口下载替换成本地脚本。
+readme_command=$(sed -n '/^curl .*install\.sh | /p' "$REPO_DIR/README.md")
+[ -n "$readme_command" ] || fail 'README installation command missing'
+CLASHCTL_HOME="$WORK_DIR/readme-home" bash -c '
+    installer=$1
+    curl() { cat "$installer"; }
+    eval "$2"
+' _ "$REPO_DIR/install.sh" "$readme_command" >"$WORK_DIR/readme.out" 2>&1 || {
+    cat "$WORK_DIR/readme.out"; fail 'README installation command failed'
+}
+grep -q '^GH_PROXY=https://gh-proxy.org$' "$WORK_DIR/readme-home/.env" || fail 'README proxy was not persisted'
+# 续装保留已保存的选项；显式参数优先，空代理可切回直连。
+retry_home="$WORK_DIR/retry-options"
+CLASHCTL_HOME="$retry_home" CLASHCTL_UPDATE_BRANCH=iu bash "$REPO_DIR/install.sh" clash --gh-proxy=https://old.proxy.test >"$WORK_DIR/options.out" 2>&1
+env -u GH_PROXY -u CLASHCTL_UPDATE_BRANCH CLASHCTL_HOME="$retry_home" bash "$retry_home/install.sh" >"$WORK_DIR/options.out" 2>&1
+[ "$(cat "$retry_home/data/download-options")" = 'clash|iu|https://old.proxy.test' ] || fail 'retry lost saved options'
+CLASHCTL_HOME="$retry_home" CLASHCTL_UPDATE_BRANCH=master GH_PROXY=https://env.proxy.test \
+    bash "$retry_home/install.sh" mihomo --gh-proxy=https://new.proxy.test >"$WORK_DIR/options.out" 2>&1
+[ "$(cat "$retry_home/data/download-options")" = 'mihomo|master|https://new.proxy.test' ] || fail 'saved options overrode retry arguments'
+env -u GH_PROXY -u CLASHCTL_UPDATE_BRANCH CLASHCTL_HOME="$retry_home" \
+    bash "$retry_home/install.sh" --gh-proxy= >"$WORK_DIR/options.out" 2>&1
+[ "$(cat "$retry_home/data/download-options")" = 'mihomo|master|' ] || fail 'retry could not clear proxy'
+env -u GH_PROXY -u CLASHCTL_UPDATE_BRANCH CLASHCTL_HOME="$retry_home" \
+    bash "$retry_home/install.sh" >"$WORK_DIR/options.out" 2>&1
+[ "$(cat "$retry_home/data/download-options")" = 'mihomo|master|' ] || fail 'retry options were not persisted'
 # 源码不能通过重试初始化获得安装身份；克隆真实安装也不会继承 Git 私有标记。
 if CLASHCTL_HOME="$FIXTURE" bash "$FIXTURE/install.sh" >"$WORK_DIR/source-retry.out" 2>&1; then
     fail 'installer adopted source checkout as installation'
 fi
 [ ! -e "$FIXTURE/.clashctl-install" ] || fail 'installer marked source checkout'
 [ ! -e "$FIXTURE/.env" ] || fail 'installer initialized source checkout'
+# --local 取脚本所在目录的工作区，不依赖 cwd、Git 或源码下载。
+local_source="$WORK_DIR/local-source"
+local_home="$WORK_DIR/local-home"
+cp -a "$FIXTURE" "$local_source"
+printf 'fixture_version=uncommitted\n' >"$local_source/scripts/cmd/clashctl.sh"
+printf 'local_helper=true\n' >"$local_source/scripts/local-helper.sh"
+printf 'ignored.txt\n' >>"$local_source/.gitignore"
+printf private >"$local_source/ignored.txt"
+printf 'exit 99\n' >"$local_source/.env"
+printf old-marker >"$local_source/.clashctl-install"
+printf old-manifest >"$local_source/.clashctl-files"
+mkdir -p "$local_source/data" "$local_source/bin" "$local_source/archives" "$local_source/resources/dist"
+for file in data/private bin/private archives/private resources/dist/index.html resources/cache.db; do
+    printf private >"$local_source/$file"
+done
+(
+    cd "$WORK_DIR"
+    FAIL_FETCH=1 FAIL_DOWNLOAD=1 CLASHCTL_HOME="$local_home" CLASHCTL_UPDATE_BRANCH=iu \
+        bash "$local_source/install.sh" --local --gh-proxy=https://local.proxy.test
+) >"$WORK_DIR/local.out" 2>&1 || { cat "$WORK_DIR/local.out"; fail 'local installation failed'; }
+grep -qx 'fixture_version=uncommitted' "$local_home/scripts/cmd/clashctl.sh" || fail 'local edits were not installed'
+[ -f "$local_home/scripts/local-helper.sh" ] || fail 'untracked source file was omitted'
+for file in .git ignored.txt data/private bin/private archives/private resources/dist resources/cache.db; do
+    [ ! -e "$local_home/$file" ] || fail "local installation copied $file"
+done
+grep -q '^CLASHCTL_UPDATE_BRANCH=iu$' "$local_home/.env" || fail 'local installation lost update branch'
+[ "$(tail -n 1 "$local_home/.clashctl-install")" = archive ] || fail 'local installation did not reuse archive updates'
+(cd "$local_home" && sha256sum --status -c .clashctl-files) || fail 'local manifest is invalid'
+[ "$(cat "$local_source/.env")" = 'exit 99' ] || fail 'source environment changed'
+[ "$(cat "$local_source/.clashctl-install")" = old-marker ] || fail 'source identity changed'
+bash "$local_home/uninstall.sh" --yes >"$WORK_DIR/local-uninstall.out" 2>&1 || fail 'local installation could not be uninstalled'
+[ -f "$local_source/install.sh" ] || fail 'uninstall removed local source'
+if CLASHCTL_HOME="$local_source/nested" bash "$local_source/install.sh" --local >"$WORK_DIR/local-nested.out" 2>&1; then
+    fail 'local installation accepted a destination inside its source'
+fi
+[ ! -e "$local_source/nested" ] || fail 'nested local installation changed source'
+# shellcheck disable=SC2002  # 验证管道输入缺少本地源码路径时的错误。
+if cat "$REPO_DIR/install.sh" | CLASHCTL_HOME="$WORK_DIR/local-pipe" bash -s -- --local >"$WORK_DIR/local-pipe.out" 2>&1; then
+    fail 'local installation accepted pipeline input'
+fi
+grep -q '不支持管道输入' "$WORK_DIR/local-pipe.out" || fail 'missing local pipeline diagnosis'
+printf 'broken() {\n' >"$local_source/scripts/local-helper.sh"
+if CLASHCTL_HOME="$local_home" bash "$local_source/install.sh" --local >"$WORK_DIR/local-broken.out" 2>&1; then
+    fail 'local installation accepted broken source'
+fi
+[ ! -e "$local_home" ] || fail 'invalid local source left an installation'
 "$REAL_GIT" clone -q "$CLASHCTL_HOME" "$WORK_DIR/cloned-install"
 [ ! -e "$WORK_DIR/cloned-install/.clashctl-install" ] || fail 'Git clone inherited installation identity'
-if bash "$WORK_DIR/cloned-install/uninstall.sh" --yes >"$WORK_DIR/cloned-uninstall.out" 2>&1; then
+if CLASHCTL_HOME="$WORK_DIR/cloned-install" bash "$WORK_DIR/cloned-install/uninstall.sh" --yes >"$WORK_DIR/cloned-uninstall.out" 2>&1; then
     fail 'cloned installation was accepted for uninstall'
 fi
 [ -f "$WORK_DIR/cloned-install/install.sh" ] || fail 'cloned installation was removed'
@@ -158,7 +250,7 @@ CLASHCTL_UPDATE_BRANCH=legacy cat "$REPO_DIR/install.sh" | CLASHCTL_UPDATE_BRANC
 [ "$("$REAL_GIT" -C "$WORK_DIR/iu" branch --show-current)" = iu ] || fail 'pipeline cloned the wrong branch'
 grep -q '^CLASHCTL_UPDATE_BRANCH=iu$' "$WORK_DIR/iu/.env" || fail 'pipeline did not persist selected branch'
 
-# 控制终端与脚本 stdin 分离：真实 PTY 下读取订阅，并验证输入不回显。
+# 控制终端与脚本 stdin 分离：真实 PTY 下读取订阅，并验证输入可见。
 # 分支选择以右侧 bash 的环境为准；右侧是交互 shell，安装器会从控制终端读订阅链接。
 TEST_REPO="$REPO_DIR" TEST_WORK="$WORK_DIR" TEST_FIXTURE="$FIXTURE" python3 - <<'PTY'
 import errno, os, pty, select, signal, time, subprocess
@@ -202,14 +294,21 @@ try:
             status = child_status
             break
     if status is None:
-        child, status = os.waitpid(pid, os.WNOHANG)
-        if not child:
-            raise AssertionError("TTY installation timed out")
+        # PTY 关闭可能早于子进程可回收；仍受同一个截止时间约束。
+        while time.monotonic() < deadline:
+            child, child_status = os.waitpid(pid, os.WNOHANG)
+            if child:
+                status = child_status
+                break
+            time.sleep(0.01)
+        if status is None:
+            raise AssertionError("TTY installation timed out: " + output.decode(errors="replace"))
     assert os.waitstatus_to_exitcode(status) == 0, output.decode(errors="replace")
     assert sent, "subscription prompt missing"
     assert os.path.isfile(work + "/tty-install/data/started")
     assert os.path.isfile(work + "/tty-install/data/enabled")
-    assert b"file:///private-subscription" not in output, "subscription echoed"
+    assert b"file:///private-subscription" in output, "subscription input was not visible"
+    assert "启用代理（bash）".encode() in output, "missing proxy activation step"
     with open(work + "/tty-install/data/subscription") as saved:
         assert saved.read() == "file:///private-subscription"
 finally:
@@ -248,12 +347,7 @@ marker_mtime=$(stat -c %Y "$CLASHCTL_HOME/.clashctl-install")
 clashupdate >"$WORK_DIR/marker-intact.out" 2>&1 || fail 'update failed with a healthy marker'
 [ "$(stat -c %Y "$CLASHCTL_HOME/.clashctl-install")" = "$marker_mtime" ] ||
     fail 'update rewrote an intact installation marker'
-# 已存在的 Git 安装可以凭旧的精确路径标记更新，并补写独立标记。
-printf '%s\n' "$CLASHCTL_HOME" >"$CLASHCTL_HOME/.git/clashctl-home"
-rm "$CLASHCTL_HOME/.clashctl-install"
-clashupdate >"$WORK_DIR/marker-update.out" 2>&1 || fail 'existing Git installation could not update'
-[ "$(head -n 1 "$CLASHCTL_HOME/.clashctl-install")" = "$CLASHCTL_HOME" ] || fail 'old installation marker was not migrated'
-# 空标记（半截写入的残留）必须自解释：只报"缺少匹配的安装标记"无法让用户知道该删哪个文件。
+# 空标记（半截写入的残留）必须指出具体文件，便于用户排查。
 printf '' >"$CLASHCTL_HOME/.clashctl-install"
 if clashupdate >"$WORK_DIR/marker-empty.out" 2>&1; then fail 'empty installation marker was accepted'; fi
 grep -q '安装标记为空' "$WORK_DIR/marker-empty.out" || fail 'empty marker had no diagnosis'

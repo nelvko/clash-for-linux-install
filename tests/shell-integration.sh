@@ -5,7 +5,7 @@ set -euo pipefail
 TEST_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_DIR=$(cd -- "$TEST_DIR/.." && pwd -P)
 WORK_DIR=$(mktemp -d)
-trap '/usr/bin/rm -rf -- "$WORK_DIR"' EXIT
+trap 'command rm -rf -- "$WORK_DIR"' EXIT
 
 fail() {
     printf 'FAIL: %s\n' "$*" >&2
@@ -157,5 +157,27 @@ cmp "$SHELL_RC_FISH" "$WORK_DIR/fish.other.expected" || fail 'uninstall removed 
 _write_fish_rc
 revoke_rc
 [ ! -e "$SHELL_RC_FISH" ] || fail 'uninstall retained its own fish file'
+
+# 用户先移除了 Shell 二进制，仍应清理实际存在且归属匹配的引导。
+eval "$_real_detect_rc"
+mkdir -p "$detect_home/.config/fish/conf.d"
+touch "$detect_home/.bashrc" "$detect_home/.zshrc"
+_append_source_block "$detect_home/.bashrc"
+_append_source_block "$detect_home/.zshrc"
+SHELL_RC_FISH="$detect_home/.config/fish/conf.d/clashctl.fish"
+_write_fish_rc
+(
+    # shellcheck disable=SC2317  # revoke_rc 间接使用 command，模拟 Shell 已移除。
+    command() {
+        case "$*" in
+        '-v zsh' | '-v fish') return 1 ;;
+        *) builtin command "$@" ;;
+        esac
+    }
+    HOME="$detect_home" revoke_rc
+) || fail 'cleanup depended on shell executables'
+! grep -q clashctl "$detect_home/.bashrc" || fail 'bash loader remains'
+! grep -q clashctl "$detect_home/.zshrc" || fail 'zsh loader remains without executable'
+[ ! -e "$SHELL_RC_FISH" ] || fail 'fish loader remains without executable'
 
 printf 'shell-integration: ok\n'

@@ -104,7 +104,7 @@ _service_process_record_create() {
             "argv=$_SERVICE_SNAPSHOT_ARGV" \
             "exe_id=$_SERVICE_SNAPSHOT_EXE_ID" >"$tmp"
     ) || ! chmod 0600 -- "$tmp" || ! /bin/mv -fT -- "$tmp" "$record"; then
-        /usr/bin/rm -f -- "$tmp"
+        command rm -f -- "$tmp"
         return 1
     fi
 }
@@ -129,7 +129,7 @@ _service_process_lock_acquire() {
                 return 1
             }
             if ! printf '%s %s\n' "$BASHPID" "$owner_starttime" >"$lock/owner"; then
-                /usr/bin/rm -f -- "$lock/owner"
+                command rm -f -- "$lock/owner"
                 rmdir -- "$lock" 2>/dev/null || true
                 return 1
             fi
@@ -138,7 +138,7 @@ _service_process_lock_acquire() {
         fi
         [ -d "$lock" ] && [ ! -L "$lock" ] || return 1
         if [ "$attempt" -ge 5 ] && ! _service_process_lock_owner_is_alive "$lock"; then
-            /usr/bin/rm -f -- "$lock/owner" 2>/dev/null || return 1
+            command rm -f -- "$lock/owner" 2>/dev/null || return 1
             rmdir -- "$lock" 2>/dev/null || return 1
             attempt=$((attempt + 1))
             continue
@@ -152,7 +152,7 @@ _service_process_lock_acquire() {
 _service_process_lock_release() {
     local lock=$1
     [ -n "$lock" ] || return 1
-    /usr/bin/rm -f -- "$lock/owner" || return 1
+    command rm -f -- "$lock/owner" || return 1
     rmdir -- "$lock" || return 1
     [ "${_SERVICE_PROCESS_LOCK_PATH:-}" != "$lock" ] || unset _SERVICE_PROCESS_LOCK_PATH
 }
@@ -365,7 +365,7 @@ _service_privileged_start_command_locked() {
             [ "$_SERVICE_RECORD_ARGV" = "$expected_argv" ] || return 1
             return 0
         fi
-        /usr/bin/rm -f -- "$record" || return 1
+        command rm -f -- "$record" || return 1
     fi
 
     nohup "$@" </dev/null 2>&1 &
@@ -375,7 +375,7 @@ _service_privileged_start_command_locked() {
             return 0
         fi
         _service_process_stop_recorded "$record" || true
-        /usr/bin/rm -f -- "$record"
+        command rm -f -- "$record"
         return 1
     fi
     if [ "${_SERVICE_SNAPSHOT_PID:-}" = "$pid" ]; then
@@ -385,7 +385,7 @@ _service_privileged_start_command_locked() {
     elif [ "${_SERVICE_PROCESS_BIRTH_PID:-}" = "$pid" ]; then
         _service_process_stop_birth "$pid" "$_SERVICE_PROCESS_BIRTH_STARTTIME"
     fi
-    /usr/bin/rm -f -- "$record"
+    command rm -f -- "$record"
     return 1
 }
 
@@ -417,7 +417,7 @@ _service_privileged_start_at() {
 }
 
 _service_privileged_stop_at() {
-    local runtime_dir=$1 owner_uid=$2 kernel=$3 record lock rc=0
+    local runtime_dir=$1 owner_uid=$2 kernel=$3 expected_argv=$4 record lock rc=0
     [ "$(id -u)" -eq 0 ] || return 1
     _service_privileged_validate_key "$owner_uid" "$kernel" || return 1
     [ -e "$runtime_dir" ] || [ -L "$runtime_dir" ] || return 0
@@ -426,11 +426,14 @@ _service_privileged_stop_at() {
     _service_process_lock_acquire "$record" || return 1
     lock=$_SERVICE_PROCESS_LOCK_PATH
     if [ -e "$record" ] || [ -L "$record" ]; then
+        # 同一用户可能存在多个安装；仅 UID 与内核名相同不足以授权停止。
         if ! _service_privileged_record_is_secure "$record" ||
+            ! _service_process_record_load "$record" ||
+            [ "$_SERVICE_RECORD_ARGV" != "$expected_argv" ] ||
             ! _service_process_stop_recorded "$record"; then
             rc=1
         elif [ "${_SERVICE_PROCESS_RECORD_CAN_REMOVE:-0}" -ne 0 ]; then
-            /usr/bin/rm -f -- "$record" || rc=1
+            command rm -f -- "$record" || rc=1
         fi
     fi
     _service_process_lock_release "$lock" || rc=1
@@ -448,7 +451,7 @@ _service_process_privileged_cli() {
         _service_privileged_start_at /run/clashctl "$@"
         ;;
     privileged-stop)
-        [ "$#" -eq 2 ] || return 2
+        [ "$#" -eq 3 ] || return 2
         _service_privileged_stop_at /run/clashctl "$@"
         ;;
     *) return 2 ;;

@@ -11,7 +11,7 @@ cleanup() {
         kill -KILL "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
     done
-    /usr/bin/rm -rf -- "$WORK_DIR"
+    command rm -rf -- "$WORK_DIR"
 }
 trap cleanup EXIT
 
@@ -39,8 +39,8 @@ CLASHCTL_HOME="$WORK_DIR/owned"
 . "$REPO_DIR/scripts/lib/service.sh"
 
 mkdir -p -- "$WORK_DIR/owned/bin" "$WORK_DIR/other/bin" "$WORK_DIR/owned/data"
-cp -- /usr/bin/sleep "$WORK_DIR/owned/bin/mihomo"
-cp -- /usr/bin/sleep "$WORK_DIR/other/bin/mihomo"
+cp -- "$(command -v sleep)" "$WORK_DIR/owned/bin/mihomo"
+cp -- "$(command -v sleep)" "$WORK_DIR/other/bin/mihomo"
 chmod 0700 "$WORK_DIR/owned/bin/mihomo" "$WORK_DIR/other/bin/mihomo"
 
 CLASHCTL_KERNEL=mihomo
@@ -78,7 +78,7 @@ test_exact_record_and_atomic_binary_replacement() {
     [ "$_SERVICE_RECORD_ARGV" = "$expected_argv" ] || fail 'record did not retain the complete argv'
     case $_SERVICE_RECORD_STARTTIME in '' | *[!0-9]*) fail 'recorded starttime is invalid' ;; esac
 
-    cp -- /usr/bin/sleep "$BIN_KERNEL.new"
+    cp -- "$(command -v sleep)" "$BIN_KERNEL.new"
     chmod 0700 "$BIN_KERNEL.new"
     /bin/mv -f -- "$BIN_KERNEL.new" "$BIN_KERNEL"
     case $(readlink -- "/proc/${owned_pid}/exe") in
@@ -159,8 +159,9 @@ test_pid_identity_is_rechecked_before_kill() {
 
 test_privileged_record_is_root_owned_and_authoritative() {
     local runtime_dir="$WORK_DIR/root-runtime" privileged_bin="$WORK_DIR/privileged-mihomo"
-    local record privileged_pid unrecorded_pid local_pidfile="$WORK_DIR/user.pid"
-    cp -- /usr/bin/yes "$privileged_bin"
+    local record privileged_pid unrecorded_pid expected_argv local_pidfile="$WORK_DIR/user.pid"
+    expected_argv=$(_service_process_values_argv_hex "$privileged_bin" 30)
+    cp -- "$(command -v yes)" "$privileged_bin"
     chmod 0700 "$privileged_bin"
     _service_privileged_start_command_at \
         "$runtime_dir" 1000 mihomo "$privileged_bin" "$privileged_bin" 30 \
@@ -179,13 +180,20 @@ test_privileged_record_is_root_owned_and_authoritative() {
     printf '%s\n' "$unrecorded_pid" >"$local_pidfile"
 
     chmod 0666 "$record"
-    if _service_privileged_stop_at "$runtime_dir" 1000 mihomo; then
+    if _service_privileged_stop_at "$runtime_dir" 1000 mihomo "$expected_argv"; then
         fail 'privileged helper trusted an insecure root-side record'
     fi
     assert_alive "$privileged_pid" 'insecure privileged record caused its process to be signalled'
     chmod 0600 "$record"
 
-    _service_privileged_stop_at "$runtime_dir" 1000 mihomo ||
+    if _service_privileged_stop_at "$runtime_dir" 1000 mihomo \
+        "$(_service_process_values_argv_hex "$WORK_DIR/another-install/mihomo" 30)"; then
+        fail 'privileged helper accepted another installation command'
+    fi
+    assert_alive "$privileged_pid" 'uninstalling another installation stopped privileged process'
+    [ -f "$record" ] || fail 'foreign privileged record was removed'
+
+    _service_privileged_stop_at "$runtime_dir" 1000 mihomo "$expected_argv" ||
         fail 'privileged helper could not stop its securely recorded process'
     wait "$privileged_pid" 2>/dev/null || true
     assert_dead "$privileged_pid" 'privileged helper left its recorded process running'

@@ -12,7 +12,7 @@ cleanup() {
         kill -KILL "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
     done
-    /usr/bin/rm -rf -- "$WORK_DIR"
+    command rm -rf -- "$WORK_DIR"
 }
 trap cleanup EXIT
 

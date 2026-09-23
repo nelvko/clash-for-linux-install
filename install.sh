@@ -3,26 +3,14 @@
 # 同时供安装入口与 clashupdate 使用；source 本文件只加载函数。
 _install_method() {
     local home=$1 marker
-    # 兼容旧形态路径标记，使老安装能被识别、更新并迁移出独立标记；不凭 .git 或 .env 推断安装身份。
-    if [ ! -e "$home/.clashctl-install" ] && [ ! -L "$home/.clashctl-install" ] &&
-        [ -d "$home/.git" ] && [ ! -L "$home/.git" ] &&
-        [ -f "$home/.git/clashctl-home" ] && [ ! -L "$home/.git/clashctl-home" ] &&
-        [ "$(cat -- "$home/.git/clashctl-home")" = "$home" ]; then
-        printf 'git\n'
-        return 0
-    fi
     if [ -f "$home/.clashctl-install" ] && [ ! -L "$home/.clashctl-install" ]; then
         marker=$(cat -- "$home/.clashctl-install") || return 1
         case "$marker" in
         "$home"$'\ngit') printf 'git\n'; return 0 ;;
         "$home"$'\narchive') printf 'archive\n'; return 0 ;;
-        '') printf '安装标记为空，无法识别安装类型，也不能卸载；请删除 %s 后重新安装\n' "$home/.clashctl-install" >&2; return 1 ;;
+        '') printf '安装标记为空，无法识别安装类型，也不能卸载：%s；请备份后重新安装\n' "$home/.clashctl-install" >&2; return 1 ;;
         esac
         printf '安装标记与当前路径不匹配，无法更新或卸载：%s\n' "$home/.clashctl-install" >&2
-    elif { [ -e "$home/.git/clashctl-home" ] || [ -L "$home/.git/clashctl-home" ]; } ||
-        { [ -e "$home/.git" ] && [ ! -d "$home/.git" ]; } || [ -L "$home/.git" ]; then
-        # .git/clashctl-home 单纯缺失属于"重跑安装器重试初始化"的合法入口，保持静默。
-        printf '安装目录的 .git 无法安全使用或缺少旧形态路径标记 %s，无法更新；请备份后重新安装\n' "$home/.git/clashctl-home" >&2
     fi
     return 1
 }
@@ -83,7 +71,7 @@ _source_validate() {
             return 1
         fi
         case "$file" in *.sh) bash -n "$file" || return 1 ;; esac
-    done < <(find "$directory" -mindepth 1 -path "$directory/.git" -prune -o -mindepth 1 -print0)
+    done < <(find "$directory" -mindepth 1 -path "$directory/.git" -prune -o -print0)
 }
 
 _source_manifest() (
@@ -93,13 +81,40 @@ _source_manifest() (
         sort -z | xargs -0 -r sha256sum
 )
 
+_install_next_step() {
+    local shell=$1 rc_var rc_path load_command
+    case "$shell" in bash | zsh | fish) ;; *) shell=bash ;; esac
+    rc_var=SHELL_RC_${shell^^}
+    rc_path=${!rc_var:-}
+    if [ -f "$rc_path" ]; then
+        printf -v load_command 'source %q' "$rc_path"
+        if [[ $rc_path == "$HOME/"* ]]; then
+            printf -v load_command 'source ~/%q' "${rc_path#"$HOME/"}"
+        fi
+    elif [ "$shell" = fish ]; then
+        printf -v load_command 'set -gx CLASHCTL_HOME %q; source %q' \
+            "$CLASHCTL_HOME" "$CLASHCTL_HOME/scripts/cmd/clashctl.fish"
+    else
+        printf -v load_command 'export CLASHCTL_HOME=%q; source %q' \
+            "$CLASHCTL_HOME" "$CLASHCTL_HOME/scripts/cmd/clashctl.sh"
+    fi
+    if [ -s "$CLASH_CONFIG_BASE" ]; then
+        _ui_detail "启用代理（$shell）" "$load_command && clashctl on"
+    else
+        _ui_detail "添加订阅（$shell）" "$load_command && clashctl sub add --use \"<URL>\" && clashctl on"
+    fi
+}
+
 _install_initialize() {
     export CLASHCTL_SRC="$CLASHCTL_HOME"
     . "$CLASHCTL_SRC/scripts/preflight.sh" || return 1
-    local kernel=${CLASHCTL_KERNEL:-mihomo} branch=${CLASHCTL_UPDATE_BRANCH:-master}
+    # 参数在 main 中保存，不受 preflight 加载已有 .env 的影响。
+    local kernel=${1:-${CLASHCTL_KERNEL:-mihomo}} branch=${2:-${CLASHCTL_UPDATE_BRANCH:-master}}
     local proxy=${GH_PROXY:-} subscription='' rc secret
+    [ "$4" != x ] || proxy=$3
     export -n subscription secret
     export CLASHCTL_KERNEL="$kernel" CLASHCTL_UPDATE_BRANCH="$branch" GH_PROXY="$proxy"
+    # shellcheck disable=SC2034  # preflight 中的组件安装与服务定义共用此路径。
     BIN_KERNEL=$(bin_kernel_path) || return 1
     operation_lock_acquire || return 1
     valid_required || return 1
@@ -115,6 +130,8 @@ _install_initialize() {
     done
     [ -f "$CLASH_CONFIG_BASE" ] || install -m 0600 /dev/null "$CLASH_CONFIG_BASE" || return 1
     prepare_zip kernel yq || return 1
+    # 在写入配置、注册服务之前撤销未初始化凭据；后续丢失 .env 不能按空安装删除。
+    command rm -f -- "$CLASHCTL_HOME/.clashctl-uninitialized" || return 1
     [ -f "$CLASHCTL_HOME/.env" ] || install -m 0600 "$CLASHCTL_HOME/.env.example" "$CLASHCTL_HOME/.env" || return 1
     _set_env CLASHCTL_KERNEL "$kernel" || return 1
     _set_env CLASHCTL_UPDATE_BRANCH "$branch" || return 1
@@ -123,7 +140,7 @@ _install_initialize() {
     _set_env INIT_TYPE "$service_manager" || return 1
     . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" || return 1
 
-    _ui_step '初始化 Mixin 与服务定义'
+    _ui_step '配置服务与终端命令'
     # 密钥直接写入 Mixin，无主配置时不生成 runtime。
     secret=$("$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_MIXIN") || return 1
     if [ -z "$secret" ]; then
@@ -134,8 +151,7 @@ _install_initialize() {
     apply_rc || { rc=$?; [ "$rc" -eq 2 ] || return "$rc"; }
 
     if [ "${CI+x}" != x ] && ( : </dev/tty ) 2>/dev/null; then
-        IFS= read -r -s -p '订阅链接（回车跳过）: ' subscription </dev/tty || subscription=''
-        printf '\n' >/dev/tty
+        IFS= read -r -p '订阅链接（回车跳过）: ' subscription </dev/tty || subscription=''
     fi
     if [ -n "$subscription" ]; then
         # 订阅失败不算安装失败：组件、命令和服务都已就绪，此时报"安装未完成"会误导用户重装。
@@ -144,39 +160,51 @@ _install_initialize() {
             _ui_detail '稍后重试' 'clashctl sub add --use <URL>'
         fi
     elif [ -s "$CLASH_CONFIG_BASE" ]; then
-        on_service_only || return 1
+        clashstart || return 1
     else
-        _ui_info '尚未配置订阅，代理未启动'
-        _ui_detail '添加并启用订阅' 'clashctl sub add --use <URL>'
+        _ui_info '尚未配置订阅，内核未启动'
     fi
     _ui_ok '安装完成'
-    _ui_detail '加载命令' "重开终端，或执行 export CLASHCTL_HOME=$CLASHCTL_HOME; source \$CLASHCTL_HOME/scripts/cmd/clashctl.sh"
-    _ui_detail '更新脚本' 'clashupdate'
+    # 安装器运行在子进程中；优先识别调用它的 Shell，登录 Shell 只作兜底。
+    local shell
+    shell=$(readlink "/proc/$PPID/exe" 2>/dev/null) || shell=${SHELL:-bash}
+    case ${shell##*/} in bash | zsh | fish) ;; *) shell=${SHELL:-bash} ;; esac
+    _install_next_step "${shell##*/}"
 }
 
 # 可直接 curl .../install.sh | bash；交互输入从 /dev/tty 读取。
 main() (
     set -e
     local install_home=${CLASHCTL_HOME:-$HOME/.clashctl}
-    local branch=${CLASHCTL_UPDATE_BRANCH:-master} kernel=mihomo
-    local proxy=${GH_PROXY:-} stage='' arg method
+    local branch=${CLASHCTL_UPDATE_BRANCH:-} kernel=''
+    local proxy=${GH_PROXY:-} proxy_set=${GH_PROXY+x} stage='' arg method
+    local local_source=false script_dir=''
     while [ "$#" -gt 0 ]; do
         arg=$1
         shift
         case $arg in
         mihomo | clash) kernel=$arg ;;
-        --gh-proxy=?*) proxy=${arg#--gh-proxy=} ;;
+        --local) local_source=true ;;
+        --gh-proxy=*) proxy=${arg#--gh-proxy=}; proxy_set=x ;;
         --gh-proxy)
             [ "$#" -gt 0 ] || { printf '%s\n' '--gh-proxy 需要一个值' >&2; return 1; }
             proxy=$1
+            proxy_set=x
             shift
             ;;
         -h | --help)
-            printf '用法: bash install.sh [mihomo|clash] [--gh-proxy <URL>]\n环境变量: CLASHCTL_HOME、CLASHCTL_UPDATE_BRANCH、GH_PROXY\n'
+            printf '用法: bash install.sh [mihomo|clash] [--local] [--gh-proxy <URL>]\n--local: 使用本脚本所在目录的源码，依赖仍按需下载\n环境变量: CLASHCTL_HOME、CLASHCTL_UPDATE_BRANCH、GH_PROXY\n'
             return 0 ;;
         *) printf '未知安装参数\n' >&2; return 1 ;;
         esac
     done
+    if [ -f "${BASH_SOURCE[0]:-}" ]; then
+        script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+    fi
+    if [ "$local_source" = true ] && [ -z "$script_dir" ]; then
+        printf '%s\n' '--local 需要从本地源码目录中的 install.sh 执行，不支持管道输入' >&2
+        return 1
+    fi
     # 服务单元名与内核二进制路径都派生自它，必须在 sourcing 前导出。
     export CLASHCTL_KERNEL="$kernel"
     for arg in tar gzip unzip sha256sum; do
@@ -192,21 +220,34 @@ main() (
         printf '不能使用根目录或用户主目录作为安装目录\n' >&2
         return 1
     fi
+    if [ "$local_source" = true ]; then
+        case "$install_home/" in
+        "$script_dir/"*) printf '本地安装目录不能位于源码目录内，请通过 CLASHCTL_HOME 指定其他目录\n' >&2; return 1 ;;
+        esac
+    fi
     if [ -e "$install_home" ] || [ -L "$install_home" ]; then
         # 允许直接执行安装目录中的脚本重试初始化，不覆盖或重新下载目录。
-        local script_dir=''
-        if [ -f "${BASH_SOURCE[0]:-}" ]; then
-            script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
-        fi
         if ! method=$(_install_method "$install_home") || [ "$script_dir" != "$install_home" ]; then
             printf '目录已存在且不是可重试的安装目录: %s；请使用新的安装目录\n' "$install_home" >&2
             return 1
         fi
     else
+        branch=${branch:-master}
         mkdir -p -- "$(dirname -- "$install_home")"
         stage=$(mktemp -d "${install_home}.download.XXXXXX")
         trap '[ -z "$stage" ] || rm -rf -- "$stage"' EXIT
-        if command -v git >/dev/null 2>&1; then
+        if [ "$local_source" = true ]; then
+            method=archive
+            # 保留工作区修改；排除运行数据与被 .gitignore 忽略的本地文件。
+            (
+                set -o pipefail
+                tar -C "$script_dir" --exclude-vcs-ignores \
+                    --exclude='./.git' --exclude='./.env' --exclude='./.clashctl-*' \
+                    --exclude='./data' --exclude='./bin' --exclude='./archives' \
+                    --exclude='./resources/dist' --exclude='./resources/cache.db' -cf - . |
+                    tar --no-same-owner --no-same-permissions -xf - -C "$stage"
+            )
+        elif command -v git >/dev/null 2>&1; then
             method=git
             local url=https://github.com/nelvko/clash-for-linux-install.git
             [ -z "$proxy" ] || url="${proxy%/}/$url"
@@ -222,16 +263,13 @@ main() (
             _source_manifest "$stage" >"$stage/.clashctl-files"
         fi
         (umask 077; printf '%s\n%s\n' "$install_home" "$method" >"$stage/.clashctl-install")
-        if [ "$method" = git ]; then
-            # 补写旧形态路径标记：老安装靠它被识别，新安装靠它获得同样的迁移能力。
-            (umask 077; printf '%s\n' "$install_home" >"$stage/.git/clashctl-home") || return 1
-        fi
+        (umask 077; printf '%s\n' "$install_home" >"$stage/.clashctl-uninitialized")
         mv -T -- "$stage" "$install_home"
         stage=''
     fi
     export CLASHCTL_HOME="$install_home" CLASHCTL_SRC="$install_home" CLASHCTL_KERNEL="$kernel"
     export CLASHCTL_UPDATE_BRANCH="$branch" GH_PROXY="$proxy"
-    _install_initialize || {
+    _install_initialize "$kernel" "$branch" "$proxy" "$proxy_set" || {
         printf '安装未完成；排查错误后运行 CLASHCTL_HOME=%s bash %s/install.sh 重试\n' "$install_home" "$install_home" >&2
         return 1
     }
