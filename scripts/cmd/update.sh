@@ -3,14 +3,21 @@
 clashupdate() {
     case ${1:-} in
     -h | --help)
-        printf '用法: clashupdate\n更新脚本与资源，保留用户配置和内核。来源由 .env 中 CLASHCTL_UPDATE_BRANCH 和 GH_PROXY 配置。\n'
+        printf '用法: clashupdate\n更新 clashctl 的脚本与资源，保留用户配置和内核。来源由 .env 中 CLASHCTL_UPDATE_BRANCH 和 GH_PROXY 配置。\n'
         return 0 ;;
     '') ;;
     *) _ui_error '用法: clashupdate'; return 1 ;;
     esac
-    _update_scripts || return 1
+    # 文件更新使用 Bash 的数组和锁；Zsh 只负责加载更新后的命令。
+    if [ -n "${ZSH_VERSION:-}" ]; then
+        CLASHCTL_HOME="$CLASHCTL_HOME" bash -c '
+            . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" && _update_scripts
+        '
+    else
+        _update_scripts
+    fi || return 1
     . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" || {
-        _ui_error '脚本已更新，但当前 Shell 加载失败，请重开终端'
+        _ui_error 'clashctl 已更新，但当前 Shell 加载失败，请重开终端'
         return 1
     }
     _ui_ok_out '更新完成，当前 Shell 已加载新版本'
@@ -56,11 +63,6 @@ _update_scripts() (
     _source_validate "$stage" || return 1
     if [ "$method" = git ]; then
         git -C "$CLASHCTL_HOME" checkout --detach -q "$target" || return 1
-        # 兼容分支升级到独立标记：只在缺失时补写。标记已存在说明路径已匹配，
-        # 重写只会带来"截断后被掉电/满盘打断 → 标记为空 → 更新与卸载双双死锁"的窗口。
-        if [ ! -e "$CLASHCTL_HOME/.clashctl-install" ] && [ ! -L "$CLASHCTL_HOME/.clashctl-install" ]; then
-            (umask 077; printf '%s\ngit\n' "$(cd -- "$CLASHCTL_HOME" && pwd -P)" >"$CLASHCTL_HOME/.clashctl-install") || return 1
-        fi
     else
         _update_archive "$stage" "$work"
     fi

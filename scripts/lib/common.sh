@@ -180,14 +180,6 @@ _ui_emit_fd() {
         prefix='[ERROR]'
         color=31
         ;;
-    question)
-        prefix='[ ? ]'
-        color=35
-        ;;
-    header)
-        prefix='[INFO]'
-        color='1;36'
-        ;;
     info | *)
         prefix='[INFO]'
         color=36
@@ -226,14 +218,6 @@ _ui_error() {
     _ui_emit error "$*"
 }
 
-_ui_header() {
-    _ui_emit header "$*"
-}
-
-_ui_info_out() {
-    _ui_emit_fd 1 info "$*"
-}
-
 _ui_ok_out() {
     _ui_emit_fd 1 ok "$*"
 }
@@ -241,22 +225,6 @@ _ui_ok_out() {
 _ui_fail() {
     _ui_emit_fd 2 error "$*"
     return 1
-}
-
-_ui_warn_fail() {
-    _ui_emit_fd 2 warn "$*"
-    return 1
-}
-
-_ui_prompt() {
-    local prompt=${1:-}
-
-    if _ui_color_enabled 2; then
-        printf '\033[35m[ ? ]\033[0m %s ' "$prompt" >&2
-    else
-        printf '[ ? ] %s ' "$prompt" >&2
-    fi
-    return 0
 }
 
 _ui_detail() {
@@ -268,11 +236,6 @@ _ui_detail() {
     else
         printf '        %s\n' "$label" >&2
     fi
-    return 0
-}
-
-_ui_blank() {
-    printf '\n' >&2
     return 0
 }
 
@@ -367,7 +330,7 @@ _set_env() {
     printf -v quoted '%q' "$value"
     tmp=$(mktemp "${env_path}.tmp.XXXXXX") || return 1
     chmod 0600 "$tmp" || {
-        /usr/bin/rm -f -- "$tmp"
+        command rm -f -- "$tmp"
         return 1
     }
     if [ -f "$env_path" ]; then
@@ -375,14 +338,14 @@ _set_env() {
             case $line in
             "$key="*)
                 printf '%s=%s\n' "$key" "$quoted" >>"$tmp" || {
-                    /usr/bin/rm -f -- "$tmp"
+                    command rm -f -- "$tmp"
                     return 1
                 }
                 found=1
                 ;;
             *)
                 printf '%s\n' "$line" >>"$tmp" || {
-                    /usr/bin/rm -f -- "$tmp"
+                    command rm -f -- "$tmp"
                     return 1
                 }
                 ;;
@@ -391,7 +354,7 @@ _set_env() {
     fi
     if [ "$found" -eq 0 ]; then
         printf '%s=%s\n' "$key" "$quoted" >>"$tmp" || {
-            /usr/bin/rm -f -- "$tmp"
+            command rm -f -- "$tmp"
             return 1
         }
     fi
@@ -399,6 +362,13 @@ _set_env() {
 }
 
 detect_rc() {
+    # 卸载依据已有文件清理，不要求用户仍安装着对应的 Shell。
+    if [ "${1:-}" = --installed ]; then
+        SHELL_RC_BASH="${HOME}/.bashrc"
+        SHELL_RC_ZSH="${HOME}/.zshrc"
+        SHELL_RC_FISH="${HOME}/.config/fish/conf.d/clashctl.fish"
+        return 0
+    fi
     SHELL_RC_BASH=
     SHELL_RC_ZSH=
     SHELL_RC_FISH=
@@ -445,12 +415,12 @@ _append_source_block() {
         /^\[ -s "\$CLASHCTL_HOME\/scripts\/cmd\/clashctl\.sh" \]/ { next }
         { print }
     ' "$rc" >"$tmp" || {
-        /usr/bin/rm -f -- "$tmp"
+        command rm -f -- "$tmp"
         return 1
     }
     if [ -s "$tmp" ] && [ "$(tail -c 1 -- "$tmp" | wc -l)" -eq 0 ]; then
         printf '\n' >>"$tmp" || {
-            /usr/bin/rm -f -- "$tmp"
+            command rm -f -- "$tmp"
             return 1
         }
     fi
@@ -462,7 +432,7 @@ _append_source_block() {
         printf '%s\n' '[ -s "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" ] && . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh"'
         printf '%s\n' '# <<< clashctl <<<'
     } >>"$tmp" || {
-        /usr/bin/rm -f -- "$tmp"
+        command rm -f -- "$tmp"
         return 1
     }
     chmod "$mode" "$tmp" && /bin/mv -f -- "$tmp" "$rc"
@@ -517,11 +487,11 @@ _remove_source_block() {
     ' "$rc" >"$tmp" || parse_rc=$?
     # 无匹配时保留原文件及其时间戳，包括没有末尾换行的情况。
     if [ "$parse_rc" -eq 2 ]; then
-        /usr/bin/rm -f -- "$tmp"
+        command rm -f -- "$tmp"
         return 0
     fi
     if [ "$parse_rc" -ne 0 ] || ! chmod "$mode" "$tmp" || ! /bin/mv -f -- "$tmp" "$rc"; then
-        /usr/bin/rm -f -- "$tmp"
+        command rm -f -- "$tmp"
         return 1
     fi
 }
@@ -553,21 +523,27 @@ _write_fish_rc() {
         printf '\n'
         cat -- "$CLASHCTL_CMD_DIR/clashctl.fish"
     } >"$tmp" || {
-        /usr/bin/rm -f -- "$tmp"
+        command rm -f -- "$tmp"
         return 1
     }
     if cmp -s -- "$tmp" "$SHELL_RC_FISH"; then
-        /usr/bin/rm -f -- "$tmp"
+        command rm -f -- "$tmp"
         return 0
     fi
     if ! chmod 0644 -- "$tmp" || ! /bin/mv -f -- "$tmp" "$SHELL_RC_FISH"; then
-        /usr/bin/rm -f -- "$tmp"
+        command rm -f -- "$tmp"
         return 1
     fi
 }
 
 # UI 和订阅转换器沿用按需下载。
 _ci_provision() (
+    if [ -n "${ZSH_VERSION:-}" ]; then
+        CLASHCTL_HOME="$CLASHCTL_HOME" bash -c '
+            . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" && _ci_provision "$1"
+        ' -- "$1"
+        return
+    fi
     export CLASHCTL_SRC="$CLASHCTL_HOME"
     operation_lock_acquire || return 1
     . "$CLASHCTL_SRC/scripts/preflight.sh" || return 1

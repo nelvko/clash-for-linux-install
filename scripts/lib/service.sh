@@ -85,7 +85,7 @@ _service_nohup_start_locked() {    local pid expected_argv
         [ "$_SERVICE_RECORD_ARGV" = "$expected_argv" ]
         return
     fi
-    /usr/bin/rm -f -- "$service_pid_path" || return 1
+    command rm -f -- "$service_pid_path" || return 1
     (
         operation_lock_close_fd || exit 1
         exec nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME"
@@ -101,7 +101,7 @@ _service_nohup_start_locked() {    local pid expected_argv
         elif [ "${_SERVICE_PROCESS_BIRTH_PID:-}" = "$pid" ]; then
             _service_process_stop_birth "$pid" "$_SERVICE_PROCESS_BIRTH_STARTTIME"
         fi
-        /usr/bin/rm -f -- "$service_pid_path"
+        command rm -f -- "$service_pid_path"
         return 1
     }
 }
@@ -109,12 +109,12 @@ _service_nohup_start_locked() {    local pid expected_argv
 _service_nohup_stop_locked() {
     [ -e "$service_pid_path" ] || [ -L "$service_pid_path" ] || return 0
     if ! _service_process_record_load "$service_pid_path"; then
-        /usr/bin/rm -f -- "$service_pid_path"
+        command rm -f -- "$service_pid_path"
         return 0
     fi
     _service_process_stop_recorded "$service_pid_path" || return 1
     [ "${_SERVICE_PROCESS_RECORD_CAN_REMOVE:-0}" -eq 0 ] ||
-        /usr/bin/rm -f -- "$service_pid_path"
+        command rm -f -- "$service_pid_path"
 }
 
 service_start() {
@@ -173,11 +173,13 @@ service_sudo_start() {
 
 service_sudo_stop() {
     _is_root && service_stop && return 0
-    local owner_uid helper rc=0
+    local owner_uid helper expected_argv rc=0
     owner_uid=$(id -u) || return 1
     helper=${_SERVICE_PROCESS_HELPER_FILE:-}
     [ -r "$helper" ] || return 1
-    sudo bash "$helper" privileged-stop "$owner_uid" "$CLASHCTL_KERNEL" || rc=$?
+    expected_argv=$(_service_process_values_argv_hex \
+        "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME") || return 1
+    sudo bash "$helper" privileged-stop "$owner_uid" "$CLASHCTL_KERNEL" "$expected_argv" || rc=$?
     stty opost 2>/dev/null || true
     return "$rc"
 }
@@ -279,7 +281,7 @@ _service_atomic_symlink() {
     tmp="${link}.clashctl-new.$$.$RANDOM"
     ln -s -- "$target" "$tmp" || return 1
     if ! /bin/mv -fT -- "$tmp" "$link"; then
-        /usr/bin/rm -f -- "$tmp"
+        command rm -f -- "$tmp"
         return 1
     fi
 }
@@ -350,7 +352,7 @@ service_disable() {
         if [ "$current_target" != "$desired_target" ]; then
             return 1
         fi
-        /usr/bin/rm -f -- "$enable_link"
+        command rm -f -- "$enable_link"
         ;;
     nohup | *)
         return 0
@@ -517,12 +519,23 @@ install_service() (
     return 0
 )
 
+# stop 与卸载共用，停止用户进程后再处理本用户的特权进程。
+service_stop_checked() {
+    if service_is_active; then
+        service_stop || true
+        if service_is_active && _service_privileged_marker_exists; then
+            service_sudo_stop || { _ui_error '特权内核未能停止，请先执行 clashctl stop 后重试'; return 1; }
+        fi
+        service_is_active && { _ui_error '服务未能停止'; return 1; }
+    fi
+    return 0
+}
+
 uninstall_service() {
     local target
     detect_service_manager
     _service_check_conflict || return 1
-    service_is_active && service_stop
-    service_is_active && { _ui_error '服务未能停止'; return 1; }
+    service_stop_checked || return 1
     target=$(_service_target) || return 0
     service_disable || return 1
     _service_unregister || return 1

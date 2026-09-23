@@ -209,6 +209,7 @@ _detect_subconverter_port() {
 }
 
 _start_convert() {
+    [ -x "$BIN_SUBCONVERTER" ] || _ci_provision subconverter || return 1
     [ -x "$BIN_SUBCONVERTER" ] || {
         _errorcat "subconverter 未找到或不可执行：$BIN_SUBCONVERTER"
         return 1

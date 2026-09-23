@@ -7,8 +7,10 @@ Usage:
   clashctl COMMAND [OPTIONS]
 
 Commands:
-  on                    开启代理
-  off                   关闭代理
+  on                    启用当前终端代理，自动启动内核
+  off                   关闭当前终端代理，保留内核运行
+  start                 仅启动内核
+  stop                  仅停止内核
   status                内核状态
   ui                    面板地址
   sub                   订阅管理
@@ -18,7 +20,7 @@ Commands:
   secret                Web 密钥
   log                   查看日志
   upgrade               升级内核
-  update                更新脚本
+  update                更新 clashctl
 
 Global Options:
   -h, --help            显示帮助信息

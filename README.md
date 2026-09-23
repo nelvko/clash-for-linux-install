@@ -3,6 +3,15 @@
 </h1>
 
 <p align="center">mihomo / clash 一键部署与管理工具</p>
+<p align="center">
+ <a href="https://www.star-history.com/nelvko/clash-for-linux-install">
+  <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=nelvko/clash-for-linux-install&type=rank&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=nelvko/clash-for-linux-install&type=rank" />
+   <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=nelvko/clash-for-linux-install&type=rank" />
+  </picture>
+ </a>
+</p>
 
 <p align="center">
   <img alt="GitHub License" src="https://img.shields.io/github/license/nelvko/clash-for-linux-install" />
@@ -21,45 +30,64 @@
 - **广泛兼容**：支持 `root` / 普通用户，适配主流 `Linux` 发行版、容器环境，以及 `systemd` / `OpenRC` / `runit` / `SysVinit` / `nohup`。
 - **统一管理**：通过 `clashctl` 管理代理启停、状态查看、日志追踪、Web 面板、TUN 模式、访问密钥与内核升级等。
 - **订阅管理**：支持多订阅源配置、一键新增、切换、更新等，并集成 [subconverter](https://github.com/tindy2013/subconverter) 实现订阅格式转换。
-- **配置可控**：主配置与 Mixin 分层合并；`clashctl update` 更新脚本时不影响你的订阅与自定义配置。
+- **配置可控**：主配置与 Mixin 分层合并；`clashctl update` 更新 clashctl 时不影响你的订阅与自定义配置。
 
 ## 🚀 Installation
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | bash --gh-proxy https://gh-proxy.org
+curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | bash -s -- --gh-proxy https://gh-proxy.org
 ```
 
-- 上述命令使用了[加速下载代理](https://gh-proxy.org/),若失效请更换其他[可用地址](https://ghproxy.link/)。`--gh-proxy` 的值会写入 `.env`，后续 `clashctl update` 沿用同一前缀。
-- 默认安装到 `~/.clashctl`，可用 `CLASHCTL_HOME` 指定其他目录。
+- 上述命令使用了[加速下载代理](https://gh-proxy.org/),若失效请更换其他[可用地址](https://ghproxy.link/)。
+- 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
 
-没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
+在 Linux 中测试本地源码（包括未提交的修改），只需增加 `--local`：
+
+```bash
+bash install.sh --local
+```
+
+源码取自 `install.sh` 所在目录，复制后安装到 `~/.clashctl`；可通过 `CLASHCTL_HOME` 指定其他安装目录。此参数只跳过源码下载，运行依赖仍按需下载；`clashctl update` 仍更新到配置的远端分支（默认 `master`）。
 
 ## 🎯 Quick Start
 
 安装完成后，即可使用 `clashctl` 管理代理：
 
 ```bash
-clashctl on              # 开启代理
-clashctl off             # 关闭代理
+clashctl on              # 启用当前终端代理，内核未运行时自动启动
+clashctl off             # 关闭当前终端代理，内核继续运行
 
+clashctl start           # 仅启动内核
+clashctl stop            # 仅停止内核
 clashctl status          # 查看代理状态
-clashctl ui              # 查看 Web 面板地址
 
+clashctl ui              # 查看 Web 面板地址
 clashctl sub             # 订阅管理
 clashctl node            # 节点管理
 
-clashctl update          # 更新项目
+clashctl update          # 更新 clashctl
 ```
+
+更多命令用法与示例请参阅：[Usage](https://github.com/nelvko/clash-for-linux-install/wiki)
 
 ## 🧹 Uninstall
 
+卸载会停止本次安装的内核，并删除服务、Shell 引导及整个安装目录，**包括订阅、自定义配置、内核和日志**。如需保留配置，请提前将安装目录中的 `.env` 和 `data/` 备份到其他位置；备份可能包含订阅凭据和访问密钥，请妥善保管。
+
 ```bash
+clashctl off
 bash ~/.clashctl/uninstall.sh
 ```
 
+也可在源码目录执行 `bash uninstall.sh`：脚本优先识别自身所在的安装目录，否则使用 `CLASHCTL_HOME` 指定的目录，未设置时查找 `~/.clashctl`。自定义安装可执行 `CLASHCTL_HOME=/path/to/clashctl bash uninstall.sh`，或直接运行该安装目录下的脚本。确认提示会显示实际卸载路径；路径或安装标记无效时会停止。
+
+无人值守可加 `--yes` 跳过确认，仍会检查安装归属和内核停止结果。普通用户安装应由原用户卸载，需要停止 TUN 特权进程时会单独请求 `sudo`。
+
+卸载后请关闭使用过 clashctl 的终端并重新打开。卸载脚本无法清除父 Shell 的代理变量，因此建议先执行 `clashctl off`；脚本报告的残留文件可检查后手动清理。若 `.env` 意外丢失，脚本会保留目录，请恢复备份后重试。
+
 ## 📖 Documentation
 
-- [Usage](https://github.com/nelvko/clash-for-linux-install/wiki) — 命令用法与示例。
+
 - [FAQ](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ) — 常见问题。
 
 ## 💖 Support
@@ -73,11 +101,13 @@ bash ~/.clashctl/uninstall.sh
 
 ## ⭐ Star History
 
-<a href="https://star-history.dera.page/#nelvko/clash-for-linux-install&Date">
+## Star History
+
+<a href="https://www.star-history.com/?repos=nelvko%2Fclash-for-linux-install&type=timeline&legend=bottom-right">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=nelvko/clash-for-linux-install&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=nelvko/clash-for-linux-install&type=Date" />
-   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=nelvko/clash-for-linux-install&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=nelvko/clash-for-linux-install&type=date&theme=dark&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=nelvko/clash-for-linux-install&type=date&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=nelvko/clash-for-linux-install&type=date&legend=bottom-right" />
  </picture>
 </a>
 

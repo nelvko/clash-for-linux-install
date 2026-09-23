@@ -17,16 +17,8 @@ function __clashctl_state_path
     end
 end
 
-function clashon --description 'start clash service and/or enable proxy env'
-    set -l capture 1
+function clashon --description 'enable terminal proxy, starting the kernel if needed'
     if set -q argv[1]
-        switch $argv[1]
-            case -s --service-only -h --help
-                set capture 0
-        end
-    end
-
-    if test $capture -eq 0
         __clashctl_run clashon $argv
         return $status
     end
@@ -47,19 +39,16 @@ function clashon --description 'start clash service and/or enable proxy env'
     source $state
 end
 
-function clashoff --description 'stop clash service and/or disable proxy env'
-    set -l drop_env 1
+function clashoff --description 'disable terminal proxy without stopping the kernel'
     if set -q argv[1]
-        switch $argv[1]
-            case -s --service-only -h --help
-                set drop_env 0
-        end
+        __clashctl_run clashoff $argv
+        return $status
     end
 
     __clashctl_run clashoff $argv
     set -l rc $status
 
-    if test $drop_env -eq 1
+    if test $rc -eq 0
         rm -f -- (__clashctl_state_path)
         set -e http_proxy https_proxy HTTP_PROXY HTTPS_PROXY \
             all_proxy ALL_PROXY no_proxy NO_PROXY

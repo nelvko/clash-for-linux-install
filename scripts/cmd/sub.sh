@@ -614,8 +614,8 @@ _sub_add_locked() {
             }]
         ' "$CLASH_PROFILES_META"
 
-    _logging_sub "➕ 已添加订阅：[$name] $url"
-    _okcat '🎉' "订阅已添加：[$name] $url"
+    _logging_sub "➕ 已添加订阅：[$name]"
+    _okcat '🎉' "订阅已添加：[$name]"
     [ "$use_after_add" = true ] && _sub_use_locked "$name"
 }
 

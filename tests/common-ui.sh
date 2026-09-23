@@ -53,12 +53,6 @@ stderr_file="$WORK_DIR/stderr"
 
 : >"$stdout_file"
 : >"$stderr_file"
-_ui_info_out '正在处理' >"$stdout_file" 2>"$stderr_file"
-assert_stream "$stdout_file" $'[INFO] 正在处理\n' '_ui_info_out stdout content'
-assert_empty "$stderr_file" '_ui_info_out wrote to stderr'
-
-: >"$stdout_file"
-: >"$stderr_file"
 _ui_ok_out '处理完成' >"$stdout_file" 2>"$stderr_file"
 assert_stream "$stdout_file" $'[ OK ] 处理完成\n' '_ui_ok_out stdout content'
 assert_empty "$stderr_file" '_ui_ok_out wrote to stderr'
@@ -70,20 +64,6 @@ _ui_fail '处理失败' >"$stdout_file" 2>"$stderr_file" || rc=$?
 assert_eq 1 "$rc" '_ui_fail return code'
 assert_empty "$stdout_file" '_ui_fail wrote to stdout'
 assert_stream "$stderr_file" $'[ERROR] 处理失败\n' '_ui_fail stderr content'
-
-: >"$stdout_file"
-: >"$stderr_file"
-rc=0
-_ui_warn_fail '已降级处理' >"$stdout_file" 2>"$stderr_file" || rc=$?
-assert_eq 1 "$rc" '_ui_warn_fail return code'
-assert_empty "$stdout_file" '_ui_warn_fail wrote to stdout'
-assert_stream "$stderr_file" $'[WARN] 已降级处理\n' '_ui_warn_fail stderr content'
-
-: >"$stdout_file"
-: >"$stderr_file"
-_ui_prompt '请选择：' >"$stdout_file" 2>"$stderr_file"
-assert_empty "$stdout_file" '_ui_prompt wrote to stdout'
-assert_stream "$stderr_file" '[ ? ] 请选择： ' '_ui_prompt must not append a newline'
 
 export BIN_YQ=fake_yq
 export CLASH_CONFIG_RUNTIME="$WORK_DIR/runtime.yaml"
@@ -180,4 +160,3 @@ env -u GH_PROXY CLASHCTL_HOME="$WORK_DIR/no-proxy-home" CLASHCTL_SRC="$REPO_DIR"
 assert_eq 'unset' "$(<"$no_proxy_probe")" 'GH_PROXY has no implicit default'
 
 printf 'common-ui: ok\n'
-
