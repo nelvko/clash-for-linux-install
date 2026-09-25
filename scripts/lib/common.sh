@@ -165,7 +165,7 @@ _ui_emit_fd() {
 
     case $level in
     step)
-        prefix='[STEP]'
+        prefix='==>'
         color=36
         ;;
     ok)
@@ -187,7 +187,11 @@ _ui_emit_fd() {
     esac
 
     if _ui_color_enabled "$fd"; then
-        printf '\033[%sm%s\033[0m %s\n' "$color" "$prefix" "$msg" >&"$fd"
+        if [ "$level" = step ]; then
+            printf '\033[1;%sm%s %s\033[0m\n' "$color" "$prefix" "$msg" >&"$fd"
+        else
+            printf '\033[1;%sm%s\033[0m %s\n' "$color" "$prefix" "$msg" >&"$fd"
+        fi
     else
         printf '%s %s\n' "$prefix" "$msg" >&"$fd"
     fi
@@ -261,20 +265,16 @@ _color_log() {
 }
 
 # ── 旧输出函数兼容层 ─────────────────────────────────────────────
-# 未纳入本次 install/update 迁移的命令（sub/node/config/convert/tun/ui 等）
-# 仍调用 master 时代的 _okcat/_failcat/_errorcat，这里按 _ui_* 转发，
-# 保证两套输出体系共存。后续统一到 _ui_* 时删除本块。
+# 保留旧调用约定和输出流；忽略可选的 emoji 参数，统一使用符号与英文标签。
 _okcat() {
-    local emoji=😼
-    [ $# -gt 1 ] && emoji=$1 && shift
-    _ui_emit_fd 1 ok "$emoji $1"
+    [ $# -gt 1 ] && shift
+    _ui_emit_fd 1 ok "$1"
     return 0
 }
 
 _failcat() {
-    local emoji=😾
-    [ $# -gt 1 ] && emoji=$1 && shift
-    _ui_fail "$emoji $1"
+    [ $# -gt 1 ] && shift
+    _ui_fail "$1"
 }
 
 _errorcat() {

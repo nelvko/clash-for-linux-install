@@ -172,7 +172,14 @@ _sub_download() {
     err_log="${work}.err"
 
     case $strategy in
-    convert) _download_convert_config "$work" "$url" 2>"$err_log" ;;
+    convert)
+        {
+            _download_convert_config "$work" "$url" &&
+                _normalize_sub_config "$work" &&
+                _valid_config "$work" &&
+                _valid_sub_nodes "$work"
+        } 2>"$err_log"
+        ;;
     raw) _download_config "$work" "$url" false 2>"$err_log" ;;
     *) _download_config "$work" "$url" true 2>"$err_log" ;;
     esac
@@ -326,7 +333,7 @@ _sub_hint_fzf() {
     command -v fzf >&/dev/null && return 0
 
     _SUB_FZF_HINT_SHOWN=true
-    _okcat '💡' '未检测到 fzf，已使用编号选择；安装 fzf 可启用搜索式选择界面。' >&2
+    _ui_info '未检测到 fzf，已使用编号选择；安装 fzf 可启用搜索式选择界面。'
 }
 
 # 交互选择一个订阅：选中的 name 输出到 stdout，菜单打到 stderr。
@@ -428,7 +435,7 @@ _sub_pick() {
             "${_SUB_EXPIRES[$i]}" >&2
     done
     local choice
-    printf '%s' "$(_okcat '✈️ ' "$prompt")" >&2
+    printf '%s' "$prompt" >&2
     read -r choice
     [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#_SUB_NAMES[@]} ] && {
         printf '%s\n' "${_SUB_NAMES[$((choice - 1))]}"
@@ -451,15 +458,21 @@ sub_add() {
             cat <<EOF
 
 Usage:
-  clashctl sub add [OPTIONS] <url>   # 省略 url 时交互式输入
+  clashctl sub add [选项] [URL]
+
+下载并校验订阅，成功后保存；默认不启用。省略 URL 时交互输入。
+默认直接校验下载内容，失败时尝试转换并重新校验。
 
 Options:
-  -n, --name <name>   指定订阅名称（省略时自动取机场名/链接 host）
-  -u, --use           添加后立即使用该订阅
-  --convert           始终经 subconverter 转换（默认 auto：原生有效则直用，否则回退转换）
-  --raw               仅下载，不转换（校验失败即失败）
-  -t, --timeout <秒>  单次命令级下载超时（默认 ${CLASHCTL_SUB_TIMEOUT:-20} 秒，可在 .env 全局配置）
-  --ua <UA>           单次命令级下载 UA（默认 ${CLASHCTL_SUB_UA:-clash-verge/v2.4.0}，可在 .env 全局配置）
+  -n, --name <名称>   指定名称（默认取订阅文件名或链接域名）
+  -u, --use           保存后立即启用
+  --raw               不转换，直接校验下载内容
+  --convert           强制转换后校验
+  -t, --timeout <秒>  下载超时（默认 ${CLASHCTL_SUB_TIMEOUT:-20} 秒）
+  --ua <UA>           请求 User-Agent（默认 ${CLASHCTL_SUB_UA:-clash-verge/v2.4.0}）
+
+--raw 和 --convert 仅对本次添加生效，更新时需重新指定。
+示例：clashctl sub add --use <URL>
 
 EOF
             return 0
@@ -541,7 +554,7 @@ EOF
 
     [ -z "$url" ] && [ $# -gt 0 ] && url=$1
     [ -z "$url" ] && {
-        printf '%s' "$(_okcat '✈️ ' '请输入要添加的订阅链接：')"
+        printf '%s' '请输入要添加的订阅链接：'
         read -r url
         [ -z "$url" ] && {
             _errorcat "订阅链接不能为空"
@@ -625,9 +638,9 @@ _sub_del() {
         cat <<EOF
 
 Usage:
-  clashctl sub del <name>
+  clashctl sub del [名称]
 
-删除指定订阅（正在使用中的订阅需先切换）。省略 name 时交互选择。
+删除订阅；省略名称时交互选择。正在使用的订阅需先切换。
 
 EOF
         return 0
@@ -727,7 +740,8 @@ _sub_list() {
 Usage:
   clashctl sub ls
 
-列出全部订阅（纯输出，不交互）：当前(*) / 名称 / 更新时间 / 流量 / 到期 / 链接。
+列出全部订阅，不进入交互选择。当前订阅以 * 标记。
+显示名称、更新时间、流量、到期时间和链接。
 
 EOF
         return 0
@@ -737,7 +751,7 @@ EOF
     _sub_load
 
     [ ${#_SUB_NAMES[@]} -eq 0 ] && {
-        _okcat '📭' '暂无订阅，使用 clashctl sub add <url> 添加'
+        _ui_emit_fd 1 info '暂无订阅，使用 clashctl sub add <url> 添加'
         return 0
     }
 
@@ -788,10 +802,10 @@ _sub_use() {
         cat <<EOF
 
 Usage:
-  clashctl sub use [name]
+  clashctl sub use [名称]
 
-切换到指定订阅并使订阅生效。省略 name 时交互选择（* 为当前）。
-裸 clashctl sub 在交互终端下同此。
+切换并启用订阅；省略名称时交互选择。
+启用前会校验订阅与 Mixin 合并后的配置。
 
 EOF
         return 0
@@ -863,17 +877,21 @@ _sub_update() {
         cat <<EOF
 
 Usage:
-  clashctl sub update [name] [--all] [--convert | --raw] [-t <秒>] [--ua <UA>]
+  clashctl sub update [名称] [选项]
 
-更新订阅（重新下载）。省略 name 时更新当前使用的订阅；无当前订阅时交互选择
-（非交互环境需指定 name 或 --all）。
+重新下载并校验订阅；更新当前订阅后会重新应用配置。
+省略名称时更新当前订阅；没有当前订阅时，仅交互终端可选择。
+默认直接校验下载内容，失败时尝试转换并重新校验。
 
 Options:
-  --all        更新全部订阅
-  --convert    始终经 subconverter 转换（默认 auto：原生有效则直用，否则回退转换）
-  --raw        仅下载，不转换（校验失败即失败）
-  -t, --timeout <秒>  单次命令级下载超时（默认 ${CLASHCTL_SUB_TIMEOUT:-20} 秒，可在 .env 全局配置）
-  --ua <UA>    单次命令级下载 UA（默认 ${CLASHCTL_SUB_UA:-clash-verge/v2.4.0}，可在 .env 全局配置）
+  --all               更新全部订阅
+  --raw               不转换，直接校验下载内容
+  --convert           强制转换后校验
+  -t, --timeout <秒>  下载超时（默认 ${CLASHCTL_SUB_TIMEOUT:-20} 秒）
+  --ua <UA>           请求 User-Agent（默认 ${CLASHCTL_SUB_UA:-clash-verge/v2.4.0}）
+
+--raw 和 --convert 仅对本次更新生效。
+示例：clashctl sub update --all
 
 EOF
         return 0
@@ -986,7 +1004,7 @@ _sub_update_one() {
     local url path
     url=$(_sub_get "$name" url)
     path=$(_sub_get "$name" path)
-    _okcat "✈️ " "更新订阅：[$name] $url"
+    _ui_emit_fd 1 step "更新订阅：[$name] $url"
 
     _sub_download "$url" "$strategy" || {
         _logging_sub "❌ 订阅更新失败：[$name] $url${_SUB_DL_REASON:+ — ${_SUB_DL_REASON}}"
@@ -1034,9 +1052,9 @@ _sub_rename() {
         cat <<EOF
 
 Usage:
-  clashctl sub rename <old> <new>
+  clashctl sub rename [旧名称] [新名称]
 
-重命名订阅。省略参数时交互选择并提示输入新名称。
+重命名订阅；省略旧名称时交互选择，省略新名称时提示输入。
 
 EOF
         return 0
@@ -1054,12 +1072,12 @@ EOF
     }
 
     [ -z "$new" ] && {
-        printf '%s' "$(_okcat '✈️ ' "请输入 [$old] 的新名称：")"
+        printf '%s' "请输入 [$old] 的新名称："
         read -r new
     }
     _sub_validate_name "$new" || return 1
     [ "$new" = "$old" ] && {
-        _okcat "名称未变化：$old"
+        _ui_emit_fd 1 info "名称未变化：$old"
         return 0
     }
     _sub_has "$new" && {
@@ -1093,6 +1111,24 @@ _sub_rename_locked() {
 }
 
 _sub_log() {
+    case "${1:-}" in
+    -h | --help)
+        cat <<EOF
+
+Usage:
+  clashctl sub log [-n 行数] [-f]
+
+查看订阅操作日志；默认显示末尾 10 行。选项传给 tail。
+
+Options:
+  -n <行数>  显示末尾指定行数
+  -f         持续显示新日志
+
+EOF
+        return 0
+        ;;
+    esac
+
     [ $# -gt 0 ] && {
         tail "$@" "$CLASH_PROFILES_LOG"
         return
@@ -1103,23 +1139,23 @@ _sub_log() {
 sub_help() {
     cat <<EOF
 
-clashctl sub - 订阅管理工具
+clashctl sub - 订阅管理
 
 Usage:
-  clashctl sub COMMAND [OPTIONS]
+  clashctl sub [命令] [选项]
+
+省略命令时：交互终端选择并启用订阅；非交互环境列出订阅。
 
 Commands:
-  add [-n NAME] <url>   添加订阅（-n 指定名称，-u 添加后立即使用）
-  (无子命令)            交互选择并切换订阅；非交互环境输出列表
-  ls                    查看订阅列表（纯输出，不交互）
-  use [name]            使用订阅（省略 name 则交互选择）
-  del <name>            删除订阅（省略 name 则交互选择）
-  update [name]         更新订阅（省略 name 则更新当前订阅，--all 更新全部）
-  rename <old> <new>    重命名订阅
-  log                   订阅日志
+  add [URL]             添加并校验订阅（--use 添加后立即启用）
+  ls                    列出订阅（别名 list）
+  use [名称]            切换并启用订阅
+  del [名称]            删除订阅（别名 delete）
+  update [名称]         更新订阅（--all 更新全部）
+  rename [旧名称] [新名称]  重命名订阅
+  log                   查看订阅操作日志
 
-Global Options:
-  -h, --help            显示帮助信息
+查看子命令选项，例如：clashctl sub add -h
 
 EOF
 }

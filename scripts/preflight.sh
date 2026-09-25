@@ -203,7 +203,7 @@ _cache_token() {
 
 _download_archive() {
     local label=$1 url=$2 target=$3
-    local download_url
+    local download_url download_rc=0
     download_url=$(gh_proxy_url "$url")
     local part="${target}.part"
     local -a curl_args=(
@@ -215,8 +215,8 @@ _download_archive() {
     )
 
     if _archive_is_valid "$target"; then
-        _ui_ok "$label（缓存命中）"
-        _ui_detail "缓存" "$target"
+        _ui_ok "$label 使用本地安装包"
+        _ui_detail "文件" "$target"
         return 0
     fi
 
@@ -241,17 +241,33 @@ _download_archive() {
     fi
 
     _ui_info "下载 $label"
-    _ui_detail "上游" "$url"
-    if ! curl "${curl_args[@]}" --output "$part" --url "$download_url"; then
-        _ui_error "下载失败：$label"
+    _ui_detail "下载地址" "$download_url"
+    curl "${curl_args[@]}" --output "$part" --url "$download_url" || download_rc=$?
+    if [ "$download_rc" -ne 0 ]; then
+        if [ "$download_rc" -eq 28 ]; then
+            # shellcheck disable=SC2034  # 安装入口在下载失败后读取此状态生成重试命令。
+            CLASHCTL_DOWNLOAD_TIMED_OUT=1
+            _ui_error "下载超时：$label"
+            if [ -n "${GH_PROXY:-}" ]; then
+                _ui_detail '建议' "可调大 CLASHCTL_DOWNLOAD_TIMEOUT（当前 ${CLASHCTL_DOWNLOAD_TIMEOUT} 秒）或更换当前加速代理"
+            else
+                _ui_detail '建议' "可调大 CLASHCTL_DOWNLOAD_TIMEOUT（当前 ${CLASHCTL_DOWNLOAD_TIMEOUT} 秒）或使用加速代理"
+            fi
+        else
+            _ui_error "下载失败：$label"
+            if [ -n "${GH_PROXY:-}" ]; then
+                _ui_detail '建议' '检查或更换当前加速代理，也可尝试直连'
+            else
+                _ui_detail '建议' '检查网络；需要时可用 --gh-proxy 指定加速代理'
+            fi
+        fi
         _ui_detail "目标" "$target"
-        _ui_detail "重试" "检查网络或用 --gh-proxy 指定镜像；续装：bash ${CLASHCTL_HOME:-$HOME/.clashctl}/install.sh（慢链路可调大 CLASHCTL_DOWNLOAD_TIMEOUT）"
         return 1
     fi
     # 校验/搬移失败都不必清理 .part：下次进入时会先删残片，且这里随即 return。
     if ! _archive_is_valid "$part"; then
         _ui_error "下载文件校验失败：$label"
-        _ui_detail "上游" "$url"
+        _ui_detail "下载地址" "$download_url"
         return 1
     fi
     if ! /bin/mv -f -- "$part" "$target"; then
@@ -266,11 +282,9 @@ _download_archive() {
 
 download_zip() {
     (($#)) || return 0
-    # 上游行只标识制品身份；实际下载通道在此一次性披露（镜像排障线索）
+    # 仅配置加速时提示；每个制品的实际请求地址由 _download_archive 输出。
     if [ -n "${GH_PROXY:-}" ]; then
-        _ui_detail '下载经由' "$GH_PROXY"
-    else
-        _ui_detail '下载经由' '直连'
+        _ui_detail '加速代理' "$GH_PROXY"
     fi
     _managed_directory_prepare "$ZIP_BASE_DIR" 0755 || {
         _ui_error "依赖缓存目录无法安全使用"

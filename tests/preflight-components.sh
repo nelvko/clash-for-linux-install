@@ -158,6 +158,14 @@ download_zip yq >"$guard_root/archives.stdout" 2>"$guard_root/archives.stderr" |
 assert_eq 1 "$rc" 'symlink archive directory rejection status'
 assert_contains "$guard_root/archives.stderr" '依赖缓存目录无法安全使用' \
     'symlink archive directory diagnostic'
+if grep -Eq '加速代理|下载经由|直连' "$guard_root/archives.stderr"; then
+    fail 'direct download printed a redundant channel hint'
+fi
+rc=0
+GH_PROXY=https://proxy.example download_zip yq >"$guard_root/proxy.stdout" 2>"$guard_root/proxy.stderr" || rc=$?
+assert_eq 1 "$rc" 'proxied symlink archive directory rejection status'
+assert_contains "$guard_root/proxy.stderr" '加速代理: https://proxy.example' \
+    'proxy download omitted channel hint'
 assert_external_untouched "$archives_external" 'symlink archive directory rejection'
 
 bin_home="$guard_root/bin-home"

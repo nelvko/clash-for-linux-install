@@ -79,7 +79,11 @@ main() (
         revoke_rc || return 1
     fi
     command rm -rf -- "$install_home" || return 1
-    printf '[ OK ] 卸载完成\n'
+    if declare -F _ui_ok_out >/dev/null 2>&1; then
+        _ui_ok_out '卸载完成'
+    else
+        printf '✓ OK    卸载完成\n'
+    fi
     cache="${XDG_CACHE_HOME:-$HOME/.cache}/clashctl/proxy.fish"
     if [ -e "$cache" ] || [ -L "$cache" ]; then
         printf '保留了无法确认安装归属的 Fish 代理缓存，请检查后手动清理：%s\n' "$cache"

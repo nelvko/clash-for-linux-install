@@ -5,7 +5,7 @@ _download_config() {
     local dest=$1
     local url=$2
     local allow_convert=${3:-true}
-    [ "${url:0:4}" = 'file' ] || _okcat '⏳' '正在下载...'
+    [ "${url:0:4}" = 'file' ] || _ui_emit_fd 1 step '正在下载...'
     _download_raw_config "$dest" "$url" || return 1
     _normalize_sub_config "$dest" || return 1
 
@@ -15,13 +15,13 @@ _download_config() {
     }
 
     _is_native_yaml_config "$dest" && {
-        _okcat '🍃' '检测到原生 Clash/Mihomo 配置'
+        _ui_emit_fd 1 info '检测到原生 Clash/Mihomo 配置'
         _valid_config "$dest" && _valid_sub_nodes "$dest" && return
         [ "$allow_convert" = true ] || {
             _errorcat "raw 模式下原生配置校验失败（未尝试转换），可改用默认策略或 --convert"
             return 1
         }
-        _failcat '🍂' "原生配置验证失败：尝试订阅转换..."
+        _ui_warn "原生配置验证失败：尝试订阅转换..."
         cat "$dest" >"${dest}.raw"
         _download_convert_config "$dest" "$url" || return
         _normalize_sub_config "$dest" || return
@@ -29,14 +29,14 @@ _download_config() {
         return
     }
 
-    _okcat '🍃' '验证订阅配置...'
+    _ui_emit_fd 1 step '验证订阅配置...'
     _valid_config "$dest" && _valid_sub_nodes "$dest" && return
 
     [ "$allow_convert" = true ] || {
         _errorcat "raw 模式下配置校验失败（未尝试转换），可改用默认策略或 --convert"
         return 1
     }
-    _failcat '🍂' "验证失败：尝试订阅转换..."
+    _ui_warn "验证失败：尝试订阅转换..."
     cat "$dest" >"${dest}.raw"
     _download_convert_config "$dest" "$url" || return
     _normalize_sub_config "$dest" || return
@@ -202,7 +202,7 @@ _detect_subconverter_port() {
     _is_port_used "$BIN_SUBCONVERTER_PORT" && {
         local new_port
         new_port=$(_get_random_port) || return
-        _failcat '🎯' "端口冲突：[subconverter] ${BIN_SUBCONVERTER_PORT} 🎲 随机分配：$new_port"
+        _ui_warn "端口冲突：[subconverter] ${BIN_SUBCONVERTER_PORT}，随机分配：$new_port"
         BIN_SUBCONVERTER_PORT=$new_port
         "$BIN_YQ" -i ".server.port = $new_port" "$BIN_SUBCONVERTER_CONFIG" 2>/dev/null
     }
