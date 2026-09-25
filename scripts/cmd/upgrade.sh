@@ -25,7 +25,7 @@ clashupgrade() {
 
     _detect_ext_addr
     service_is_active >&/dev/null || service_start >/dev/null
-    _okcat '⏳' "请求内核升级..."
+    _ui_emit_fd 1 step "请求内核升级..."
 
     local follow_pid=
     [ "$log_flag" = true ] && {

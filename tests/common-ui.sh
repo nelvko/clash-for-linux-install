@@ -41,6 +41,7 @@ export CLASHCTL_HOME="$WORK_DIR/home"
 export CLASHCTL_KERNEL=mihomo
 export CLASHCTL_COLOR=never
 export TERM=dumb
+unset NO_COLOR
 mkdir -p -- "$CLASHCTL_HOME"
 
 # shellcheck source=../scripts/lib/common.sh
@@ -54,7 +55,7 @@ stderr_file="$WORK_DIR/stderr"
 : >"$stdout_file"
 : >"$stderr_file"
 _ui_ok_out '处理完成' >"$stdout_file" 2>"$stderr_file"
-assert_stream "$stdout_file" $'[ OK ] 处理完成\n' '_ui_ok_out stdout content'
+assert_stream "$stdout_file" $'✓ OK    处理完成\n' '_ui_ok_out stdout content'
 assert_empty "$stderr_file" '_ui_ok_out wrote to stderr'
 
 : >"$stdout_file"
@@ -63,7 +64,34 @@ rc=0
 _ui_fail '处理失败' >"$stdout_file" 2>"$stderr_file" || rc=$?
 assert_eq 1 "$rc" '_ui_fail return code'
 assert_empty "$stdout_file" '_ui_fail wrote to stdout'
-assert_stream "$stderr_file" $'[ERROR] 处理失败\n' '_ui_fail stderr content'
+assert_stream "$stderr_file" $'✗ ERROR 处理失败\n' '_ui_fail stderr content'
+
+# 自动模式下颜色和加粗不进入管道，NO_COLOR 始终优先。
+CLASHCTL_COLOR=always _ui_ok_out '处理完成' >"$stdout_file"
+assert_stream "$stdout_file" $'\033[1;32m✓ OK   \033[0m 处理完成\n' 'colored success label'
+NO_COLOR=1 CLASHCTL_COLOR=always _ui_ok_out '处理完成' >"$stdout_file"
+assert_stream "$stdout_file" $'✓ OK    处理完成\n' 'NO_COLOR overrides always'
+CLASHCTL_COLOR=auto TERM=xterm _ui_ok_out '处理完成' >"$stdout_file"
+assert_stream "$stdout_file" $'✓ OK    处理完成\n' 'redirected auto output has no ANSI'
+
+{
+    _ui_step '准备组件'
+    _ui_info '使用系统版本'
+    _ui_warn '已跳过'
+} >"$stdout_file" 2>"$stderr_file"
+assert_empty "$stdout_file" 'progress and hints wrote to stdout'
+assert_stream "$stderr_file" $'==> 准备组件\ni INFO  使用系统版本\n! WARN  已跳过\n' 'progress and hint levels'
+CLASHCTL_COLOR=always _ui_step '准备组件' 2>"$stderr_file"
+assert_stream "$stderr_file" $'\033[1;36m==> 准备组件\033[0m\n' 'colored step heading'
+
+_okcat '🎉' '处理完成' >"$stdout_file" 2>"$stderr_file"
+assert_stream "$stdout_file" $'✓ OK    处理完成\n' 'legacy emoji does not duplicate label'
+assert_empty "$stderr_file" 'legacy success wrote to stderr'
+rc=0
+_failcat '🍂' '处理失败' >"$stdout_file" 2>"$stderr_file" || rc=$?
+assert_eq 1 "$rc" 'legacy failure return code'
+assert_empty "$stdout_file" 'legacy failure wrote to stdout'
+assert_stream "$stderr_file" $'✗ ERROR 处理失败\n' 'legacy failure label'
 
 export BIN_YQ=fake_yq
 export CLASH_CONFIG_RUNTIME="$WORK_DIR/runtime.yaml"
@@ -78,8 +106,7 @@ ip() {
 : >"$stdout_file"
 : >"$stderr_file"
 tunstatus >"$stdout_file" 2>"$stderr_file"
-# 本分支未迁移 config.sh 的 _ui_* 改造，tunstatus 仍是 master 的 _okcat/_failcat
-assert_contains "$stdout_file" 'Tun 状态：启用' 'active Tun status level'
+assert_stream "$stdout_file" $'Tun 状态：启用\n' 'active Tun status is plain text'
 assert_empty "$stderr_file" 'active Tun status wrote to stderr'
 
 TUN_PRESENT=0
@@ -88,7 +115,7 @@ TUN_PRESENT=0
 rc=0
 tunstatus >"$stdout_file" 2>"$stderr_file" || rc=$?
 assert_eq 1 "$rc" 'inactive Tun status return code'
-assert_contains "$stderr_file" 'Tun 状态：关闭' 'inactive Tun status level'
+assert_stream "$stderr_file" $'Tun 状态：关闭\n' 'inactive Tun status is not an error message'
 
 command -v script >/dev/null 2>&1 || fail 'util-linux script is required'
 preflight_probe="$WORK_DIR/preflight-probe.sh"
@@ -99,6 +126,7 @@ set -euo pipefail
 REPO_DIR=$1
 CASE_DIR=$2
 VERBOSE=$3
+export GH_PROXY=${4:-}
 mkdir -p -- "$CASE_DIR/home" "$CASE_DIR/download"
 export CLASHCTL_SRC=$REPO_DIR
 export CLASHCTL_HOME="$CASE_DIR/home"
@@ -136,9 +164,9 @@ EOF
 chmod 0700 "$preflight_probe"
 
 run_preflight_probe() {
-    local label=$1 verbose=$2 case_dir="$WORK_DIR/$1" command output rc=0
+    local label=$1 verbose=$2 proxy=${3:-} case_dir="$WORK_DIR/$1" command output rc=0
     mkdir -p -- "$case_dir"
-    printf -v command '%q ' bash "$preflight_probe" "$REPO_DIR" "$case_dir" "$verbose"
+    printf -v command '%q ' bash "$preflight_probe" "$REPO_DIR" "$case_dir" "$verbose" "$proxy"
     output="$case_dir/terminal"
     script -q -e -E never -c "$command" /dev/null </dev/null >"$output" 2>&1 || rc=$?
     assert_eq 0 "$rc" "preflight progress probe $label"
@@ -151,6 +179,13 @@ assert_not_contains "$WORK_DIR/quiet/curl-args" --progress-bar 'quiet dependency
 run_preflight_probe verbose 1
 assert_contains "$WORK_DIR/verbose/curl-args" --progress-bar 'verbose dependency download'
 assert_not_contains "$WORK_DIR/verbose/curl-args" --silent 'verbose dependency download'
+
+run_preflight_probe proxied '' https://gh-proxy.example/
+requested_url=$(awk 'previous == "--url" { print; exit } { previous = $0 }' "$WORK_DIR/proxied/curl-args")
+assert_eq 'https://gh-proxy.example/https://example.invalid/component.tar.gz' \
+    "$requested_url" 'dependency download uses proxy URL'
+assert_contains "$WORK_DIR/proxied/terminal" "下载地址: $requested_url" \
+    'displayed download address matches curl request'
 
 # GH_PROXY 无隐式默认：未显式提供时保持未设（直连），不再默认走第三方镜像
 no_proxy_probe="$WORK_DIR/no-proxy.probe"

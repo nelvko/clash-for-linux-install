@@ -7,7 +7,7 @@ _operation_lock_emit_error() {
     if declare -F _ui_error >/dev/null 2>&1; then
         _ui_error "$1"
     else
-        printf '[ERROR] %s\n' "$1" >&2
+        printf '✗ ERROR %s\n' "$1" >&2
     fi
 }
 

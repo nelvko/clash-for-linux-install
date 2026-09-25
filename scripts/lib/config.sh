@@ -43,7 +43,7 @@ _detect_proxy_port() {
     [ -n "$port" ] && _is_port_used "$port" && [ "$service_active" != "true" ] && {
       new_port=$(_get_random_port) || return
       count=$((count + 1))
-      _failcat '🎯' "端口冲突：[$yaml_key] $port 🎲 随机分配 $new_port"
+      _ui_warn "端口冲突：[$yaml_key] $port，随机分配 $new_port"
       "$BIN_YQ" -i ".${yaml_key} = $new_port" "$CLASH_CONFIG_MIXIN"
     }
   done
@@ -72,7 +72,7 @@ _detect_ext_addr() {
   _is_port_used "$EXT_PORT" && [ "$service_active" != "true" ] && {
     local new_port
     new_port=$(_get_random_port) || return
-    _failcat '🎯' "端口冲突：[external-controller] ${EXT_PORT} 🎲 随机分配 $new_port"
+    _ui_warn "端口冲突：[external-controller] ${EXT_PORT}，随机分配 $new_port"
     EXT_PORT=$new_port
     EXT_ADDR="$ext_ip:$new_port" "$BIN_YQ" -i '.external-controller = env(EXT_ADDR)' "$CLASH_CONFIG_MIXIN"
     _merge_config
@@ -221,10 +221,10 @@ tunstatus() {
   device=$("$BIN_YQ" '.tun.device // ""' "$CLASH_CONFIG_RUNTIME")
   [ -z "$device" ] && device="Meta"
   ip link show | grep -qs "$device" && {
-    _okcat 'Tun 状态：启用'
+    printf 'Tun 状态：启用\n'
     return 0
   }
-  _failcat 'Tun 状态：关闭'
+  printf 'Tun 状态：关闭\n' >&2
   return 1
 }
 _is_tun_enabled() {

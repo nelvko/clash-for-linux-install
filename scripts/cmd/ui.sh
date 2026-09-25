@@ -18,7 +18,7 @@ clashui() {
     
     printf "\n"
     printf "╔═══════════════════════════════════════════════╗\n"
-    printf "║                %s                  ║\n" "$(_okcat 'Web 控制台')"
+    printf "║                  Web 控制台                   ║\n"
     printf "║═══════════════════════════════════════════════║\n"
     printf "║                                               ║\n"
     printf "║     🔓 注意放行端口：%-5s                    ║\n" "$EXT_PORT"

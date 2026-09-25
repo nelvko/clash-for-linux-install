@@ -409,7 +409,7 @@ _node_hint_fzf() {
     command -v fzf >&/dev/null && return 0
 
     _NODE_FZF_HINT_SHOWN=true
-    _okcat '💡' '未检测到 fzf，已使用编号选择；安装 fzf 可启用搜索式选择界面。' >&2
+    _ui_info '未检测到 fzf，已使用编号选择；安装 fzf 可启用搜索式选择界面。'
 }
 
 _node_fzf_preview_dir() {
@@ -530,7 +530,7 @@ _node_pick_group() {
             "${types[$i]}" >&2
     done
     local choice
-    printf '%s' "$(_okcat '✈️ ' "$prompt")" >&2
+    printf '%s' "$prompt" >&2
     read -r choice
     [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#names[@]} ] && {
         printf '%s\n' "${names[$((choice - 1))]}"
@@ -609,7 +609,7 @@ _node_pick_proxy() {
     done
 
     local choice
-    printf '%s' "$(_okcat '✈️ ' "$prompt")" >&2
+    printf '%s' "$prompt" >&2
     read -r choice
     [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#names[@]} ] && {
         printf '%s\n' "${names[$((choice - 1))]}"
@@ -640,7 +640,7 @@ _node_pick_member() {
 
     declare -A delays=()
     if [ "$with_delay" = true ]; then
-        _okcat "正在测速 [$group]（可能需要数秒）..." >&2
+        _ui_step "正在测速 [$group]（可能需要数秒）..."
         [ -n "$url" ] || url=$(_node_default_delay_url)
         [ -n "$timeout" ] || timeout=$(_node_default_delay_timeout)
         while IFS=$'\t' read -r name delay; do
@@ -747,7 +747,7 @@ _node_pick_member() {
         fi
     done
     local choice
-    printf '%s' "$(_okcat '✈️ ' "请选择要切换到的节点（* 为当前）：")" >&2
+    printf '%s' '请选择要切换到的节点（* 为当前）：' >&2
     read -r choice
     [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#members[@]} ] && {
         printf '%s\n' "${members[$((choice - 1))]}"
@@ -934,7 +934,7 @@ _node_delay_group() {
     enc=$(_node_urlencode "$group")
     qs="timeout=${timeout}&url=$(_node_urlencode "$url")"
 
-    _okcat "正在测速策略组 [$group]（可能需要数秒）..."
+    _ui_emit_fd 1 step "正在测速策略组 [$group]（可能需要数秒）..."
     resp=$(_node_curl GET "/group/$enc/delay?$qs" -w $'\n%{http_code}')
     code=${resp##*$'\n'}
     body=${resp%$'\n'*}
@@ -947,7 +947,7 @@ _node_delay_group() {
 
 _node_delay_proxy() {
     local proxy=$1 url=$2 timeout=$3
-    _okcat "正在测速节点 [$proxy]..."
+    _ui_emit_fd 1 step "正在测速节点 [$proxy]..."
     _node_delay_member_rows "$url" "$timeout" "$proxy" | _node_print_delays
 }
 
