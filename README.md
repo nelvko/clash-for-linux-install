@@ -1,8 +1,6 @@
-<h1 align="center">
-  clashctl
-</h1>
+<h1 align="center">clashctl</h1>
 
-<p align="center">mihomo / clash 一键部署与管理工具</p>
+<p align="center">在 Linux 上安装和管理 mihomo / clash</p>
 <p align="center">
  <a href="https://www.star-history.com/nelvko/clash-for-linux-install">
   <picture>
@@ -20,92 +18,117 @@
   <a href="https://deepwiki.com/nelvko/clash-for-linux-install"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </p>
 
-## 📸 Preview
+<p align="center">
+  <a href="#-快速开始">快速开始</a> ·
+  <a href="#-常用命令">常用命令</a> ·
+  <a href="#-从旧版迁移">旧版迁移</a>
+</p>
 
-![preview](preview.png)
+## ✨ 功能
 
-## ✨ Features
+- 一条命令安装 mihomo 或 Clash 及运行依赖，普通用户与 root 均可使用。
+- 管理内核、当前终端代理、Web 面板和 TUN 模式。
+- 添加、切换和更新多个订阅；更新程序时保留订阅与自定义配置。
 
-- **开箱即用**：一条命令部署 `mihomo` / `clash` 内核、Web 面板及运行依赖。有 `Git` 时克隆仓库，没有则下载源码压缩包。
-- **广泛兼容**：支持 `root` / 普通用户，适配主流 `Linux` 发行版、容器环境，以及 `systemd` / `OpenRC` / `runit` / `SysVinit` / `nohup`。
-- **统一管理**：通过 `clashctl` 管理代理启停、状态查看、日志追踪、Web 面板、TUN 模式、访问密钥与内核升级等。
-- **订阅管理**：支持多订阅源配置、一键新增、切换、更新等，并集成 [subconverter](https://github.com/tindy2013/subconverter) 实现订阅格式转换。
-- **配置可控**：主配置与 Mixin 分层合并；`clashctl update` 更新 clashctl 时不影响你的订阅与自定义配置。
+## 🚀 快速开始
 
-## 🚀 Installation
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | bash -s -- --gh-proxy https://gh-proxy.org
-```
-
-- 上述命令使用了[加速下载代理](https://gh-proxy.org/),若失效请更换其他[可用地址](https://ghproxy.link/)。
-- 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
-
-在 Linux 中测试本地源码（包括未提交的修改），只需增加 `--local`：
+### 1. 安装
 
 ```bash
-bash install.sh --local
+curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | \
+  bash -s -- --gh-proxy https://gh-proxy.org
 ```
 
-源码取自 `install.sh` 所在目录，复制后安装到 `~/.clashctl`；可通过 `CLASHCTL_HOME` 指定其他安装目录。此参数只跳过源码下载，运行依赖仍按需下载；`clashctl update` 仍更新到配置的远端分支（默认 `master`）。
+默认安装到 `~/.clashctl`。安装完成后重新打开终端，再使用 `clashctl`。可选参数写在管道右侧的 `bash -s --` 后：
 
-再次运行新版安装脚本时，已验证的安装目录会自动更新并继续初始化；上次安装中断则直接续装。`--local` 可刷新已有的压缩包安装，Git 安装仍从已配置的远端分支更新。检测到可验证的旧版安装时，会迁移配置和订阅，并将旧目录保留为带 `.bak` 后缀的备份；迁移失败会恢复旧目录。无法确认归属的目录不会被覆盖。
+| 参数 | 作用 | 示例 |
+| --- | --- | --- |
+| `--install-dir` | 指定绝对安装目录，优先于 `CLASHCTL_HOME` | `--install-dir "$HOME/apps/clashctl"` |
+| `--gh-proxy` | 加速安装器后续的源码和组件下载 | `--gh-proxy https://gh-proxy.org` |
 
-## 🎯 Quick Start
+上面的命令还通过代理下载入口脚本。直连时，去掉 URL 开头的 `https://gh-proxy.org/`，并将右侧参数改为 `--gh-proxy=`，以清除已有代理配置。
 
-安装完成后，即可使用 `clashctl` 管理代理：
+URL 中的分支只选择安装器；源码和后续更新跟踪 `CLASHCTL_UPDATE_BRANCH` 指定的分支，新安装默认为 `master`。
+
+### 2. 添加订阅并启动
 
 ```bash
-clashctl on              # 启用当前终端代理，内核未运行时自动启动
-clashctl off             # 关闭当前终端代理，内核继续运行
-
-clashctl start           # 仅启动内核
-clashctl stop            # 仅停止内核
-clashctl status          # 查看代理状态
-
-clashctl ui              # 查看 Web 面板地址
-clashctl sub             # 订阅管理
-clashctl node            # 节点管理
-
-clashctl update          # 更新 clashctl
+clashctl sub add --use "<订阅链接>"
+clashctl on
+clashctl ui
 ```
 
-更多命令用法与示例请参阅：[Usage](https://github.com/nelvko/clash-for-linux-install/wiki)
+添加订阅后，`clashctl on` 会启动内核并启用当前终端代理；`clashctl ui` 显示 Web 面板地址。
 
-## 🧹 Uninstall
+## 🎯 常用命令
 
-卸载会停止本次安装的内核，并删除服务、Shell 引导及整个安装目录，**包括订阅、自定义配置、内核和日志**。如需保留配置，请提前将安装目录中的 `.env` 和 `data/` 备份到其他位置；备份可能包含订阅凭据和访问密钥，请妥善保管。
+| 操作 | 命令 |
+| --- | --- |
+| 切换订阅 / 选择节点 | `clashctl sub` / `clashctl node` |
+| 更新当前 / 全部订阅 | `clashctl sub update` / `clashctl sub update --all` |
+| 关闭当前终端代理 | `clashctl off` |
+| 只启动 / 停止内核 | `clashctl start` / `clashctl stop` |
+| 查看内核状态 / 日志 | `clashctl status` / `clashctl log` |
+
+`off` 只关闭当前终端代理，需要停止内核时运行 `clashctl stop`。更多命令见 `clashctl --help`。
+
+## 🔄 从旧版迁移
+
+安装器会识别旧版目录并迁移订阅和配置。按希望保留的路径选择：
+
+**搬到新默认目录**：旧版在 `~/clashctl`，且 `~/.clashctl` 尚不存在。
 
 ```bash
-clashctl off
-bash ~/.clashctl/uninstall.sh
+curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | \
+  bash -s -- --install-dir "$HOME/.clashctl" --gh-proxy https://gh-proxy.org
 ```
 
-也可在源码目录执行 `bash uninstall.sh`：脚本优先识别自身所在的安装目录，否则使用 `CLASHCTL_HOME` 指定的目录，未设置时查找 `~/.clashctl`。自定义安装可执行 `CLASHCTL_HOME=/path/to/clashctl bash uninstall.sh`，或直接运行该安装目录下的脚本。确认提示会显示实际卸载路径；路径或安装标记无效时会停止。
+**沿原路径升级**：将 `--install-dir` 改为实际旧目录，自定义路径也适用。
 
-无人值守可加 `--yes` 跳过确认，仍会检查安装归属和内核停止结果。普通用户安装应由原用户卸载，需要停止 TUN 特权进程时会单独请求 `sudo`。
+```bash
+curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | \
+  bash -s -- --install-dir /absolute/path/to/clashctl --gh-proxy https://gh-proxy.org
+```
 
-卸载后请关闭使用过 clashctl 的终端并重新打开。卸载脚本无法清除父 Shell 的代理变量，因此建议先执行 `clashctl off`；脚本报告的残留文件可检查后手动清理。若 `.env` 意外丢失，脚本会保留目录，请恢复备份后重试。
+迁移可能短暂重启内核。旧目录会留在同级的 `.bak.*` 备份中，其中可能含订阅凭据和访问密钥；确认不再需要后再清理。搬迁目录后，记得修改写死旧路径的定时任务。
 
-## 📖 Documentation
+## ⬆️ 更新
 
+```bash
+clashctl update   # 更新程序，保留订阅和配置
+clashctl upgrade  # 更新内核
+```
 
-- [FAQ](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ) — 常见问题。
+从其他分支安装的用户仍跟踪原分支。要切换到 `master`，先将安装目录 `.env` 中的 `CLASHCTL_UPDATE_BRANCH` 改为 `master`，再运行 `clashctl update`。
 
-## 💖 Support
+## 🧹 卸载
+
+```bash
+bash "${CLASHCTL_HOME:-$HOME/.clashctl}/uninstall.sh"
+```
+
+若当前终端仍指向旧目录，请重新打开终端，或直接运行 `bash /实际安装路径/uninstall.sh`。卸载会停止内核并删除安装目录，包括订阅和配置；需要保留的数据请先备份。
+
+## 📖 文档
+
+- [常见问题](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)
+- [更多使用说明](https://github.com/nelvko/clash-for-linux-install/wiki)
+
+## 💖 支持
+
+没有订阅？[获取订阅](https://次元.net/auth/register?code=oUbI)。
 
 ### <img alt="Maru Code" src="https://cdn.nodeimage.com/i/hc6anADTcLP0P2CTOoqUMkKcHER4KeYY.webp" width="20" height="20"> [Maru Code —— 稳定可靠的 API 中转服务](https://api.muteki.site/register?aff=NELVKO&promo=nelvko)
 
 - ⚡ 模型能力完整，`Claude` 系列满血可用。
 - 📊 计费倍率透明公开，成本更容易预估。
 - 🔑 自营号池保障可用性，日常调用更稳定。
-- 🎁 新用户注册赠送 `$2` 额度：👉[立即注册](https://api.muteki.site/register?aff=NELVKO&promo=nelvko)
+- 🎁 新用户注册赠送 `$2` 额度：[立即注册](https://api.muteki.site/register?aff=NELVKO&promo=nelvko)
 
 ## ⭐ Star History
 
-## Star History
-
 <a href="https://www.star-history.com/?repos=nelvko%2Fclash-for-linux-install&type=timeline&legend=bottom-right">
+
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=nelvko/clash-for-linux-install&type=date&theme=dark&legend=bottom-right" />
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=nelvko/clash-for-linux-install&type=date&legend=bottom-right" />
@@ -113,7 +136,7 @@ bash ~/.clashctl/uninstall.sh
  </picture>
 </a>
 
-## ⚠️ Disclaimer
+## ⚠️ 免责声明
 
-- 编写本项目主要目的为学习和研究 `Shell` 编程，不得将本项目中任何内容用于违反国家/地区/组织等的法律法规或相关规定的其他用途。
-- 本项目保留随时对免责声明进行补充或更改的权利，直接或间接使用本项目内容的个人或组织，视为接受本项目的特别声明。
+- 编写本项目主要目的为学习和研究 Shell 编程，不得将本项目中的任何内容用于违反国家、地区或组织法律法规及相关规定的用途。
+- 本项目保留随时补充或更改免责声明的权利。直接或间接使用本项目内容的个人或组织，视为接受本项目的特别声明。

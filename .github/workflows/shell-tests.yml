@@ -1,0 +1,30 @@
+name: Shell tests
+
+on:
+  push:
+    branches: [master, install-update]
+  pull_request:
+    branches: [master, install-update]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install test shells
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fish zsh
+      - name: Check Bash syntax
+        run: git ls-files -z -- '*.sh' | xargs -0 -r -n 1 bash -n
+      - name: Run regression suite
+        run: sudo bash tests/run-all.sh
+      - name: Run migration tests as a regular user
+        run: bash tests/run-all.sh install-update install-legacy-nohup

@@ -155,37 +155,16 @@ _ui_color_enabled() {
     [ -t "$fd" ]
 }
 
-# 结构化 UI 默认写 stderr；兼容旧命令时可显式选择 stdout。
-_ui_emit_fd() {
-    local fd=${1:-2} level
-    [ $# -gt 0 ] && shift
-    level=${1:-info}
-    [ $# -gt 0 ] && shift
-    local msg="$*" prefix color
-
+# 两套前缀共用颜色与输出流规则。
+_ui_print_fd() {
+    local fd=$1 level=$2 prefix=$3 msg=$4 color
     case $level in
-    step)
-        prefix='==>'
-        color=36
-        ;;
-    ok)
-        prefix='[ OK ]'
-        color=32
-        ;;
-    warn)
-        prefix='[WARN]'
-        color=33
-        ;;
-    error)
-        prefix='[ERROR]'
-        color=31
-        ;;
-    info | *)
-        prefix='[INFO]'
-        color=36
-        ;;
+    step) color=36 ;;
+    ok) color=32 ;;
+    warn) color=33 ;;
+    error | fail) color=31 ;;
+    info | *) color=36 ;;
     esac
-
     if _ui_color_enabled "$fd"; then
         if [ "$level" = step ]; then
             printf '\033[1;%sm%s %s\033[0m\n' "$color" "$prefix" "$msg" >&"$fd"
@@ -197,6 +176,49 @@ _ui_emit_fd() {
     fi
     return 0
 }
+
+# 日常命令保留旧版 emoji；安装、卸载使用结构化前缀。
+_ui_emoji_emit_fd() {
+    local fd=${1:-2} level=${2:-info} msg=${3:-} override=${4:-} prefix
+    case $level in
+    step) prefix='⏳' ;;
+    ok) prefix='😼' ;;
+    warn) prefix='⚠️' ;;
+    error) prefix='📢' ;;
+    fail) prefix='😾' ;;
+    info | *) prefix='ℹ️' ;;
+    esac
+    [ -z "$override" ] || prefix=$override
+    _ui_print_fd "$fd" "$level" "$prefix" "$msg"
+}
+
+_install_ui_emit_fd() {
+    local fd=${1:-2} level=${2:-info} msg=${3:-} prefix
+    case $level in
+    step) prefix='==>' ;;
+    ok) prefix='[ OK ]' ;;
+    warn) prefix='[WARN]' ;;
+    error | fail) prefix='[ERROR]' ;;
+    info | *) prefix='[INFO]' ;;
+    esac
+    _ui_print_fd "$fd" "$level" "$prefix" "$msg"
+}
+
+# 共用库由日常命令调用时用 emoji；安装/卸载在其子 Shell 中提供输出函数。
+_ui_emit_fd() {
+    if typeset -f _install_ui_output >/dev/null 2>&1; then
+        _install_ui_output "$@"
+    else
+        _ui_emoji_emit_fd "$@"
+    fi
+}
+
+_install_ui_step() { _install_ui_emit_fd 2 step "$*"; }
+_install_ui_info() { _install_ui_emit_fd 2 info "$*"; }
+_install_ui_ok() { _install_ui_emit_fd 2 ok "$*"; }
+_install_ui_warn() { _install_ui_emit_fd 2 warn "$*"; }
+_install_ui_error() { _install_ui_emit_fd 2 error "$*"; }
+_install_ui_ok_out() { _install_ui_emit_fd 1 ok "$*"; }
 
 _ui_emit() {
     _ui_emit_fd 2 "$@"
@@ -227,7 +249,7 @@ _ui_ok_out() {
 }
 
 _ui_fail() {
-    _ui_emit_fd 2 error "$*"
+    _ui_emit_fd 2 fail "$*"
     return 1
 }
 
@@ -264,23 +286,25 @@ _color_log() {
     printf "%b%s%b\n" "$color_code" "$msg" "$reset_code"
 }
 
-# ── 旧输出函数兼容层 ─────────────────────────────────────────────
-# 保留旧调用约定和输出流；忽略可选的 emoji 参数，统一使用符号与英文标签。
 _okcat() {
-    [ $# -gt 1 ] && shift
-    _ui_emit_fd 1 ok "$1"
+    local emoji=''
+    if [ $# -gt 1 ]; then emoji=$1; shift; fi
+    _ui_emit_fd 1 ok "$1" "$emoji"
     return 0
 }
 
 _failcat() {
-    [ $# -gt 1 ] && shift
-    _ui_fail "$1"
+    local emoji=''
+    if [ $# -gt 1 ]; then emoji=$1; shift; fi
+    _ui_emit_fd 2 fail "$1" "$emoji"
+    return 1
 }
 
 _errorcat() {
     [ $# -gt 0 ] && {
-        [ $# -gt 1 ] && shift
-        _ui_fail "$*"
+        local emoji=''
+        if [ $# -gt 1 ]; then emoji=$1; shift; fi
+        _ui_emit_fd 2 error "$*" "$emoji"
     }
     return 1
 }

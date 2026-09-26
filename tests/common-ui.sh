@@ -55,7 +55,7 @@ stderr_file="$WORK_DIR/stderr"
 : >"$stdout_file"
 : >"$stderr_file"
 _ui_ok_out '处理完成' >"$stdout_file" 2>"$stderr_file"
-assert_stream "$stdout_file" $'✓ OK    处理完成\n' '_ui_ok_out stdout content'
+assert_stream "$stdout_file" $'😼 处理完成\n' '_ui_ok_out stdout content'
 assert_empty "$stderr_file" '_ui_ok_out wrote to stderr'
 
 : >"$stdout_file"
@@ -64,15 +64,15 @@ rc=0
 _ui_fail '处理失败' >"$stdout_file" 2>"$stderr_file" || rc=$?
 assert_eq 1 "$rc" '_ui_fail return code'
 assert_empty "$stdout_file" '_ui_fail wrote to stdout'
-assert_stream "$stderr_file" $'✗ ERROR 处理失败\n' '_ui_fail stderr content'
+assert_stream "$stderr_file" $'😾 处理失败\n' '_ui_fail stderr content'
 
 # 自动模式下颜色和加粗不进入管道，NO_COLOR 始终优先。
 CLASHCTL_COLOR=always _ui_ok_out '处理完成' >"$stdout_file"
-assert_stream "$stdout_file" $'\033[1;32m✓ OK   \033[0m 处理完成\n' 'colored success label'
+assert_stream "$stdout_file" $'\033[1;32m😼\033[0m 处理完成\n' 'colored success label'
 NO_COLOR=1 CLASHCTL_COLOR=always _ui_ok_out '处理完成' >"$stdout_file"
-assert_stream "$stdout_file" $'✓ OK    处理完成\n' 'NO_COLOR overrides always'
+assert_stream "$stdout_file" $'😼 处理完成\n' 'NO_COLOR overrides always'
 CLASHCTL_COLOR=auto TERM=xterm _ui_ok_out '处理完成' >"$stdout_file"
-assert_stream "$stdout_file" $'✓ OK    处理完成\n' 'redirected auto output has no ANSI'
+assert_stream "$stdout_file" $'😼 处理完成\n' 'redirected auto output has no ANSI'
 
 {
     _ui_step '准备组件'
@@ -80,18 +80,37 @@ assert_stream "$stdout_file" $'✓ OK    处理完成\n' 'redirected auto output
     _ui_warn '已跳过'
 } >"$stdout_file" 2>"$stderr_file"
 assert_empty "$stdout_file" 'progress and hints wrote to stdout'
-assert_stream "$stderr_file" $'==> 准备组件\ni INFO  使用系统版本\n! WARN  已跳过\n' 'progress and hint levels'
+assert_stream "$stderr_file" $'⏳ 准备组件\nℹ️ 使用系统版本\n⚠️ 已跳过\n' 'progress and hint levels'
 CLASHCTL_COLOR=always _ui_step '准备组件' 2>"$stderr_file"
-assert_stream "$stderr_file" $'\033[1;36m==> 准备组件\033[0m\n' 'colored step heading'
+assert_stream "$stderr_file" $'\033[1;36m⏳ 准备组件\033[0m\n' 'colored step heading'
 
 _okcat '🎉' '处理完成' >"$stdout_file" 2>"$stderr_file"
-assert_stream "$stdout_file" $'✓ OK    处理完成\n' 'legacy emoji does not duplicate label'
+assert_stream "$stdout_file" $'🎉 处理完成\n' 'legacy success emoji is retained'
 assert_empty "$stderr_file" 'legacy success wrote to stderr'
 rc=0
 _failcat '🍂' '处理失败' >"$stdout_file" 2>"$stderr_file" || rc=$?
 assert_eq 1 "$rc" 'legacy failure return code'
 assert_empty "$stdout_file" 'legacy failure wrote to stdout'
-assert_stream "$stderr_file" $'✗ ERROR 处理失败\n' 'legacy failure label'
+assert_stream "$stderr_file" $'🍂 处理失败\n' 'legacy failure emoji is retained'
+
+_install_ui_ok_out '处理完成' >"$stdout_file"
+assert_stream "$stdout_file" $'[ OK ] 处理完成\n' 'installer success style'
+_install_ui_step '准备组件' 2>"$stderr_file"
+assert_stream "$stderr_file" $'==> 准备组件\n' 'installer step style'
+(
+    _install_ui_output() { _install_ui_emit_fd "$@"; }
+    . "$REPO_DIR/scripts/lib/common.sh"
+    _okcat '🎉' '处理完成'
+) >"$stdout_file"
+assert_stream "$stdout_file" $'[ OK ] 处理完成\n' 'installer ignores command emoji'
+rc=0
+(
+    _install_ui_output() { _install_ui_emit_fd "$@"; }
+    . "$REPO_DIR/scripts/lib/common.sh"
+    _failcat '🍂' '处理失败'
+) 2>"$stderr_file" || rc=$?
+assert_eq 1 "$rc" 'installer failure return code'
+assert_stream "$stderr_file" $'[ERROR] 处理失败\n' 'installer failure style'
 
 export BIN_YQ=fake_yq
 export CLASH_CONFIG_RUNTIME="$WORK_DIR/runtime.yaml"
