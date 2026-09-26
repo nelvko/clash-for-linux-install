@@ -4,7 +4,14 @@
 set -euo pipefail
 REPO_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 WORK_DIR=$(mktemp -d)
-trap 'rm -rf -- "$WORK_DIR"' EXIT
+interrupt_shell_launcher_pid='' interrupt_shell_main_pid=''
+cleanup() {
+    [ -z "$interrupt_shell_main_pid" ] || kill "$interrupt_shell_main_pid" 2>/dev/null || true
+    [ -z "$interrupt_shell_launcher_pid" ] || kill "$interrupt_shell_launcher_pid" 2>/dev/null || true
+    wait 2>/dev/null || true
+    rm -rf -- "$WORK_DIR"
+}
+trap cleanup EXIT
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 export REAL_GIT
 REAL_GIT=$(command -v git)
@@ -75,6 +82,14 @@ apply_rc() {
         fi
         return 1
     fi
+    if [ "${INTERRUPT_AFTER_RC:-0}" = 1 ]; then
+        printf '# new shell integration\nexport CLASHCTL_HOME=%q\n. $CLASHCTL_HOME/scripts/cmd/clashctl.sh\n' \
+            "$CLASHCTL_HOME" >"$HOME/.bashrc"
+        printf "# new fish integration\nset -gx CLASHCTL_HOME '%s'\n" \
+            "$CLASHCTL_HOME" >"$HOME/.config/fish/conf.d/clashctl.fish"
+        printf '%s\n' "$BASHPID" >"$INTERRUPT_SHELL_MARKER"
+        while :; do sleep 0.05; done
+    fi
     touch "$CLASH_DATA_DIR/shell-ready"
     SHELL_RC_BASH="$CLASH_DATA_DIR/.bashrc"
     touch "$SHELL_RC_BASH"
@@ -105,7 +120,6 @@ printf 'fixture_version=old\n' >"$FIXTURE/scripts/cmd/clashctl.sh"
 "$REAL_GIT" -C "$FIXTURE" add .
 "$REAL_GIT" -C "$FIXTURE" commit -qm initial
 "$REAL_GIT" -C "$FIXTURE" branch iu
-"$REAL_GIT" -C "$FIXTURE" branch install-update
 "$REAL_GIT" -C "$FIXTURE" checkout -qb legacy
 "$REAL_GIT" -C "$FIXTURE" rm -q .env.example
 "$REAL_GIT" -C "$FIXTURE" commit -qm legacy-layout
@@ -183,7 +197,7 @@ CLASHCTL_HOME="$WORK_DIR/readme-home" bash -c '
     cat "$WORK_DIR/readme.out"; fail 'README installation command failed'
 }
 grep -q '^GH_PROXY=https://gh-proxy.org$' "$WORK_DIR/readme-home/.env" || fail 'README proxy was not persisted'
-grep -q '^CLASHCTL_UPDATE_BRANCH=install-update$' "$WORK_DIR/readme-home/.env" || fail 'README candidate branch was not persisted'
+grep -q '^CLASHCTL_UPDATE_BRANCH=master$' "$WORK_DIR/readme-home/.env" || fail 'README master branch was not persisted'
 # 续装保留已保存的选项；显式参数优先，空代理可切回直连。
 retry_home="$WORK_DIR/retry-options"
 CLASHCTL_HOME="$retry_home" CLASHCTL_UPDATE_BRANCH=iu bash "$REPO_DIR/install.sh" clash --gh-proxy=https://old.proxy.test >"$WORK_DIR/options.out" 2>&1
@@ -379,6 +393,51 @@ cmp -s "$legacy_user/.config/fish/conf.d/clashctl.fish" "$WORK_DIR/legacy-user.f
 failed_v1=$(find "$WORK_DIR" -maxdepth 1 -name 'legacy-v1-home.failed.*' -print -quit)
 [ -n "$failed_v1" ] && [ ! -e "$failed_v1/data/started" ] ||
     fail 'failed legacy migration left the new nohup service running'
+# Shell 集成已写入时收到 TERM，迁移回滚必须恢复用户原有的 Bash/Fish 配置。
+interrupt_v1="$WORK_DIR/interrupt-v1-home"
+cp -a -- "$legacy_v1" "$interrupt_v1"
+sed -i "s#$legacy_v1/resources/profiles/#$interrupt_v1/resources/profiles/#g" \
+    "$interrupt_v1/resources/profiles.yaml"
+interrupt_user="$WORK_DIR/interrupt-user"
+mkdir -p "$interrupt_user/.config/fish/conf.d"
+printf 'export CLASHCTL_HOME=%q\n. $CLASHCTL_HOME/scripts/cmd/clashctl.sh\n' \
+    "$interrupt_v1" >"$interrupt_user/.bashrc"
+printf "# clashctl shell-rc (managed by install.sh, do not edit)\nset -gx CLASHCTL_HOME '%s'\n" \
+    "$interrupt_v1" >"$interrupt_user/.config/fish/conf.d/clashctl.fish"
+cp -p "$interrupt_user/.bashrc" "$WORK_DIR/interrupt-user.bashrc"
+cp -p "$interrupt_user/.config/fish/conf.d/clashctl.fish" "$WORK_DIR/interrupt-user.fish"
+interrupt_shell_marker="$WORK_DIR/interrupt-shell-main.pid"
+HOME="$interrupt_user" CLASHCTL_HOME="$interrupt_v1" INTERRUPT_AFTER_RC=1 \
+    INTERRUPT_SHELL_MARKER="$interrupt_shell_marker" \
+    bash "$local_source/install.sh" --local >"$WORK_DIR/interrupt-shell.out" 2>&1 &
+interrupt_shell_launcher_pid=$!
+for ((i=0; i<300; i++)); do
+    [ ! -s "$interrupt_shell_marker" ] || break
+    kill -0 "$interrupt_shell_launcher_pid" 2>/dev/null || break
+    sleep 0.05
+done
+[ -s "$interrupt_shell_marker" ] || {
+    cat "$WORK_DIR/interrupt-shell.out" >&2
+    fail 'migration did not reach modified shell integration'
+}
+interrupt_shell_main_pid=$(cat "$interrupt_shell_marker")
+[[ $interrupt_shell_main_pid =~ ^[0-9]+$ ]] || fail 'shell integration marker did not contain a PID'
+! cmp -s "$interrupt_user/.bashrc" "$WORK_DIR/interrupt-user.bashrc" ||
+    fail 'interrupt fixture did not modify Bash configuration'
+! cmp -s "$interrupt_user/.config/fish/conf.d/clashctl.fish" "$WORK_DIR/interrupt-user.fish" ||
+    fail 'interrupt fixture did not modify Fish configuration'
+kill -TERM "$interrupt_shell_main_pid" || fail 'could not interrupt shell integration'
+if wait "$interrupt_shell_launcher_pid"; then
+    fail 'interrupted shell integration unexpectedly succeeded'
+fi
+interrupt_shell_launcher_pid=''
+interrupt_shell_main_pid=''
+cmp -s "$interrupt_user/.bashrc" "$WORK_DIR/interrupt-user.bashrc" ||
+    fail 'TERM during shell integration did not restore Bash configuration'
+cmp -s "$interrupt_user/.config/fish/conf.d/clashctl.fish" "$WORK_DIR/interrupt-user.fish" ||
+    fail 'TERM during shell integration did not restore Fish configuration'
+[ -f "$interrupt_v1/resources/config.yaml" ] && [ ! -e "$interrupt_v1/.clashctl-install" ] ||
+    fail 'TERM during shell integration did not restore old installation'
 # 旧版订阅写操作持锁更新文件时，新安装须等它提交后再复制。
 (
     flock -x 9
@@ -416,6 +475,33 @@ grep -Fqx "CLASHCTL_NODE_DELAY_URL='https://example.test/check?x=1&y=2'" "$legac
     fail 'quoted legacy URL was not migrated'
 grep -Fqx 'CLASHCTL_SUB_UA="Custom Agent"' "$legacy_v1/.env" ||
     fail 'quoted legacy user agent was not migrated'
+legacy_unsafe_user="$WORK_DIR/legacy-unsafe-user"
+mkdir -p "$legacy_unsafe_user"
+cp -a -- "$legacy_v1_backup" "$legacy_unsafe_user/clashctl"
+chmod g+w "$legacy_unsafe_user/clashctl/scripts/cmd/clashctl.sh"
+if env -u CLASHCTL_HOME HOME="$legacy_unsafe_user" bash "$local_source/install.sh" --local \
+    >"$WORK_DIR/v1-unsafe-default.out" 2>&1; then
+    fail 'unsafe old default directory was silently skipped'
+fi
+grep -q '无法安全确认' "$WORK_DIR/v1-unsafe-default.out" ||
+    fail 'unsafe old default directory did not explain why migration stopped'
+[ -f "$legacy_unsafe_user/clashctl/resources/config.yaml" ] && [ ! -e "$legacy_unsafe_user/.clashctl" ] ||
+    fail 'unsafe old default directory was modified or shadowed by a new installation'
+current_default_user="$WORK_DIR/current-default-user"
+current_old_home="$current_default_user/clashctl"
+mkdir -p "$current_old_home/scripts/lib"
+printf '#!/usr/bin/env bash\n' >"$current_old_home/install.sh"
+printf '#!/usr/bin/env bash\n' >"$current_old_home/scripts/preflight.sh"
+printf '#!/usr/bin/env bash\n' >"$current_old_home/scripts/lib/common.sh"
+printf '%s\narchive\n' "$current_old_home" >"$current_old_home/.clashctl-install"
+chmod 0600 "$current_old_home/.clashctl-install"
+if env -u CLASHCTL_HOME HOME="$current_default_user" bash "$local_source/install.sh" --local \
+    >"$WORK_DIR/current-default.out" 2>&1; then
+    fail 'current installation at old default path was silently shadowed'
+fi
+grep -q '已在旧默认路径发现新版安装' "$WORK_DIR/current-default.out" ||
+    fail 'current installation at old default path lacks an actionable diagnosis'
+[ ! -e "$current_default_user/.clashctl" ] || fail 'current old-path installation gained a duplicate'
 legacy_default_user="$WORK_DIR/legacy-default-user"
 mkdir -p "$legacy_default_user"
 cp -a -- "$legacy_v1_backup" "$legacy_default_user/clashctl"

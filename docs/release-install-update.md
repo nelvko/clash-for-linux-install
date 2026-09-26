@@ -2,6 +2,16 @@
 
 这份清单用于决定何时将安装流程合入 `master`。仓库更名、命令更名和安装目录再次更名不属于本次发布。
 
+## 合并前试用
+
+远端 `master` 仍是旧安装器；此分支的试用命令必须同时选择脚本和源码分支：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/install-update/install.sh | CLASHCTL_UPDATE_BRANCH=install-update bash -s -- --gh-proxy https://gh-proxy.org
+```
+
+旧目录搬到新默认目录时，在管道右侧的 `bash` 前加 `env -u CLASHCTL_HOME CLASHCTL_UPDATE_BRANCH=install-update`；原路径升级时加 `CLASHCTL_HOME=/absolute/path/to/clashctl CLASHCTL_UPDATE_BRANCH=install-update`。正式合并后，README 中的 `master` 命令才可使用。合并前的试用命令以本文件为准；功能与命令说明参考 README 和命令帮助。当前 Wiki 仍描述旧版行为。
+
 ## 用户可见变化
 
 | 项目 | 旧版 `master` | `install-update` |
@@ -28,7 +38,7 @@
 - [ ] 验证普通用户的 `nohup` 与 root 的 `systemd` 安装；覆盖无订阅、有效订阅、下载失败和初始化失败后的恢复。
 - [x] 明确 `off` 和旧参数的兼容策略，更新 README 与发布说明。
 - [ ] 将最终候选版推送至 `install-update`，让愿意测试的用户通过同时指定脚本分支与 `CLASHCTL_UPDATE_BRANCH` 主动试用；处理收到的阻断问题。
-- [ ] 合并时将 README 首页安装命令切换到 `master`，同步更新 Wiki 的 `off` 默认行为、安装路径和 FAQ；完成前保留候选版说明。
+- [ ] 合并时同步更新 Wiki 的 `off` 默认行为、安装路径和 FAQ；README 已按合并后的 `master` 写法准备。
 - [ ] 合并前记录 `master` 旧提交或打标签，并确认回退步骤。Git 回退只影响之后的下载；迁移成功的用户若要退回旧版，须先处理当前安装目录、服务与 Shell 引导，再从对应 `.bak.*` 恢复旧目录。先保存迁移后新增的数据，避免回退时丢失。安装失败时自动恢复只是尽力；若提示恢复失败，保留现场检查备份。未完成的新安装按安装器打印的重试命令继续。
 
 验收项完成后再合入 `master`。合并本身不会更改已有安装；新安装和主动运行新版安装器的用户会进入新流程。
@@ -38,3 +48,5 @@
 - 2026-09-26：Orb Linux 普通用户在隔离 `HOME` 下从本地候选源码安装，真实下载 mihomo 与 yq；无订阅时内核未启动，随后卸载成功，临时安装目录已清理。
 - 2026-09-26：Orb Linux 将按旧版 `master` 布局构造的三份独立目录迁移：自动搬迁 `~/clashctl`、导出默认路径原地升级、自定义路径原地升级。实际下载并校验 mihomo 与 yq；核对旧目录备份、订阅文件及路径、缓存、日志和 `clashctl sub list`。旧配置为空，未覆盖服务启动或代理流量。
 - 2026-09-26：Orb Linux 根用户全量回归 15/15；普通用户迁移回归 2/2。
+- 2026-09-26：Orb Linux 以独立 UID 运行实际旧 `master` 安装器，添加有效本地订阅并启动 `nohup` 内核；迁移到 `~/.clashctl` 后，核对备份、当前订阅与路径、Shell 引导、单个新内核进程，以及迁移前后的本地 HTTP 代理请求。用户原有的旧内核 PID 保持不变。旧版内核继承订阅锁的情形已修复并加入回归；若旧脚本带组写权限，安装器现在明确中止而不另建新目录，核实后可手动收紧权限再重试。
+- 2026-09-26：增加迁移期间收到 TERM 的回归：分别在旧 nohup 内核停止后的数据复制阶段，以及 Bash/Fish 引导写入后中断；核对旧服务、目录、订阅锁和 Shell 配置恢复。Orb Linux 根用户全量回归 15/15，普通用户迁移回归 2/2。

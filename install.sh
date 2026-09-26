@@ -95,7 +95,11 @@ _install_legacy_profiles_lock_acquire() {
         _install_legacy_profiles_lock_release
         return 1
     fi
-    flock -w 60 "$legacy_profiles_fd" || {
+    if [ "${3:-wait}" = short ]; then
+        flock -w 2 "$legacy_profiles_fd"
+    else
+        flock -w 60 "$legacy_profiles_fd"
+    fi || {
         _install_legacy_profiles_lock_release
         printf '旧版订阅操作尚未结束，请稍后重试迁移\n' >&2
         return 1
@@ -106,6 +110,20 @@ _install_legacy_profiles_lock_release() {
     [ -n "${legacy_profiles_fd:-}" ] || return 0
     exec {legacy_profiles_fd}>&- || return 1
     legacy_profiles_fd=''
+}
+
+_install_legacy_prepare_for_copy() {
+    local legacy=$1 kind=$2 kernel=$3 lock_mode=wait
+    detect_service_manager
+    if [ "$service_manager" = nohup ]; then
+        # 旧版从订阅锁内启动 nohup，内核可能继承并一直占有 profiles.lock。
+        _install_legacy_service_prepare "$legacy" "$kernel" || return 1
+        lock_mode=short
+    fi
+    _install_legacy_profiles_lock_acquire "$legacy" "$kind" "$lock_mode" || {
+        _install_legacy_service_restore "$kernel" || return 1
+        return 1
+    }
 }
 
 _install_legacy_data() {
@@ -384,6 +402,48 @@ _install_legacy_rollback() {
     printf '旧版安装已恢复：%s\n' "$legacy" >&2
 }
 
+# 迁移期间的中断与普通错误共用恢复路径；旧目录搬走后必须先回滚路径再启动旧服务。
+_install_main_cleanup() {
+    local rc=$?
+    trap - EXIT INT TERM
+    set +e
+    _install_legacy_profiles_lock_release
+    if [ "${legacy_recovery_required:-false}" = true ]; then
+        if [ -n "${legacy_shell_backup:-}" ]; then
+            if _install_shell_restore "$legacy_shell_backup"; then
+                rm -rf -- "$legacy_shell_backup" || true
+            else
+                printf '迁移中断后无法恢复 Shell 配置，请检查备份：%s\n' "$legacy_shell_backup" >&2
+                rc=1
+            fi
+        fi
+        if [ -n "${backup:-}" ] && [ -d "$backup" ] && [ ! -L "$backup" ]; then
+            if { [ ! -e "$legacy_home" ] && [ ! -L "$legacy_home" ]; } ||
+                { [ "$legacy_home" = "$install_home" ] && [ -d "$install_home" ] &&
+                    [ ! -L "$install_home" ] &&
+                    _install_method "$install_home" >/dev/null 2>&1; }; then
+                _install_legacy_rollback "$legacy_home" "$backup" "$install_home" "$legacy_kernel" || {
+                    printf '迁移中断后无法自动恢复旧版安装，请检查备份：%s\n' "$backup" >&2
+                    rc=1
+                }
+            else
+                printf '迁移中断后旧目录与备份同时存在，请手动检查：%s 和 %s\n' "$legacy_home" "$backup" >&2
+                rc=1
+            fi
+        elif [ -d "$legacy_home" ] && [ ! -L "$legacy_home" ]; then
+            _install_legacy_service_restore "$legacy_kernel" || {
+                printf '迁移中断后无法自动恢复旧版服务，请检查：%s\n' "$legacy_home" >&2
+                rc=1
+            }
+        else
+            printf '迁移中断后无法确认旧版目录，请检查：%s 和 %s\n' "$legacy_home" "$backup" >&2
+            rc=1
+        fi
+    fi
+    [ -z "${stage:-}" ] || rm -rf -- "$stage"
+    exit "$rc"
+}
+
 # 旧版迁移最后更新 Shell 引导；若其中某个文件更新失败，恢复此前已改的文件。
 _install_shell_snapshot() {
     local directory=$1 rc path index=0
@@ -576,6 +636,7 @@ _install_initialize() {
             rm -rf -- "$shell_backup"
             return 1
         }
+        legacy_shell_backup=$shell_backup
     fi
     rc=0
     apply_rc || rc=$?
@@ -585,11 +646,11 @@ _install_initialize() {
                 printf '无法恢复迁移前的 Shell 配置，请检查：%s\n' "$shell_backup" >&2
                 return 1
             }
+            legacy_shell_backup=''
             rm -rf -- "$shell_backup"
         fi
         return "$rc"
     fi
-    [ -z "$shell_backup" ] || rm -rf -- "$shell_backup"
     _install_ui_ok '安装完成'
     # 安装器运行在子进程中；优先识别调用它的 Shell，登录 Shell 只作兜底。
     local shell
@@ -609,6 +670,7 @@ main() (
     local proxy=${GH_PROXY:-} proxy_set=${GH_PROXY+x} stage='' arg method
     local requested_timeout=${CLASHCTL_DOWNLOAD_TIMEOUT-} timeout_set=${CLASHCTL_DOWNLOAD_TIMEOUT+x}
     local local_source=false script_dir='' existing_kind='' legacy_home='' legacy_kernel='' backup=''
+    local legacy_recovery_required=false legacy_shell_backup=''
     local legacy_service_file='' legacy_service_target='' legacy_service_active=false legacy_service_enabled=false
     local legacy_nohup_active=false legacy_nohup_found=false legacy_nohup_pid='' legacy_nohup_starttime=''
     local legacy_nohup_argv_hex='' legacy_nohup_exe_id='' legacy_nohup_log=''
@@ -695,11 +757,24 @@ main() (
     else
         # 历史版本默认安装到 ~/clashctl；新默认目录空闲时自动搬迁已验证的旧安装。
         if [ "$install_home" = "$HOME/.clashctl" ] && [ -d "$HOME/clashctl" ]; then
-            existing_kind=$(_install_existing_kind "$HOME/clashctl") || existing_kind=''
-            case $existing_kind in
-            legacy-v1 | legacy-v2) legacy_home="$HOME/clashctl" ;;
-            *) existing_kind='' ;;
-            esac
+            if existing_kind=$(_install_existing_kind "$HOME/clashctl"); then
+                case $existing_kind in
+                legacy-v1 | legacy-v2) legacy_home="$HOME/clashctl" ;;
+                current)
+                    printf '已在旧默认路径发现新版安装，请设置 CLASHCTL_HOME=%s 后重试\n' "$HOME/clashctl" >&2
+                    return 1
+                    ;;
+                *) existing_kind='' ;;
+                esac
+            elif [ -f "$HOME/clashctl/.env" ] &&
+                { [ -f "$HOME/clashctl/scripts/cmd/clashctl.sh" ] ||
+                    [ -f "$HOME/clashctl/scripts/lib/common.sh" ] ||
+                    [ -d "$HOME/clashctl/resources" ]; }; then
+                printf '检测到可能的旧版安装，但无法安全确认：%s；请检查归属与脚本权限后重试\n' "$HOME/clashctl" >&2
+                return 1
+            else
+                existing_kind=''
+            fi
         fi
     fi
     if [ -n "$legacy_home" ] && [ -f "$legacy_home/.env" ]; then
@@ -737,7 +812,9 @@ main() (
         branch=${branch:-master}
         mkdir -p -- "$(dirname -- "$install_home")"
         stage=$(mktemp -d "${install_home}.download.XXXXXX")
-        trap '[ -z "$stage" ] || rm -rf -- "$stage"' EXIT
+        trap _install_main_cleanup EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
         if [ "$local_source" = true ]; then
             method=archive
             # 保留工作区修改；排除运行数据与被 .gitignore 忽略的本地文件。
@@ -760,28 +837,35 @@ main() (
         (umask 077; printf '%s\n%s\n' "$install_home" "$method" >"$stage/.clashctl-install")
         (umask 077; printf '%s\n' "$install_home" >"$stage/.clashctl-uninitialized")
         if [ -n "$legacy_home" ]; then
-            _install_legacy_profiles_lock_acquire "$legacy_home" "$existing_kind" || {
+            export CLASHCTL_HOME="$stage" CLASHCTL_SRC="$stage" CLASHCTL_KERNEL="${kernel:-mihomo}"
+            . "$stage/scripts/preflight.sh" || return 1
+            legacy_recovery_required=true
+            _install_legacy_prepare_for_copy "$legacy_home" "$existing_kind" "$legacy_kernel" || {
                 printf '无法锁定旧版订阅数据，旧目录未迁移：%s\n' "$legacy_home" >&2
                 return 1
             }
             _install_legacy_data "$legacy_home" "$existing_kind" "$stage" "$install_home" || {
                 _install_legacy_profiles_lock_release
+                _install_legacy_service_restore "$legacy_kernel" || return 1
                 printf '旧版数据校验或复制失败，旧目录未迁移：%s\n' "$legacy_home" >&2
                 return 1
             }
             export CLASHCTL_HOME="$stage" CLASHCTL_SRC="$stage" CLASHCTL_KERNEL="${kernel:-mihomo}"
             . "$stage/scripts/preflight.sh" || {
                 _install_legacy_profiles_lock_release
+                _install_legacy_service_restore "$legacy_kernel" || return 1
                 return 1
             }
             export CLASHCTL_HOME="$install_home" CLASHCTL_KERNEL="${kernel:-mihomo}"
             backup="${legacy_home}.bak.$(date +%Y%m%d%H%M%S).$$"
             [ ! -e "$backup" ] && [ ! -L "$backup" ] || {
                 _install_legacy_profiles_lock_release
+                _install_legacy_service_restore "$legacy_kernel" || return 1
                 return 1
             }
             _install_legacy_service_prepare "$legacy_home" "$legacy_kernel" || {
                 _install_legacy_profiles_lock_release
+                _install_legacy_service_restore "$legacy_kernel" || return 1
                 return 1
             }
             # 旧内核停下后再复制一次运行缓存，避免复制时仍在写入。
@@ -833,6 +917,11 @@ main() (
         return 1
     fi
     rm -f -- "$install_home/.clashctl-incomplete" || return 1
+    legacy_recovery_required=false
+    if [ -n "$legacy_shell_backup" ]; then
+        rm -rf -- "$legacy_shell_backup" ||
+            printf '无法清理 Shell 配置备份，请手动检查：%s\n' "$legacy_shell_backup" >&2
+    fi
     [ -z "$backup" ] || printf '旧版目录已备份：%s\n' "$backup"
 )
 
