@@ -22,94 +22,46 @@
 
 ## ✨ 功能
 
-- 一条命令安装内核与运行依赖，支持普通用户和 root。
-- 管理内核启停、当前终端代理、Web 面板、TUN 模式、日志与访问密钥。
-- 添加、切换和更新多个订阅；按需安装 [subconverter](https://github.com/tindy2013/subconverter) 进行格式转换。
-- 在更新程序时保留订阅、自定义配置和内核。支持 systemd、OpenRC、runit、SysVinit 和 nohup 运行方式。
+- 一条命令安装 mihomo / clash，支持普通用户和 root。
+- 管理订阅、节点、终端代理与内核服务。
+- 提供 Web 面板、TUN 模式和程序更新。
 
 ## 🚀 安装
-
-安装命令：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | bash -s -- --gh-proxy https://gh-proxy.org
 ```
 
-默认安装到 `~/.clashctl`。如需自定义目录，在管道右侧的 `bash` 前设置 `CLASHCTL_HOME=/absolute/path`；路径须为只包含英文字母、数字、`_`、`.`、`/`、`-` 的绝对路径。安装完成后重新打开终端，再运行 `clashctl`。如果无需 GitHub 下载加速，删除命令末尾的 `--gh-proxy https://gh-proxy.org` 即可。
+默认安装到 `~/.clashctl`。安装后重新打开终端，即可使用 `clashctl`。不需要下载加速时，可去掉 `--gh-proxy` 参数。
 
-脚本 URL 中的分支只决定获取哪个版本的 `install.sh`；安装源码和后续更新由 `CLASHCTL_UPDATE_BRANCH` 决定，新安装默认跟踪 `master`。
-
-`--gh-proxy` 用于安装脚本后续的源码和组件下载；**管道最前面的 `curl` 仍直接访问 `raw.githubusercontent.com`**。如果该地址无法访问，请先用可访问的网络或镜像获取安装脚本。代理地址失效时可在 [ghproxy.link](https://ghproxy.link/) 查找其他地址。
-
-在 Linux 上验证本地源码（包括未提交的修改），可在源码目录执行 `bash install.sh --local`。该参数使用本地源码，但仍会按需下载内核和依赖；更新命令仍跟踪 `.env` 中指定的远端分支。
-
-## 🎯 常用命令
+## 🎯 使用
 
 ```bash
-clashctl on       # 启动内核，并为当前终端启用代理
-clashctl off      # 关闭当前终端代理，内核继续运行
-clashctl start    # 只启动内核
-clashctl stop     # 只停止内核
-clashctl status   # 查看内核状态
-
-clashctl sub      # 选择或查看订阅
-clashctl node     # 选择节点
-clashctl ui       # 查看 Web 面板地址
-clashctl log      # 查看日志
+clashctl sub add --use "<订阅链接>"  # 添加并使用订阅
+clashctl on                       # 启动内核，启用当前终端代理
+clashctl off                      # 关闭当前终端代理
+clashctl start                    # 只启动内核
+clashctl stop                     # 只停止内核
+clashctl update                   # 更新程序
 ```
 
-`on` 和 `off` 作用于**当前终端**；其他终端中的代理环境变量不会随之改变。运行 `clashctl --help` 可查看全部命令，子命令也支持 `--help`。
+`off` 只关闭当前终端代理；要停止内核，请运行 `stop`。订阅、节点、面板等命令见 `clashctl --help`。
 
-旧版的 `on/off -s`（`--service-only`）和 `on/off -e`（`--env-only`）暂时保留为兼容参数。新命令请用 `start/stop` 单独控制内核；`on -e` 要求内核已运行。**旧版 `off` 默认同时停止内核，新版 `off` 只清除当前终端代理**；需要两者都关闭时，依次运行 `clashctl off` 和 `clashctl stop`。
+## 🔄 旧版升级
 
-## 🔄 从旧版迁移
-
-新版首次安装时，会识别旧版安装目录并迁移订阅、配置和可兼容的运行数据。安装目录优先使用当前终端已导出的 `CLASHCTL_HOME`；未设置时才使用新默认目录 `~/.clashctl`。有有效主配置时，安装过程可能启动或重启内核，代理可能短暂中断；没有主配置时不会启动。
-
-### 搬到新默认目录
-
-旧版在 `~/clashctl` 且 `~/.clashctl` 尚不存在时，让安装进程不继承旧版 Shell 配置中的 `CLASHCTL_HOME`。安装器会自动找到旧目录并迁移到 `~/.clashctl`：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | env -u CLASHCTL_HOME bash -s -- --gh-proxy https://gh-proxy.org
-```
-
-### 在原路径升级
-
-让安装进程读取旧版 Shell 配置中已导出的 `CLASHCTL_HOME`，或将实际旧路径传给管道右侧的 `bash`。自定义旧目录也使用此方式：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | CLASHCTL_HOME=/absolute/path/to/clashctl bash -s -- --gh-proxy https://gh-proxy.org
-```
-
-不要把 `CLASHCTL_HOME=...` 只写在管道左侧的 `curl` 前面；那样右侧的安装进程读不到。
-
-安装器会短暂等待正在写入的旧版订阅操作；超时后会中止迁移并提示重试。迁移期间请勿再启动旧版订阅更新。它只接管能确认属于 clashctl 的旧目录和服务；目标目录已存在但无法确认归属，或旧进程无法安全识别时会中止。成功后，旧目录保留在同级的 `.bak.*` 备份中；迁移失败时会尽力恢复旧目录和服务，若提示恢复失败请保留现场并手动检查备份与服务。备份包含订阅链接、配置及密钥，请妥善保管。迁移前也可用旧版的 `clashctl off -s` 停止内核，避免它继续写入缓存。若自定义定时任务写死了旧目录路径，搬到新目录后需手动更新这些路径。
-
-若提示旧目录“无法安全确认”，先核对目录属主、脚本内容和写权限；确认是自己的旧安装后，移除旧目录及 `scripts/` 的组和其他用户写权限，再重试。安装器不会自动修改旧目录权限。
-
-## ⬆️ 更新
-
-```bash
-clashctl update    # 更新 clashctl 程序，保留订阅、配置和内核
-clashctl upgrade   # 升级内核
-```
-
-`clashctl update` 使用安装目录 `.env` 中的 `CLASHCTL_UPDATE_BRANCH` 和 `GH_PROXY`；新安装默认跟踪 `master`。已从其他分支安装的用户仍会跟踪 `.env` 中保存的分支。如需转向正式版，请在管道右侧显式设置 `CLASHCTL_UPDATE_BRANCH=master` 重跑安装器，或将 `.env` 中的该值改为 `master`，重新打开终端后执行 `clashctl update`。重跑安装器也可继续未完成的安装。
+在旧版环境运行上方安装命令，即可迁移订阅和配置。若当前终端导出了 `CLASHCTL_HOME`，会沿原路径升级；想把旧版 `~/clashctl` 搬到新默认目录，请在命令的 `bash` 前加 `env -u CLASHCTL_HOME`。详见[安装与迁移](docs/install.md)。
 
 ## 🧹 卸载
 
 ```bash
-clashctl off
 bash "${CLASHCTL_HOME:-$HOME/.clashctl}/uninstall.sh"
 ```
 
-卸载会停止本次安装的内核，移除服务和 Shell 引导，并删除安装目录，**包括订阅、自定义配置、内核和日志**。如需保留数据，请先备份安装目录中的 `.env`、`data/`；要保留内核选择等运行状态，还可备份 `resources/cache.db`。备份可能含订阅凭据和访问密钥。迁移时留下的 `.bak.*` 旧目录不属于当前安装，确认不再需要后可自行清理。
-
-卸载脚本会显示实际删除路径并请求确认；无人值守可追加 `--yes`。卸载后重新打开终端，以清除旧命令和当前 Shell 无法由子进程撤销的环境变量。
+卸载会删除安装目录，包括订阅和配置；请先备份需要保留的数据。
 
 ## 📖 文档
 
+- [安装与迁移](docs/install.md)
 - [常见问题](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)
 - [更多使用说明](https://github.com/nelvko/clash-for-linux-install/wiki)
 
