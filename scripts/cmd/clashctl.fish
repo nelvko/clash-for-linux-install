@@ -19,8 +19,12 @@ end
 
 function clashon --description 'enable terminal proxy, starting the kernel if needed'
     if set -q argv[1]
-        __clashctl_run clashon $argv
-        return $status
+        switch $argv[1]
+            case -e --env-only
+            case '*'
+                __clashctl_run clashon $argv
+                return $status
+        end
     end
 
     set -l state (__clashctl_state_path)
@@ -41,8 +45,12 @@ end
 
 function clashoff --description 'disable terminal proxy without stopping the kernel'
     if set -q argv[1]
-        __clashctl_run clashoff $argv
-        return $status
+        switch $argv[1]
+            case -e --env-only
+            case '*'
+                __clashctl_run clashoff $argv
+                return $status
+        end
     end
 
     __clashctl_run clashoff $argv

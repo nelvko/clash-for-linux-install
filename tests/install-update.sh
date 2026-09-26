@@ -105,6 +105,7 @@ printf 'fixture_version=old\n' >"$FIXTURE/scripts/cmd/clashctl.sh"
 "$REAL_GIT" -C "$FIXTURE" add .
 "$REAL_GIT" -C "$FIXTURE" commit -qm initial
 "$REAL_GIT" -C "$FIXTURE" branch iu
+"$REAL_GIT" -C "$FIXTURE" branch install-update
 "$REAL_GIT" -C "$FIXTURE" checkout -qb legacy
 "$REAL_GIT" -C "$FIXTURE" rm -q .env.example
 "$REAL_GIT" -C "$FIXTURE" commit -qm legacy-layout
@@ -182,6 +183,7 @@ CLASHCTL_HOME="$WORK_DIR/readme-home" bash -c '
     cat "$WORK_DIR/readme.out"; fail 'README installation command failed'
 }
 grep -q '^GH_PROXY=https://gh-proxy.org$' "$WORK_DIR/readme-home/.env" || fail 'README proxy was not persisted'
+grep -q '^CLASHCTL_UPDATE_BRANCH=install-update$' "$WORK_DIR/readme-home/.env" || fail 'README candidate branch was not persisted'
 # 续装保留已保存的选项；显式参数优先，空代理可切回直连。
 retry_home="$WORK_DIR/retry-options"
 CLASHCTL_HOME="$retry_home" CLASHCTL_UPDATE_BRANCH=iu bash "$REPO_DIR/install.sh" clash --gh-proxy=https://old.proxy.test >"$WORK_DIR/options.out" 2>&1

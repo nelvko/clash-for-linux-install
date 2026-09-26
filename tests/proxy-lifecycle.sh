@@ -39,13 +39,6 @@ clashctl on
 [ "$http_proxy" = http://127.0.0.1:7890 ]
 [ "$(grep -c '^start$' "$CLASHCTL_HOME/calls")" = 1 ]
 [ "$(grep -c '^merge$' "$CLASHCTL_HOME/calls")" = 1 ]
-# 旧参数必须报错，不能改变运行状态或当前终端环境。
-for command in on off; do
-    for option in -s -e --service-only --env-only; do
-        if clashctl "$command" "$option"; then exit 1; fi
-        [ "$http_proxy" = http://127.0.0.1:7890 ] && [ -f "$CLASHCTL_HOME/running" ]
-    done
-done
 clashctl off
 [ -z "${http_proxy:-}" ] && [ -f "$CLASHCTL_HOME/running" ]
 clashctl on
@@ -55,6 +48,25 @@ clashctl stop
 [ "$(grep -c '^stop$' "$CLASHCTL_HOME/calls")" = 1 ]
 clashctl on
 [ "$(grep -c '^start$' "$CLASHCTL_HOME/calls")" = 2 ]
+clashctl on -s
+[ "$http_proxy" = http://127.0.0.1:7890 ] && [ -f "$CLASHCTL_HOME/running" ]
+clashctl off -e
+[ -z "${http_proxy:-}" ] && [ -f "$CLASHCTL_HOME/running" ]
+clashctl on --env-only
+[ "$http_proxy" = http://127.0.0.1:7890 ] && [ -f "$CLASHCTL_HOME/running" ]
+clashctl off --service-only
+[ "$http_proxy" = http://127.0.0.1:7890 ] && [ ! -f "$CLASHCTL_HOME/running" ]
+if clashctl on -e; then exit 1; fi
+[ "$http_proxy" = http://127.0.0.1:7890 ]
+clashctl on --service-only
+[ "$http_proxy" = http://127.0.0.1:7890 ] && [ -f "$CLASHCTL_HOME/running" ]
+clashctl off -s
+[ "$http_proxy" = http://127.0.0.1:7890 ] && [ ! -f "$CLASHCTL_HOME/running" ]
+clashctl on -s
+[ "$http_proxy" = http://127.0.0.1:7890 ] && [ -f "$CLASHCTL_HOME/running" ]
+clashctl off --env-only
+[ -z "${http_proxy:-}" ] && [ -f "$CLASHCTL_HOME/running" ]
+clashctl on
 touch "$CLASHCTL_HOME/fail-stop"
 if clashctl stop; then exit 1; fi
 [ -f "$CLASHCTL_HOME/running" ] && [ -n "$http_proxy" ]
@@ -86,13 +98,6 @@ clashctl on; or exit 1
 clashctl on; or exit 1
 test "$http_proxy" = http://127.0.0.1:7890; or exit 1
 test (grep -c '^start$' "$CLASHCTL_HOME/calls") = 1; or exit 1
-for cmd in on off
-    for option in -s -e --service-only --env-only
-        clashctl $cmd $option; and exit 1
-        test "$http_proxy" = http://127.0.0.1:7890; or exit 1
-        test -f "$CLASHCTL_HOME/running"; or exit 1
-    end
-end
 clashctl off; or exit 1
 set -q http_proxy; and exit 1
 test -f "$CLASHCTL_HOME/running"; or exit 1
@@ -102,6 +107,32 @@ test -n "$http_proxy"; or exit 1
 test ! -f "$CLASHCTL_HOME/running"; or exit 1
 clashctl on; or exit 1
 test (grep -c '^start$' "$CLASHCTL_HOME/calls") = 2; or exit 1
+clashctl on -s; or exit 1
+test "$http_proxy" = http://127.0.0.1:7890; or exit 1
+test -f "$CLASHCTL_HOME/running"; or exit 1
+clashctl off -e; or exit 1
+set -q http_proxy; and exit 1
+test -f "$CLASHCTL_HOME/running"; or exit 1
+clashctl on --env-only; or exit 1
+test "$http_proxy" = http://127.0.0.1:7890; or exit 1
+clashctl off --service-only; or exit 1
+test "$http_proxy" = http://127.0.0.1:7890; or exit 1
+test ! -f "$CLASHCTL_HOME/running"; or exit 1
+clashctl on -e; and exit 1
+test "$http_proxy" = http://127.0.0.1:7890; or exit 1
+clashctl on --service-only; or exit 1
+test "$http_proxy" = http://127.0.0.1:7890; or exit 1
+test -f "$CLASHCTL_HOME/running"; or exit 1
+clashctl off -s; or exit 1
+test "$http_proxy" = http://127.0.0.1:7890; or exit 1
+test ! -f "$CLASHCTL_HOME/running"; or exit 1
+clashctl on -s; or exit 1
+test "$http_proxy" = http://127.0.0.1:7890; or exit 1
+test -f "$CLASHCTL_HOME/running"; or exit 1
+clashctl off --env-only; or exit 1
+set -q http_proxy; and exit 1
+test -f "$CLASHCTL_HOME/running"; or exit 1
+clashctl on; or exit 1
 clashctl off; or exit 1
 clashctl stop; or exit 1
 set -gx http_proxy http://before

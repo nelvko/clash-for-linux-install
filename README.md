@@ -29,18 +29,18 @@
 
 ## 🚀 安装
 
-正式版安装命令：
+`install-update` 是待合并的候选版。试用时需要同时指定安装脚本和安装源码的分支：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | bash -s -- --gh-proxy https://gh-proxy.org
+curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/install-update/install.sh | CLASHCTL_UPDATE_BRANCH=install-update bash -s -- --gh-proxy https://gh-proxy.org
 ```
 
 默认安装到 `~/.clashctl`。如需自定义目录，在管道右侧的 `bash` 前设置 `CLASHCTL_HOME=/absolute/path`；路径须为只包含英文字母、数字、`_`、`.`、`/`、`-` 的绝对路径。安装完成后重新打开终端，再运行 `clashctl`。如果无需 GitHub 下载加速，删除命令末尾的 `--gh-proxy https://gh-proxy.org` 即可。
 
-脚本 URL 中的分支只决定获取哪个版本的 `install.sh`；安装源码和后续更新由 `CLASHCTL_UPDATE_BRANCH` 决定，默认是 `master`。**在新版合并到 `master` 前**，验证 `install-update` 分支请同时指定两处：
+脚本 URL 中的分支只决定获取哪个版本的 `install.sh`；安装源码和后续更新由 `CLASHCTL_UPDATE_BRANCH` 决定，默认是 `master`。新版合并后，才可改用正式版命令：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/install-update/install.sh | CLASHCTL_UPDATE_BRANCH=install-update bash -s -- --gh-proxy https://gh-proxy.org
+curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | bash -s -- --gh-proxy https://gh-proxy.org
 ```
 
 `--gh-proxy` 用于安装脚本后续的源码和组件下载；**管道最前面的 `curl` 仍直接访问 `raw.githubusercontent.com`**。如果该地址无法访问，请先用可访问的网络或镜像获取安装脚本。代理地址失效时可在 [ghproxy.link](https://ghproxy.link/) 查找其他地址。
@@ -64,16 +64,18 @@ clashctl log      # 查看日志
 
 `on` 和 `off` 作用于**当前终端**；其他终端中的代理环境变量不会随之改变。运行 `clashctl --help` 可查看全部命令，子命令也支持 `--help`。
 
+旧版的 `on/off -s`（`--service-only`）和 `on/off -e`（`--env-only`）暂时保留为兼容参数。新命令请用 `start/stop` 单独控制内核；`on -e` 要求内核已运行。**旧版 `off` 默认同时停止内核，新版 `off` 只清除当前终端代理**；需要两者都关闭时，依次运行 `clashctl off` 和 `clashctl stop`。
+
 ## 🔄 从旧版迁移
 
-新版首次安装时，会识别旧版 `master` 的安装目录并迁移订阅、配置和可兼容的运行数据。安装目录优先使用当前终端已导出的 `CLASHCTL_HOME`；未设置时才使用新默认目录 `~/.clashctl`。迁移会重启内核，代理可能短暂中断。下方命令以新版合并到 `master` 后为准；合并前验证请按安装章节同时改用 `install-update` 脚本和源码分支。
+新版首次安装时，会识别旧版 `master` 的安装目录并迁移订阅、配置和可兼容的运行数据。安装目录优先使用当前终端已导出的 `CLASHCTL_HOME`；未设置时才使用新默认目录 `~/.clashctl`。有有效主配置时，安装过程可能启动或重启内核，代理可能短暂中断；没有主配置时不会启动。下方命令用于当前 `install-update` 候选版；合并后可按安装章节改用 `master`。
 
 ### 搬到新默认目录
 
 旧版在 `~/clashctl` 且 `~/.clashctl` 尚不存在时，让安装进程不继承旧版 Shell 配置中的 `CLASHCTL_HOME`。安装器会自动找到旧目录并迁移到 `~/.clashctl`：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | env -u CLASHCTL_HOME bash -s -- --gh-proxy https://gh-proxy.org
+curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/install-update/install.sh | env -u CLASHCTL_HOME CLASHCTL_UPDATE_BRANCH=install-update bash -s -- --gh-proxy https://gh-proxy.org
 ```
 
 ### 在原路径升级
@@ -81,12 +83,12 @@ curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/mast
 让安装进程读取旧版 Shell 配置中已导出的 `CLASHCTL_HOME`，或将实际旧路径传给管道右侧的 `bash`。自定义旧目录也使用此方式：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | CLASHCTL_HOME=/absolute/path/to/clashctl bash -s -- --gh-proxy https://gh-proxy.org
+curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/install-update/install.sh | CLASHCTL_HOME=/absolute/path/to/clashctl CLASHCTL_UPDATE_BRANCH=install-update bash -s -- --gh-proxy https://gh-proxy.org
 ```
 
 不要把 `CLASHCTL_HOME=...` 只写在管道左侧的 `curl` 前面；那样右侧的安装进程读不到。
 
-安装器会等待正在写入的旧版订阅操作结束；迁移期间请勿再启动旧版订阅更新。它只接管能确认属于 clashctl 的旧目录和服务；目标目录已存在但无法确认归属，或旧进程无法安全识别时会中止。成功后，旧目录保留在同级的 `.bak.*` 备份中；迁移失败时会尝试恢复旧目录和服务。备份包含订阅链接、配置及密钥，请妥善保管。迁移前也可先运行 `clashctl stop`，避免旧内核继续写入缓存。若自定义定时任务写死了旧目录路径，搬到新目录后需手动更新这些路径。
+安装器会等待正在写入的旧版订阅操作结束；迁移期间请勿再启动旧版订阅更新。它只接管能确认属于 clashctl 的旧目录和服务；目标目录已存在但无法确认归属，或旧进程无法安全识别时会中止。成功后，旧目录保留在同级的 `.bak.*` 备份中；迁移失败时会尽力恢复旧目录和服务，若提示恢复失败请保留现场并手动检查备份与服务。备份包含订阅链接、配置及密钥，请妥善保管。迁移前也可用旧版的 `clashctl off -s` 停止内核，避免它继续写入缓存。若自定义定时任务写死了旧目录路径，搬到新目录后需手动更新这些路径。
 
 ## ⬆️ 更新
 
@@ -95,7 +97,7 @@ clashctl update    # 更新 clashctl 程序，保留订阅、配置和内核
 clashctl upgrade   # 升级内核
 ```
 
-`clashctl update` 使用安装目录 `.env` 中的 `CLASHCTL_UPDATE_BRANCH` 和 `GH_PROXY`，默认跟踪 `master`。此前使用 `install-update` 等测试分支安装的用户，合并后如需跟踪正式版，请将 `.env` 中的 `CLASHCTL_UPDATE_BRANCH` 改为 `master`，重新打开终端后再执行更新。重新运行新版安装脚本也可更新已识别的安装，并继续未完成的安装。
+`clashctl update` 使用安装目录 `.env` 中的 `CLASHCTL_UPDATE_BRANCH` 和 `GH_PROXY`；新安装默认跟踪 `master`。此前使用 `iu`、`install-update` 等测试分支安装的用户，即使重跑新版安装器，也会继续使用 `.env` 中保存的分支。合并后如需转向正式版，请在管道右侧显式设置 `CLASHCTL_UPDATE_BRANCH=master` 重跑新版安装器，或将 `.env` 中的该值改为 `master`，重新打开终端后执行 `clashctl update`。重跑安装器也可继续未完成的安装。
 
 ## 🧹 卸载
 
@@ -109,6 +111,8 @@ bash "${CLASHCTL_HOME:-$HOME/.clashctl}/uninstall.sh"
 卸载脚本会显示实际删除路径并请求确认；无人值守可追加 `--yes`。卸载后重新打开终端，以清除旧命令和当前 Shell 无法由子进程撤销的环境变量。
 
 ## 📖 文档
+
+当前 Wiki 仍按 `master` 旧版编写；试用 `install-update` 时，以本页和 `clashctl --help` 为准。
 
 - [常见问题](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)
 - [更多使用说明](https://github.com/nelvko/clash-for-linux-install/wiki)
