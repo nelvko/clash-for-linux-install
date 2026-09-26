@@ -22,9 +22,9 @@
 
 ## ✨ 功能
 
-- 一条命令安装 mihomo / clash，支持普通用户和 root。
-- 管理订阅、节点、终端代理与内核服务。
-- 提供 Web 面板、TUN 模式和程序更新。
+- 一条命令安装内核与运行依赖，支持普通用户和 root。
+- 管理内核、当前终端代理、Web 面板和 TUN 模式。
+- 添加、切换和更新多个订阅；更新程序时保留订阅与自定义配置。
 
 ## 🚀 安装
 
@@ -32,24 +32,52 @@
 curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | bash -s -- --gh-proxy https://gh-proxy.org
 ```
 
-默认安装到 `~/.clashctl`。安装后重新打开终端，即可使用 `clashctl`。不需要下载加速时，可去掉 `--gh-proxy` 参数。
+默认安装到 `~/.clashctl`；自定义目录可在管道右侧的 `bash` 前设置 `CLASHCTL_HOME=/absolute/path`。安装后重新打开终端，即可使用 `clashctl`。不需要下载加速时，去掉 `--gh-proxy https://gh-proxy.org`。
 
-## 🎯 使用
+## 🎯 常用命令
 
 ```bash
 clashctl sub add --use "<订阅链接>"  # 添加并使用订阅
-clashctl on                       # 启动内核，启用当前终端代理
-clashctl off                      # 关闭当前终端代理
-clashctl start                    # 只启动内核
-clashctl stop                     # 只停止内核
-clashctl update                   # 更新程序
+clashctl sub                      # 选择订阅
+clashctl node                     # 选择节点
+
+clashctl on      # 启动内核，并为当前终端启用代理
+clashctl off     # 关闭当前终端代理
+clashctl start   # 只启动内核
+clashctl stop    # 只停止内核
+clashctl status  # 查看内核状态
+clashctl ui      # 查看 Web 面板地址
+clashctl log     # 查看日志
 ```
 
-`off` 只关闭当前终端代理；要停止内核，请运行 `stop`。订阅、节点、面板等命令见 `clashctl --help`。
+与旧版不同，`off` 不再停止内核；需要停止时运行 `clashctl stop`。更多命令见 `clashctl --help`。
 
-## 🔄 旧版升级
+## 🔄 从旧版迁移
 
-在旧版环境运行上方安装命令，即可迁移订阅和配置。若当前终端导出了 `CLASHCTL_HOME`，会沿原路径升级；想把旧版 `~/clashctl` 搬到新默认目录，请在命令的 `bash` 前加 `env -u CLASHCTL_HOME`。详见[安装与迁移](docs/install.md)。
+新版安装器会识别旧版目录，迁移订阅和配置。根据希望保留的安装路径选择命令：
+
+**搬到新默认目录**：旧版位于 `~/clashctl`，且 `~/.clashctl` 尚不存在时，取消旧 Shell 导出的 `CLASHCTL_HOME`。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | env -u CLASHCTL_HOME bash -s -- --gh-proxy https://gh-proxy.org
+```
+
+**沿原路径升级**：把实际旧目录传给管道右侧的 `bash`。自定义旧路径也适用。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | CLASHCTL_HOME=/absolute/path/to/clashctl bash -s -- --gh-proxy https://gh-proxy.org
+```
+
+迁移可能短暂重启内核。成功后，旧目录留在同级的 `.bak.*` 备份中；更多说明见[安装与迁移](docs/install.md)。
+
+## ⬆️ 更新
+
+```bash
+clashctl update   # 更新程序，保留订阅和配置
+clashctl upgrade  # 更新内核
+```
+
+已从其他分支安装的用户仍会跟踪原分支；切换到 `master` 的方法见[安装与迁移](docs/install.md)。
 
 ## 🧹 卸载
 
@@ -57,7 +85,7 @@ clashctl update                   # 更新程序
 bash "${CLASHCTL_HOME:-$HOME/.clashctl}/uninstall.sh"
 ```
 
-卸载会删除安装目录，包括订阅和配置；请先备份需要保留的数据。
+卸载会停止内核并删除安装目录，包括订阅和配置。需要保留的数据请先备份。
 
 ## 📖 文档
 
