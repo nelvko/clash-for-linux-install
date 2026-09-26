@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 main() (
+    _install_ui_output() { _install_ui_emit_fd "$@"; }
     local answer='' initialized=true script_home install_home marker cache
     [ "$#" -le 1 ] || { printf '用法: bash uninstall.sh [--yes]\n' >&2; return 1; }
     case ${1:-} in
@@ -68,21 +69,21 @@ main() (
         unset CLASHCTL_KERNEL INIT_TYPE
         . "$CLASHCTL_SRC/scripts/preflight.sh" || return 1
         if [ "$CLASHCTL_HOME" != "$install_home" ] || [ "$CLASHCTL_SRC" != "$install_home" ]; then
-            _ui_error '.env 改写了安装路径，已停止卸载'
+            _install_ui_error '.env 改写了安装路径，已停止卸载'
             return 1
         fi
         case ${CLASHCTL_KERNEL:-} in
         mihomo | clash) ;;
-        *) _ui_error '.env 中缺少有效的内核信息，已保留安装目录'; return 1 ;;
+        *) _install_ui_error '.env 中缺少有效的内核信息，已保留安装目录'; return 1 ;;
         esac
         uninstall_service || return 1
         revoke_rc || return 1
     fi
     command rm -rf -- "$install_home" || return 1
-    if declare -F _ui_ok_out >/dev/null 2>&1; then
-        _ui_ok_out '卸载完成'
+    if declare -F _install_ui_ok_out >/dev/null 2>&1; then
+        _install_ui_ok_out '卸载完成'
     else
-        printf '✓ OK    卸载完成\n'
+        printf '[ OK ] 卸载完成\n'
     fi
     cache="${XDG_CACHE_HOME:-$HOME/.cache}/clashctl/proxy.fish"
     if [ -e "$cache" ] || [ -L "$cache" ]; then

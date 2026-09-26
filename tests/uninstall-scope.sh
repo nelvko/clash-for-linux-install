@@ -89,6 +89,7 @@ setup_install "$WORK_DIR/interrupted"
 printf '%s\n' "$WORK_DIR/interrupted" >"$WORK_DIR/interrupted/.clashctl-uninitialized"
 printf 'exit 77\n' >"$WORK_DIR/interrupted/scripts/preflight.sh"
 run_uninstall "$WORK_DIR/interrupted" || fail 'interrupted installation cleanup failed'
+grep -Fq '[ OK ] 卸载完成' "$WORK_DIR/output" || fail 'interrupted uninstall did not use installer status style'
 [ ! -e "$WORK_DIR/interrupted" ] || fail 'interrupted installation remains'
 [ ! -e "$UNINSTALL_CALLS" ] || fail 'interrupted install cleanup invoked system services'
 diff -r "$WORK_DIR/user.expected" "$WORK_DIR/user" || fail 'interrupted cleanup changed shell integration'
@@ -136,6 +137,7 @@ if FAIL_STOP=1 run_uninstall "$WORK_DIR/installed"; then fail 'failed service st
 [ -f "$WORK_DIR/installed/service.unit" ] || fail 'failed stop removed service definition'
 grep -q '# >>> clashctl >>>' "$WORK_DIR/user/.bashrc" || fail 'failed stop removed shell integration'
 CLASHCTL_HOME="$WORK_DIR/other-install" run_uninstall "$WORK_DIR/installed" || { cat "$WORK_DIR/output"; fail 'installed cleanup failed'; }
+grep -Fq '[ OK ] 卸载完成' "$WORK_DIR/output" || fail 'initialized uninstall did not use installer status style'
 [ ! -d "$WORK_DIR/installed" ] || fail 'installation directory remains'
 [ ! -e "$UNINSTALL_ACTIVE" ] || fail 'service was not stopped'
 grep -q '^stop clash$' "$UNINSTALL_CALLS" || fail 'uninstall did not use stored kernel'

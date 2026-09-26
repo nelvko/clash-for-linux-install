@@ -12,6 +12,8 @@ data/
 .env
 bin/
 resources/dist/
+resources/proxies/
+resources/rules/
 *.log
 *.pid
 
