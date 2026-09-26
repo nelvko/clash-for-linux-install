@@ -682,6 +682,15 @@ main() (
         case $arg in
         mihomo | clash) kernel=$arg ;;
         --local) local_source=true ;;
+        --install-dir=*)
+            install_home=${arg#--install-dir=}
+            [ -n "$install_home" ] || { printf '%s\n' '--install-dir 需要一个绝对路径' >&2; return 1; }
+            ;;
+        --install-dir)
+            [ "$#" -gt 0 ] && [ -n "$1" ] || { printf '%s\n' '--install-dir 需要一个绝对路径' >&2; return 1; }
+            install_home=$1
+            shift
+            ;;
         --gh-proxy=*) proxy=${arg#--gh-proxy=}; proxy_set=x ;;
         --gh-proxy)
             [ "$#" -gt 0 ] || { printf '%s\n' '--gh-proxy 需要一个值' >&2; return 1; }
@@ -690,7 +699,7 @@ main() (
             shift
             ;;
         -h | --help)
-            printf '用法: bash install.sh [mihomo|clash] [--local] [--gh-proxy <URL>]\n--local: 使用本脚本所在目录的源码，依赖仍按需下载\n环境变量: CLASHCTL_HOME、CLASHCTL_UPDATE_BRANCH、GH_PROXY\n'
+            printf '用法: bash install.sh [mihomo|clash] [--local] [--install-dir <绝对路径>] [--gh-proxy <URL>]\n--local: 使用本脚本所在目录的源码，依赖仍按需下载\n安装目录优先级: --install-dir > CLASHCTL_HOME > ~/.clashctl\n环境变量: CLASHCTL_HOME、CLASHCTL_UPDATE_BRANCH、GH_PROXY\n'
             return 0 ;;
         *) printf '未知安装参数\n' >&2; return 1 ;;
         esac
@@ -719,7 +728,7 @@ main() (
     fi
     if [ "$local_source" = true ]; then
         case "$install_home/" in
-        "$script_dir/"*) printf '本地安装目录不能位于源码目录内，请通过 CLASHCTL_HOME 指定其他目录\n' >&2; return 1 ;;
+        "$script_dir/"*) printf '本地安装目录不能位于源码目录内，请通过 --install-dir 指定其他目录\n' >&2; return 1 ;;
         esac
     fi
     if [ -e "$install_home" ] || [ -L "$install_home" ]; then
@@ -761,7 +770,7 @@ main() (
                 case $existing_kind in
                 legacy-v1 | legacy-v2) legacy_home="$HOME/clashctl" ;;
                 current)
-                    printf '已在旧默认路径发现新版安装，请设置 CLASHCTL_HOME=%s 后重试\n' "$HOME/clashctl" >&2
+                    printf '已在旧默认路径发现新版安装，请使用 --install-dir %s 后重试\n' "$HOME/clashctl" >&2
                     return 1
                     ;;
                 *) existing_kind='' ;;
@@ -902,10 +911,10 @@ main() (
                 if [[ ! $retry_timeout =~ ^[0-9]+$ ]] || [ "$retry_timeout" -lt 180 ]; then
                     retry_timeout=180
                 fi
-                printf -v retry_command 'CLASHCTL_HOME=%q CLASHCTL_DOWNLOAD_TIMEOUT=%q bash %q' \
-                    "$install_home" "$retry_timeout" "$install_home/install.sh"
+                printf -v retry_command 'CLASHCTL_DOWNLOAD_TIMEOUT=%q bash %q --install-dir %q' \
+                    "$retry_timeout" "$install_home/install.sh" "$install_home"
             else
-                printf -v retry_command 'CLASHCTL_HOME=%q bash %q' "$install_home" "$install_home/install.sh"
+                printf -v retry_command 'bash %q --install-dir %q' "$install_home/install.sh" "$install_home"
             fi
             if [ -n "$proxy" ] || [ "$proxy_set" = x ]; then
                 printf -v proxy_arg ' --gh-proxy=%q' "$proxy"

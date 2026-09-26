@@ -32,7 +32,7 @@
 curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | bash -s -- --gh-proxy https://gh-proxy.org
 ```
 
-默认安装到 `~/.clashctl`；自定义目录可在管道右侧的 `bash` 前设置 `CLASHCTL_HOME=/absolute/path`。安装后重新打开终端，即可使用 `clashctl`。不需要下载加速时，去掉 `--gh-proxy https://gh-proxy.org`；该参数不影响管道左侧的 `curl`。
+默认安装到 `~/.clashctl`；自定义目录在管道右侧加 `--install-dir /absolute/path`，优先于已导出的 `CLASHCTL_HOME`。安装后重新打开终端，即可使用 `clashctl`。不需要下载加速时，去掉 `--gh-proxy https://gh-proxy.org`；该参数不影响管道左侧的 `curl`。
 
 脚本 URL 中的分支只决定安装器版本；安装源码和后续更新使用 `CLASHCTL_UPDATE_BRANCH` 指定的分支，新安装默认跟踪 `master`。
 
@@ -58,16 +58,16 @@ clashctl log     # 查看日志
 
 新版安装器会识别旧版目录，迁移订阅和配置。根据希望保留的安装路径选择命令：
 
-**搬到新默认目录**：旧版位于 `~/clashctl`，且 `~/.clashctl` 尚不存在时，取消旧 Shell 导出的 `CLASHCTL_HOME`。
+**搬到新默认目录**：旧版位于 `~/clashctl`，且 `~/.clashctl` 尚不存在时，显式指定新目录。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | env -u CLASHCTL_HOME bash -s -- --gh-proxy https://gh-proxy.org
+curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | bash -s -- --install-dir "$HOME/.clashctl" --gh-proxy https://gh-proxy.org
 ```
 
-**沿原路径升级**：把实际旧目录传给管道右侧的 `bash`。自定义旧路径也适用。
+**沿原路径升级**：把实际旧目录传给 `--install-dir`。自定义旧路径也适用。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | CLASHCTL_HOME=/absolute/path/to/clashctl bash -s -- --gh-proxy https://gh-proxy.org
+curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | bash -s -- --install-dir /absolute/path/to/clashctl --gh-proxy https://gh-proxy.org
 ```
 
 迁移可能短暂重启内核。成功后，旧目录留在同级的 `.bak.*` 备份中，其中可能包含订阅凭据和访问密钥；确认不再需要后再清理。搬迁目录后，记得修改写死旧路径的定时任务。
@@ -87,7 +87,7 @@ clashctl upgrade  # 更新内核
 bash "${CLASHCTL_HOME:-$HOME/.clashctl}/uninstall.sh"
 ```
 
-卸载会停止内核并删除安装目录，包括订阅和配置。需要保留的数据请先备份。
+刚用 `--install-dir` 更换路径时，请在新终端卸载，或直接运行 `bash /实际安装路径/uninstall.sh`，避免当前终端仍指向旧目录。卸载会停止内核并删除安装目录，包括订阅和配置；需要保留的数据请先备份。
 
 ## 📖 文档
 

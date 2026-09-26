@@ -10,15 +10,15 @@
 curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/install-update/install.sh | CLASHCTL_UPDATE_BRANCH=install-update bash -s -- --gh-proxy https://gh-proxy.org
 ```
 
-旧目录搬到新默认目录时，在管道右侧的 `bash` 前加 `env -u CLASHCTL_HOME CLASHCTL_UPDATE_BRANCH=install-update`；原路径升级时加 `CLASHCTL_HOME=/absolute/path/to/clashctl CLASHCTL_UPDATE_BRANCH=install-update`。正式合并后，README 中的 `master` 命令才可使用。合并前的试用命令以本文件为准；功能与命令说明参考 README 和命令帮助。当前 Wiki 仍描述旧版行为。
+旧目录搬到新默认目录时，在管道右侧的 `bash` 前设置 `CLASHCTL_UPDATE_BRANCH=install-update`，并在 `bash -s --` 后加 `--install-dir "$HOME/.clashctl"`；原路径升级时改为 `--install-dir /absolute/path/to/clashctl`。目录参数优先于已导出的 `CLASHCTL_HOME`。正式合并后，README 中的 `master` 命令才可使用。合并前的试用命令以本文件为准；功能与命令说明参考 README 和命令帮助。当前 Wiki 仍描述旧版行为。
 
 ## 用户可见变化
 
 | 项目 | 旧版 `master` | `install-update` |
 | --- | --- | --- |
-| 默认安装目录 | `~/clashctl` | `~/.clashctl`；已导出的 `CLASHCTL_HOME` 优先 |
+| 默认安装目录 | `~/clashctl` | `~/.clashctl`；`--install-dir` 优先于 `CLASHCTL_HOME` |
 | 配置与订阅 | `resources/` | `data/`；首次安装识别并迁移旧目录 |
-| 安装参数 | `.env.install` | `CLASHCTL_HOME`、`CLASHCTL_UPDATE_BRANCH`、`--gh-proxy` |
+| 安装参数 | `.env.install` | `--install-dir`、`CLASHCTL_HOME`、`CLASHCTL_UPDATE_BRANCH`、`--gh-proxy` |
 | 终端与内核启停 | `off` 同时停止内核和终端代理 | `off` 仅清除当前终端代理；`stop` 停止内核 |
 
 `on/off -s/-e` 暂时兼容旧版并提示新命令；新版 `off` 的默认行为已在 README 中说明。

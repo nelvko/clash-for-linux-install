@@ -169,7 +169,7 @@ if FAIL_PREPARE=1 FAIL_PREPARE_TIMEOUT=1 CLASHCTL_HOME="$interrupted_home" bash 
     fail 'component preparation failure was ignored'
 fi
 [ "$(tail -n 1 "$WORK_DIR/prepare-failed.out")" = \
-    "重试: CLASHCTL_HOME=$interrupted_home CLASHCTL_DOWNLOAD_TIMEOUT=180 bash $interrupted_home/install.sh --gh-proxy=https://slow.proxy.test" ] ||
+    "重试: CLASHCTL_DOWNLOAD_TIMEOUT=180 bash $interrupted_home/install.sh --install-dir $interrupted_home --gh-proxy=https://slow.proxy.test" ] ||
     fail 'retry hint lost the proxy or timeout adjustment'
 [ ! -e "$interrupted_home/.env" ] || fail 'failed preparation wrote environment'
 [ "$(cat "$interrupted_home/.clashctl-uninitialized")" = "$interrupted_home" ] || fail 'missing uninitialized path marker'
@@ -186,8 +186,54 @@ for flag in '--gh-proxy https://flag.proxy.test' '--gh-proxy=https://flag.proxy.
         fail "gh-proxy flag was not persisted: $flag"
 done
 rm -rf "$WORK_DIR/flag-home"
+# --install-dir 两种形式均可用于管道安装，且覆盖右侧 bash 继承的 CLASHCTL_HOME。
+for form in separate equals; do
+    flag_home="$WORK_DIR/install-dir-$form"
+    ignored_home="$WORK_DIR/ignored-install-dir-$form"
+    if [ "$form" = separate ]; then
+        install_dir_args=(--install-dir "$flag_home")
+    else
+        install_dir_args=("--install-dir=$flag_home")
+    fi
+    # shellcheck disable=SC2002  # 验证从 stdin 运行安装器及右侧 bash 的参数。
+    cat "$REPO_DIR/install.sh" | CLASHCTL_HOME="$ignored_home" CI=1 \
+        bash -s -- "${install_dir_args[@]}" >"$WORK_DIR/install-dir-$form.out" 2>&1 ||
+        { cat "$WORK_DIR/install-dir-$form.out"; fail "install-dir flag rejected: $form"; }
+    [ -f "$flag_home/.env" ] || fail "install-dir flag did not initialize target: $form"
+    [ "$(head -n 1 "$flag_home/.clashctl-install")" = "$flag_home" ] ||
+        fail "install-dir flag recorded wrong path: $form"
+    [ ! -e "$ignored_home" ] || fail "CLASHCTL_HOME overrode install-dir flag: $form"
+done
+# 缺失值、空值和无效路径都必须在创建安装目录前拒绝。
+for bad_arg in --install-dir --install-dir=; do
+    missing_home="$WORK_DIR/missing-install-dir"
+    if CLASHCTL_HOME="$missing_home" bash "$REPO_DIR/install.sh" "$bad_arg" \
+        >"$WORK_DIR/missing-install-dir.out" 2>&1; then
+        fail "install-dir accepted missing value: $bad_arg"
+    fi
+    grep -q -- '--install-dir' "$WORK_DIR/missing-install-dir.out" ||
+        fail "install-dir missing value lacked a diagnosis: $bad_arg"
+    [ ! -e "$missing_home" ] || fail "missing install-dir value fell back to CLASHCTL_HOME: $bad_arg"
+done
+for invalid_dir in relative-install-dir "$WORK_DIR/invalid install dir"; do
+    if bash "$REPO_DIR/install.sh" --install-dir "$invalid_dir" \
+        >"$WORK_DIR/invalid-install-dir.out" 2>&1; then
+        fail "install-dir accepted invalid path: $invalid_dir"
+    fi
+    grep -q '安装目录必须是绝对路径' "$WORK_DIR/invalid-install-dir.out" ||
+        fail "install-dir invalid path lacked a diagnosis: $invalid_dir"
+done
 # 执行 README 原文中的管道命令，只把入口下载替换成本地脚本。
-readme_command=$(sed -n '/^curl .*install\.sh | /p' "$REPO_DIR/README.md" | head -n 1)
+readme_command=$(awk '
+    /^curl .*install\.sh[[:space:]]*\|/ {
+        print
+        while ($0 ~ /\\[[:space:]]*$/) {
+            if ((getline) <= 0) exit 1
+            print
+        }
+        exit
+    }
+' "$REPO_DIR/README.md")
 [ -n "$readme_command" ] || fail 'README installation command missing'
 CLASHCTL_HOME="$WORK_DIR/readme-home" bash -c '
     installer=$1
@@ -215,6 +261,15 @@ env -u GH_PROXY -u CLASHCTL_UPDATE_BRANCH CLASHCTL_HOME="$retry_home" \
 CLASHCTL_HOME="$retry_home" CLASHCTL_DOWNLOAD_TIMEOUT=180 bash "$retry_home/install.sh" \
     >"$WORK_DIR/options.out" 2>&1
 [ "$(cat "$retry_home/data/download-timeout")" = 180 ] || fail 'retry timeout was overridden by saved config'
+# 指向已有安装时，--install-dir 也必须决定更新目标，而不是环境变量或已保存的路径。
+ignored_existing="$WORK_DIR/ignored-existing"
+CLASHCTL_HOME="$ignored_existing" GH_PROXY=https://env.proxy.test \
+    bash "$retry_home/install.sh" --install-dir "$retry_home" --gh-proxy=https://flag-existing.test \
+    >"$WORK_DIR/existing-install-dir.out" 2>&1 ||
+    { cat "$WORK_DIR/existing-install-dir.out"; fail 'install-dir could not update existing installation'; }
+[ "$(cat "$retry_home/data/download-options")" = 'mihomo|master|https://flag-existing.test' ] ||
+    fail 'install-dir did not update the selected installation'
+[ ! -e "$ignored_existing" ] || fail 'existing installation update used CLASHCTL_HOME instead of install-dir'
 # 源码不能通过重试初始化获得安装身份；克隆真实安装也不会继承 Git 私有标记。
 if CLASHCTL_HOME="$FIXTURE" bash "$FIXTURE/install.sh" >"$WORK_DIR/source-retry.out" 2>&1; then
     fail 'installer adopted source checkout as installation'
@@ -324,8 +379,10 @@ if FAIL_PREPARE=1 CLASHCTL_HOME="$legacy_v2" bash "$local_source/install.sh" --l
 fi
 [ "$(<"$legacy_v2/data/config.yaml")" = 'legacy config' ] || fail 'failed migration lost old config'
 [ -f "$legacy_v2/.clashctl-installation" ] || fail 'failed migration did not restore old marker'
-CLASHCTL_HOME="$legacy_v2" bash "$local_source/install.sh" clash --local >"$WORK_DIR/legacy-success.out" 2>&1 ||
+CLASHCTL_HOME="$WORK_DIR/ignored-legacy-v2" bash "$local_source/install.sh" clash --local \
+    --install-dir "$legacy_v2" >"$WORK_DIR/legacy-success.out" 2>&1 ||
     { cat "$WORK_DIR/legacy-success.out"; fail 'legacy v2 migration failed'; }
+[ ! -e "$WORK_DIR/ignored-legacy-v2" ] || fail 'legacy v2 migration used CLASHCTL_HOME instead of install-dir'
 [ "$(<"$legacy_v2/data/config.yaml")" = 'legacy config' ] || fail 'legacy v2 config was not migrated'
 [ "$(<"$legacy_v2/data/profiles/first.yaml")" = 'legacy profile' ] || fail 'legacy v2 profile was not migrated'
 [ "$(<"$legacy_v2/resources/cache.db")" = 'legacy v2 cache' ] || fail 'legacy v2 runtime cache was not migrated'
