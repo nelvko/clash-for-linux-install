@@ -577,7 +577,7 @@ _install_initialize() {
     [ "${5:-}" != x ] || CLASHCTL_DOWNLOAD_TIMEOUT=$6
     # 参数在 main 中保存，不受 preflight 加载已有 .env 的影响。
     local kernel=${1:-${CLASHCTL_KERNEL:-mihomo}} branch=${2:-${CLASHCTL_UPDATE_BRANCH:-master}}
-    local proxy=${GH_PROXY:-} subscription='' rc secret shell_backup=''
+    local proxy=${GH_PROXY:-} subscription=${8:-} rc secret shell_backup=''
     [ "$4" != x ] || proxy=$3
     export -n subscription secret
     export CLASHCTL_KERNEL="$kernel" CLASHCTL_UPDATE_BRANCH="$branch" GH_PROXY="$proxy"
@@ -616,7 +616,7 @@ _install_initialize() {
     fi
     install_service || return 1
 
-    if [ "${CI+x}" != x ] && ( : </dev/tty ) 2>/dev/null; then
+    if [ -z "$subscription" ] && [ "${CI+x}" != x ] && ( : </dev/tty ) 2>/dev/null; then
         IFS= read -r -p '订阅链接（回车跳过）: ' subscription </dev/tty || subscription=''
     fi
     if [ -n "$subscription" ]; then
@@ -666,7 +666,7 @@ main() (
     # 更新器会再次 source 安装器以复用函数；同一路径执行时不能递归进入 main。
     CLASHCTL_INSTALL_RUNNING=1
     local install_home=${CLASHCTL_HOME:-$HOME/.clashctl}
-    local branch=${CLASHCTL_UPDATE_BRANCH:-} kernel=''
+    local branch=${CLASHCTL_UPDATE_BRANCH:-} kernel='' subscription=''
     local proxy=${GH_PROXY:-} proxy_set=${GH_PROXY+x} stage='' arg method
     local requested_timeout=${CLASHCTL_DOWNLOAD_TIMEOUT-} timeout_set=${CLASHCTL_DOWNLOAD_TIMEOUT+x}
     local local_source=false script_dir='' existing_kind='' legacy_home='' legacy_kernel='' backup=''
@@ -680,7 +680,24 @@ main() (
         arg=$1
         shift
         case $arg in
-        mihomo | clash) kernel=$arg ;;
+        --kernel=*)
+            kernel=${arg#*=}
+            [ -n "$kernel" ] || { printf '%s\n' '--kernel 需要 mihomo 或 clash' >&2; return 1; }
+            ;;
+        --kernel)
+            [ "$#" -gt 0 ] || { printf '%s\n' '--kernel 需要 mihomo 或 clash' >&2; return 1; }
+            kernel=$1
+            shift
+            ;;
+        --subscription=*)
+            subscription=${arg#*=}
+            [ -n "$subscription" ] || { printf '%s\n' '--subscription 需要一个订阅链接' >&2; return 1; }
+            ;;
+        --subscription)
+            [ "$#" -gt 0 ] && [ -n "$1" ] || { printf '%s\n' '--subscription 需要一个订阅链接' >&2; return 1; }
+            subscription=$1
+            shift
+            ;;
         --local) local_source=true ;;
         --install-dir=*)
             install_home=${arg#--install-dir=}
@@ -699,11 +716,15 @@ main() (
             shift
             ;;
         -h | --help)
-            printf '用法: bash install.sh [mihomo|clash] [--local] [--install-dir <绝对路径>] [--gh-proxy <URL>]\n--local: 使用本脚本所在目录的源码，依赖仍按需下载\n安装目录优先级: --install-dir > CLASHCTL_HOME > ~/.clashctl\n环境变量: CLASHCTL_HOME、CLASHCTL_UPDATE_BRANCH、GH_PROXY\n'
+            printf '用法: bash install.sh [--kernel <mihomo|clash>] [--subscription <URL>] [--local] [--install-dir <绝对路径>] [--gh-proxy <URL>]\n--kernel: 选择内核，新安装默认 mihomo\n--subscription: 添加并启用订阅；提供后不再交互询问\n--local: 使用本脚本所在目录的源码，依赖仍按需下载\n安装目录优先级: --install-dir > CLASHCTL_HOME > ~/.clashctl\n环境变量: CLASHCTL_HOME、CLASHCTL_UPDATE_BRANCH、GH_PROXY\n'
             return 0 ;;
         *) printf '未知安装参数\n' >&2; return 1 ;;
         esac
     done
+    case $kernel in
+    '' | mihomo | clash) ;;
+    *) printf '%s\n' '--kernel 仅支持 mihomo 或 clash' >&2; return 1 ;;
+    esac
     if [ -f "${BASH_SOURCE[0]:-}" ]; then
         script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
     fi
@@ -901,7 +922,7 @@ main() (
     export CLASHCTL_HOME="$install_home" CLASHCTL_SRC="$install_home" CLASHCTL_KERNEL="$kernel"
     export CLASHCTL_UPDATE_BRANCH="$branch" GH_PROXY="$proxy"
     if ! { (umask 077; : >"$install_home/.clashctl-incomplete") &&
-        _install_initialize "$kernel" "$branch" "$proxy" "$proxy_set" "$timeout_set" "$requested_timeout" "$backup"; }; then
+        _install_initialize "$kernel" "$branch" "$proxy" "$proxy_set" "$timeout_set" "$requested_timeout" "$backup" "$subscription"; }; then
         if [ -n "$backup" ]; then
             _install_legacy_rollback "$legacy_home" "$backup" "$install_home" "$legacy_kernel" || return 1
         else

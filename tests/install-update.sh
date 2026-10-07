@@ -186,6 +186,32 @@ for flag in '--gh-proxy https://flag.proxy.test' '--gh-proxy=https://flag.proxy.
         fail "gh-proxy flag was not persisted: $flag"
 done
 rm -rf "$WORK_DIR/flag-home"
+# 安装参数：显式内核和订阅支持分离值与等号写法，订阅立即启用。
+for form in separate equals; do
+    option_home="$WORK_DIR/options-$form"
+    if [ "$form" = separate ]; then
+        option_args=(--kernel clash --subscription 'file:///install-sub?token=example&name=main')
+    else
+        option_args=(--kernel=clash '--subscription=file:///install-sub?token=example&name=main')
+    fi
+    CLASHCTL_HOME="$option_home" bash "$REPO_DIR/install.sh" "${option_args[@]}" \
+        >"$WORK_DIR/options-$form.out" 2>&1 ||
+        { cat "$WORK_DIR/options-$form.out"; fail "install options rejected: $form"; }
+    [ "$(cat "$option_home/data/subscription")" = 'file:///install-sub?token=example&name=main' ] ||
+        fail "install subscription was not passed through: $form"
+    [ "$(cat "$option_home/data/download-options")" = 'clash|master|' ] ||
+        fail "install kernel option was not applied: $form"
+    [ -f "$option_home/data/started" ] || fail "install subscription was not activated: $form"
+done
+# 无效参数应在下载源码、创建安装目录前报错。
+for bad_arg in --kernel --kernel= --kernel=unknown --subscription --subscription= mihomo clash; do
+    invalid_option_home="$WORK_DIR/invalid-option"
+    if CLASHCTL_HOME="$invalid_option_home" bash "$REPO_DIR/install.sh" "$bad_arg" \
+        >"$WORK_DIR/invalid-option.out" 2>&1; then
+        fail "invalid install option accepted: $bad_arg"
+    fi
+    [ ! -e "$invalid_option_home" ] || fail "invalid option created installation: $bad_arg"
+done
 # --install-dir 两种形式均可用于管道安装，且覆盖右侧 bash 继承的 CLASHCTL_HOME。
 for form in separate equals; do
     flag_home="$WORK_DIR/install-dir-$form"
@@ -246,11 +272,11 @@ grep -q '^GH_PROXY=https://gh-proxy.org$' "$WORK_DIR/readme-home/.env" || fail '
 grep -q '^CLASHCTL_UPDATE_BRANCH=master$' "$WORK_DIR/readme-home/.env" || fail 'README master branch was not persisted'
 # 续装保留已保存的选项；显式参数优先，空代理可切回直连。
 retry_home="$WORK_DIR/retry-options"
-CLASHCTL_HOME="$retry_home" CLASHCTL_UPDATE_BRANCH=iu bash "$REPO_DIR/install.sh" clash --gh-proxy=https://old.proxy.test >"$WORK_DIR/options.out" 2>&1
+CLASHCTL_HOME="$retry_home" CLASHCTL_UPDATE_BRANCH=iu bash "$REPO_DIR/install.sh" --kernel clash --gh-proxy=https://old.proxy.test >"$WORK_DIR/options.out" 2>&1
 env -u GH_PROXY -u CLASHCTL_UPDATE_BRANCH CLASHCTL_HOME="$retry_home" bash "$retry_home/install.sh" >"$WORK_DIR/options.out" 2>&1
 [ "$(cat "$retry_home/data/download-options")" = 'clash|iu|https://old.proxy.test' ] || fail 'retry lost saved options'
 CLASHCTL_HOME="$retry_home" CLASHCTL_UPDATE_BRANCH=master GH_PROXY=https://env.proxy.test \
-    bash "$retry_home/install.sh" mihomo --gh-proxy=https://new.proxy.test >"$WORK_DIR/options.out" 2>&1
+    bash "$retry_home/install.sh" --kernel mihomo --gh-proxy=https://new.proxy.test >"$WORK_DIR/options.out" 2>&1
 [ "$(cat "$retry_home/data/download-options")" = 'mihomo|master|https://new.proxy.test' ] || fail 'saved options overrode retry arguments'
 env -u GH_PROXY -u CLASHCTL_UPDATE_BRANCH CLASHCTL_HOME="$retry_home" \
     bash "$retry_home/install.sh" --gh-proxy= >"$WORK_DIR/options.out" 2>&1
@@ -379,7 +405,7 @@ if FAIL_PREPARE=1 CLASHCTL_HOME="$legacy_v2" bash "$local_source/install.sh" --l
 fi
 [ "$(<"$legacy_v2/data/config.yaml")" = 'legacy config' ] || fail 'failed migration lost old config'
 [ -f "$legacy_v2/.clashctl-installation" ] || fail 'failed migration did not restore old marker'
-CLASHCTL_HOME="$WORK_DIR/ignored-legacy-v2" bash "$local_source/install.sh" clash --local \
+CLASHCTL_HOME="$WORK_DIR/ignored-legacy-v2" bash "$local_source/install.sh" --kernel clash --local \
     --install-dir "$legacy_v2" >"$WORK_DIR/legacy-success.out" 2>&1 ||
     { cat "$WORK_DIR/legacy-success.out"; fail 'legacy v2 migration failed'; }
 [ ! -e "$WORK_DIR/ignored-legacy-v2" ] || fail 'legacy v2 migration used CLASHCTL_HOME instead of install-dir'
@@ -720,6 +746,55 @@ try:
     assert b"          clashctl on" in output, "missing proxy activation step"
     with open(work + "/tty-install/data/subscription") as saved:
         assert saved.read() == "file:///private-subscription"
+finally:
+    try:
+        os.kill(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
+    except ProcessLookupError:
+        pass
+    os.close(fd)
+
+# 显式订阅与内核参数必须从管道入口传入；即使有控制终端也不应再提示输入。
+pid, fd = pty.fork()
+if pid == 0:
+    os.environ.pop("CI", None)
+    os.environ["CLASHCTL_HOME"] = work + "/tty-option-install"
+    os.environ["CLASHCTL_UPDATE_BRANCH"] = "master"
+    script = 'cat "$TEST_REPO/install.sh" | '
+    script += 'sed "s#https://github.com/nelvko/clash-for-linux-install.git#$TEST_WORK/origin#" | '
+    script += 'bash -s -- --kernel clash --subscription file:///from-flag'
+    os.execlp("bash", "bash", "-c", script)
+output = b""
+status = None
+try:
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        ready, _, _ = select.select([fd], [], [], 0.1)
+        if ready:
+            try:
+                output += os.read(fd, 65536)
+            except OSError as exc:
+                if exc.errno != errno.EIO:
+                    raise
+                break
+        child, child_status = os.waitpid(pid, os.WNOHANG)
+        if child:
+            status = child_status
+            break
+    if status is None:
+        while time.monotonic() < deadline:
+            child, child_status = os.waitpid(pid, os.WNOHANG)
+            if child:
+                status = child_status
+                break
+            time.sleep(0.01)
+    assert status is not None, "flag installation timed out: " + output.decode(errors="replace")
+    assert os.waitstatus_to_exitcode(status) == 0, output.decode(errors="replace")
+    assert "订阅链接（回车跳过）: ".encode() not in output, "flag installation prompted for a subscription"
+    with open(work + "/tty-option-install/data/subscription") as saved:
+        assert saved.read() == "file:///from-flag"
+    with open(work + "/tty-option-install/data/download-options") as saved:
+        assert saved.read().startswith("clash|master|")
 finally:
     try:
         os.kill(pid, signal.SIGKILL)
