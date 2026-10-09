@@ -40,6 +40,8 @@ Git 安装与更新在真实 systemd 内核运行时通过：成功更新、部�
 
 修改后 root 全量回归 15/15，普通用户迁移回归 2/2，45 个 Bash 文件与 Fish 包装语法检查通过。
 
+候选代码已作为 `836e9c35c3fe73e69921c022ef150bbf857788b4` 推送至 `install-update`，[GitHub Actions](https://github.com/nelvko/clash-for-linux-install/actions/runs/37882411799) 的语法、全量回归和普通用户迁移检查通过。[Wiki 候选说明](https://github.com/nelvko/clash-for-linux-install/wiki/Install-Update-Preview)已发布，旧 `master` 的默认说明保留。
+
 ## 尚待发布阶段完成
 
 这些结果来自隔离 Linux/systemd 环境，不能替代所有发行版和物理机的兼容性验证。外部用户试用反馈仍待收集；正式合并时需要切换 Wiki 默认说明。此次只准备和验证候选版，没有合并 `master`。

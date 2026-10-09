@@ -33,12 +33,12 @@ curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/inst
 
 - [x] 提交已验证的迁移修复与测试。
 - [x] 冻结功能范围；后续只处理兼容问题和验收中发现的阻断缺陷。
-- [ ] 最终代码候选推送后，Shell tests 通过 Bash 语法、完整回归和普通用户迁移测试；此前版本的 CI 结果不能替代本轮验证。
+- [x] 候选代码 `836e9c3` 推送后，[Shell tests](https://github.com/nelvko/clash-for-linux-install/actions/runs/37882411799) 通过 Bash 语法、完整回归和普通用户迁移测试。
 - [x] 核对 `iu` 分支独有的行为和测试；安全与事务修复另行排期，`on/off` 在本次发布前决定。
 - [x] 最终代码候选在隔离 Ubuntu 24.04 / systemd 255 环境中，使用实际旧 `master` 安装器验证原路径升级、默认目录搬迁和自定义路径迁移；核对订阅、当前配置、密钥、服务状态、真实代理请求与备份。
 - [x] 使用真实 mihomo/yq 验证普通用户 `nohup` 与 root `systemd` 安装；覆盖无订阅、有效订阅、下载失败、初始化失败后的重试及迁移回退。环境与限制见[验收记录](acceptance-install-update-20261009.md)。
 - [x] 明确 `off` 只清除终端代理、`start/stop` 启停内核，并移除 `on/off` 的旧选项，更新文档与命令帮助。
-- [ ] 将最终候选版推送至 `install-update`，提供同时指定脚本分支与 `CLASHCTL_UPDATE_BRANCH` 的试用命令和 Wiki 候选说明。
+- [x] 候选版已推送至 `install-update`，提供同时指定脚本分支与 `CLASHCTL_UPDATE_BRANCH` 的试用命令，并发布 [Wiki 候选说明](https://github.com/nelvko/clash-for-linux-install/wiki/Install-Update-Preview)。
 - [ ] 收集外部用户试用反馈，处理发现的阻断问题；尚未收到试用结果时不将此项记为完成。
 - [ ] 正式合并时切换 Wiki 默认说明中的 `off` 行为、安装路径和 FAQ；候选期保留旧 `master` 文档并链接候选说明。README 已按合并后的 `master` 写法准备。
 - [x] 保存旧 `master` 基准 `b2d4cbd6e4bed4ee59e1a4495f931f6e5d5498bc` 的完整 Git bundle，并验证备份可读；[回退步骤](rollback-install-update.md)已通过真实 systemd/nohup 内核与 HTTP 请求验证。
