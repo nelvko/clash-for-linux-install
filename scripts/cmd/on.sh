@@ -1,25 +1,14 @@
 #!/usr/bin/env bash
 
 clashon() {
+    [ "$#" -le 1 ] || { _ui_fail '用法: clashctl on [--help]'; return 1; }
     case "${1:-}" in
     -h | --help)
         on_help
         return
         ;;
-    -s | --service-only)
-        _ui_warn 'on -s/--service-only 是兼容参数，请改用 clashctl start'
-        clashstart
-        return
-        ;;
-    -e | --env-only)
-        _ui_warn 'on -e/--env-only 是兼容参数；内核未运行时请先执行 clashctl start'
-        service_is_active >&/dev/null || {
-            _ui_fail "$CLASHCTL_KERNEL 未运行，请先执行 clashctl start"
-            return 1
-        }
-        ;;
     '') clashstart || return ;;
-    *) _ui_fail '用法: clashctl on [--help|-s|-e]'; return 1 ;;
+    *) _ui_fail '用法: clashctl on [--help]'; return 1 ;;
     esac
     set_system_proxy || return 1
     _ui_ok_out "当前终端代理已启用"
@@ -34,8 +23,6 @@ Usage:
   clashctl on [OPTIONS]
 
 Options:
-  -s, --service-only  仅启动内核；兼容旧版，请改用 clashctl start
-  -e, --env-only      仅启用当前终端代理；要求内核已运行
   -h, --help  显示帮助信息
 
 EOF

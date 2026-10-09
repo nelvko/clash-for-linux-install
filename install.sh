@@ -15,6 +15,14 @@ _install_method() {
     return 1
 }
 
+# 自举入口先准备并校验源码，再从该源码加载同一套生命周期锁。
+# 锁必须由 main 持有，覆盖落盘、迁移、初始化以及失败恢复。
+_install_lock() {
+    # shellcheck source=/dev/null
+    . "$1/scripts/lib/operation-lock.sh" || return 1
+    operation_lock_acquire
+}
+
 # 已有目录只凭安装身份和可信脚本布局进入自动更新/迁移分支。
 _install_existing_kind() {
     local home=$1 marker owner mode path unsafe
@@ -521,7 +529,7 @@ _source_archive() (
 
 _source_validate() {
     local directory=$1 file relative
-    for file in .env.example install.sh uninstall.sh scripts/preflight.sh scripts/cmd/clashctl.sh scripts/cmd/update.sh; do
+    for file in .env.example install.sh uninstall.sh scripts/preflight.sh scripts/lib/operation-lock.sh scripts/cmd/clashctl.sh scripts/cmd/update.sh; do
         if [ ! -f "$directory/$file" ] || [ -L "$directory/$file" ]; then
             printf '源码不兼容：缺少必需文件 %s\n' "$file" >&2
             return 1
@@ -630,6 +638,10 @@ _install_initialize() {
     else
         _install_ui_info '尚未配置订阅，内核未启动'
     fi
+    # 订阅生效直接启服；续装时已运行的内核也会跳过 clashstart 的自启步骤。
+    if [ -s "$CLASH_CONFIG_BASE" ] && service_is_active; then
+        service_enable || return 1
+    fi
     if [ -n "${7:-}" ]; then
         shell_backup=$(mktemp -d "${CLASHCTL_HOME}.shell.XXXXXX") || return 1
         _install_shell_snapshot "$shell_backup" || {
@@ -716,7 +728,7 @@ main() (
             shift
             ;;
         -h | --help)
-            printf '用法: bash install.sh [--kernel <mihomo|clash>] [--subscription <URL>] [--local] [--install-dir <绝对路径>] [--gh-proxy <URL>]\n--kernel: 选择内核，新安装默认 mihomo\n--subscription: 添加并启用订阅；提供后不再交互询问\n--local: 使用本脚本所在目录的源码，依赖仍按需下载\n安装目录优先级: --install-dir > CLASHCTL_HOME > ~/.clashctl\n环境变量: CLASHCTL_HOME、CLASHCTL_UPDATE_BRANCH、GH_PROXY\n'
+            printf '用法: bash install.sh [--kernel <mihomo|clash>] [--subscription <URL>] [--local] [--install-dir <绝对路径>] [--gh-proxy <URL>]\n--kernel: 选择内核，新安装默认 mihomo；已有安装不支持切换内核\n--subscription: 添加并启用订阅；提供后不再交互询问\n--local: 使用本脚本所在目录的源码，依赖仍按需下载\n安装目录优先级: --install-dir > CLASHCTL_HOME > ~/.clashctl\n环境变量: CLASHCTL_HOME、CLASHCTL_UPDATE_BRANCH、GH_PROXY\n'
             return 0 ;;
         *) printf '未知安装参数\n' >&2; return 1 ;;
         esac
@@ -758,12 +770,23 @@ main() (
             return 1
         }
         if [ "$existing_kind" = current ]; then
+            _install_lock "$install_home" || return 1
+            # 等待准备/加锁期间，另一操作可能已经卸载或替换此目录。
+            [ "$(_install_existing_kind "$install_home")" = current ] || {
+                printf '安装目录状态已变化，请重新运行安装器\n' >&2
+                return 1
+            }
             method=$(_install_method "$install_home") || return 1
             # 先读取已保存的选项；本次显式参数与环境变量优先。
             if [ -f "$install_home/.env" ]; then
                 local requested_kernel=$kernel requested_branch=$branch requested_proxy=$proxy
                 # shellcheck source=/dev/null
                 . "$install_home/.env" || return 1
+                if [ -n "$requested_kernel" ] && [ "$requested_kernel" != "${CLASHCTL_KERNEL:-mihomo}" ]; then
+                    printf '已有安装不支持切换内核（%s → %s），请使用原内核重试\n' \
+                        "${CLASHCTL_KERNEL:-mihomo}" "$requested_kernel" >&2
+                    return 1
+                fi
                 kernel=${requested_kernel:-${CLASHCTL_KERNEL:-mihomo}}
                 branch=${requested_branch:-${CLASHCTL_UPDATE_BRANCH:-master}}
                 [ "$proxy_set" = x ] && proxy=$requested_proxy || proxy=${GH_PROXY:-}
@@ -861,6 +884,19 @@ main() (
             [ ! -e "$stage/.git" ] && [ ! -L "$stage/.git" ] || return 1
         fi
         _source_validate "$stage"
+        _install_lock "$stage" || return 1
+        # 源码准备不占锁；取得锁后重新核对目录，避免覆盖并发安装的结果。
+        if [ -n "$legacy_home" ]; then
+            [ "$(_install_existing_kind "$legacy_home")" = "$existing_kind" ] || {
+                printf '旧安装目录状态已变化，请重新运行安装器\n' >&2
+                return 1
+            }
+        fi
+        if [ "$legacy_home" != "$install_home" ] &&
+            { [ -e "$install_home" ] || [ -L "$install_home" ]; }; then
+            printf '安装目录在准备源码期间已被创建，未修改目录：%s\n' "$install_home" >&2
+            return 1
+        fi
         if [ "$method" = archive ]; then
             _source_manifest "$stage" >"$stage/.clashctl-files"
         fi

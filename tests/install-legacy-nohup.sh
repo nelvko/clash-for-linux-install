@@ -202,6 +202,7 @@ _install_legacy_nohup_command() {
     legacy_nohup_log="$1/resources/$2.log"
 }
 _install_legacy_data() {
+    [ "${LOCK_PROBE:-0}" != 1 ] || return 1
     printf '%s\n' "$BASHPID" >"$INTERRUPT_MARKER"
     while :; do sleep 0.05; done
 }
@@ -217,6 +218,21 @@ for ((i=0; i<100; i++)); do
 done
 _service_process_snapshot "$interrupt_old_pid" "$interrupt_legacy/bin/mihomo" "$interrupt_expected" ||
     fail 'interrupt fixture old process did not start'
+# 操作锁冲突必须发生在停旧内核之前，不能先停掉再靠清理重启。
+(
+    operation_lock_acquire || fail 'could not hold migration operation lock'
+    if CLASHCTL_HOME="$interrupt_legacy" INIT_TYPE=nohup LOCK_PROBE=1 \
+        INTERRUPT_WRAPPER_MARKER="$WORK_DIR/locked-launcher.pid" bash "$WORK_DIR/interrupt-install.sh" \
+        "$REPO_DIR/install.sh" >"$WORK_DIR/locked-migration.out" 2>&1; then
+        fail 'migration ignored held operation lock'
+    fi
+    grep -q '另一项 clashctl' "$WORK_DIR/locked-migration.out" || fail 'migration contention was not diagnosed'
+    _service_process_snapshot "$interrupt_old_pid" "$interrupt_legacy/bin/mihomo" "$interrupt_expected" ||
+        fail 'lock contention stopped or replaced old daemon'
+    [ -d "$interrupt_legacy" ] || fail 'lock contention moved old installation'
+    [ -z "$(find "$WORK_DIR" -maxdepth 1 \( -name 'interrupt-old.bak.*' -o -name 'interrupt-old.download.*' \) -print -quit)" ] ||
+        fail 'lock contention left migration directories'
+)
 interrupt_marker="$WORK_DIR/interrupt-main.pid"
 interrupt_wrapper_marker="$WORK_DIR/interrupt-wrapper.pid"
 INTERRUPT_MARKER="$interrupt_marker" INTERRUPT_WRAPPER_MARKER="$interrupt_wrapper_marker" \

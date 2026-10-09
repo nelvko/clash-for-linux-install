@@ -67,12 +67,12 @@ install_service() { :; }
 service_start() { [ "${FAIL_START:-0}" = 0 ] && touch "$CLASH_DATA_DIR/started"; }
 service_stop_checked() { rm -f "$CLASH_DATA_DIR/started"; }
 service_is_active() { [ -f "$CLASH_DATA_DIR/started" ]; }
-service_enable() { touch "$CLASH_DATA_DIR/enabled"; }
-clashstart() { _merge_config && service_start && service_enable; }
+service_enable() { [ "${FAIL_ENABLE:-0}" = 0 ] && touch "$CLASH_DATA_DIR/enabled"; }
+clashstart() { service_is_active && return 0; _merge_config && service_start && service_enable; }
 clashsub() {
     printf '%s' "$3" >"$CLASH_DATA_DIR/subscription"
     printf main-config >"$CLASH_CONFIG_BASE"
-    clashstart
+    _merge_config && service_start
 }
 apply_rc() {
     if [ "${FAIL_RC:-0}" = 1 ]; then
@@ -138,6 +138,18 @@ exec "$REAL_GIT" "${args[@]}"
 STUB
 chmod +x "$WORK_DIR/bin/git"
 export PATH="$WORK_DIR/bin:$PATH"
+# 正式目录落盘前必须持锁；失败不能留下半安装目录或临时源码。
+(
+    . "$REPO_DIR/scripts/lib/operation-lock.sh"
+    operation_lock_acquire || fail 'could not hold installation lock'
+    locked_home="$WORK_DIR/locked-new"
+    if CLASHCTL_HOME="$locked_home" bash "$REPO_DIR/install.sh" >"$WORK_DIR/locked-new.out" 2>&1; then
+        fail 'new installation ignored held lock'
+    fi
+    grep -q '另一项 clashctl' "$WORK_DIR/locked-new.out" || fail 'new installation did not diagnose contention'
+    [ ! -e "$locked_home" ] || fail 'lock contention created installation directory'
+    [ -z "$(find "$WORK_DIR" -maxdepth 1 -name 'locked-new.download.*' -print -quit)" ] || fail 'lock contention left staged source'
+)
 # stdin 是脚本，CI 跳过 /dev/tty 输入；初始化不能只安装命令空壳。
 # shellcheck disable=SC2002  # 必须验证管道输入，不能改成文件执行
 # 两个 env -u：未设时才走管道安装，保证下面断言的是"未提供即直连"。
@@ -202,7 +214,19 @@ for form in separate equals; do
     [ "$(cat "$option_home/data/download-options")" = 'clash|master|' ] ||
         fail "install kernel option was not applied: $form"
     [ -f "$option_home/data/started" ] || fail "install subscription was not activated: $form"
+    [ -f "$option_home/data/enabled" ] || fail "install subscription did not enable service: $form"
 done
+# 内核已启动但设置自启失败时，续装不能因“已运行”而跳过恢复自启。
+enable_failed_home="$WORK_DIR/enable-failed"
+if FAIL_ENABLE=1 CLASHCTL_HOME="$enable_failed_home" bash "$REPO_DIR/install.sh" \
+    --subscription file:///enable-retry >"$WORK_DIR/enable-failed.out" 2>&1; then
+    fail 'service enable failure succeeded'
+fi
+[ -f "$enable_failed_home/data/started" ] && [ -f "$enable_failed_home/.clashctl-incomplete" ] || fail 'enable failure lost running/incomplete state'
+[ ! -e "$enable_failed_home/data/enabled" ] || fail 'failed enable set autostart'
+CLASHCTL_HOME="$enable_failed_home" bash "$enable_failed_home/install.sh" >"$WORK_DIR/enable-retry.out" 2>&1
+[ -f "$enable_failed_home/data/enabled" ] || fail 'retry did not enable already running service'
+[ ! -e "$enable_failed_home/.clashctl-incomplete" ] || fail 'enable retry retained incomplete state'
 # 无效参数应在下载源码、创建安装目录前报错。
 for bad_arg in --kernel --kernel= --kernel=unknown --subscription --subscription= mihomo clash; do
     invalid_option_home="$WORK_DIR/invalid-option"
@@ -275,15 +299,41 @@ retry_home="$WORK_DIR/retry-options"
 CLASHCTL_HOME="$retry_home" CLASHCTL_UPDATE_BRANCH=iu bash "$REPO_DIR/install.sh" --kernel clash --gh-proxy=https://old.proxy.test >"$WORK_DIR/options.out" 2>&1
 env -u GH_PROXY -u CLASHCTL_UPDATE_BRANCH CLASHCTL_HOME="$retry_home" bash "$retry_home/install.sh" >"$WORK_DIR/options.out" 2>&1
 [ "$(cat "$retry_home/data/download-options")" = 'clash|iu|https://old.proxy.test' ] || fail 'retry lost saved options'
+# 已有安装禁止切换内核，检查必须早于更新、配置写入和服务操作。
+cp "$retry_home/.env" "$WORK_DIR/kernel-env.expected"
+retry_head=$("$REAL_GIT" -C "$retry_home" rev-parse HEAD)
+for kernel_form in equals separate; do
+    kernel_args=(--kernel=mihomo)
+    [ "$kernel_form" != separate ] || kernel_args=(--kernel mihomo)
+    if FAIL_FETCH=1 CLASHCTL_HOME="$retry_home" \
+        bash "$retry_home/install.sh" "${kernel_args[@]}" >"$WORK_DIR/kernel-change.out" 2>&1; then
+        fail "existing installation changed kernel: $kernel_form"
+    fi
+    grep -q '已有安装不支持切换内核' "$WORK_DIR/kernel-change.out" || fail 'kernel change was not diagnosed before fetch'
+    cmp -s "$retry_home/.env" "$WORK_DIR/kernel-env.expected" || fail 'kernel rejection modified config'
+    [ "$("$REAL_GIT" -C "$retry_home" rev-parse HEAD)" = "$retry_head" ] || fail 'kernel rejection updated source'
+    [ "$(cat "$retry_home/data/download-options")" = 'clash|iu|https://old.proxy.test' ] || fail 'kernel rejection downloaded components'
+    [ ! -e "$retry_home/.clashctl-incomplete" ] || fail 'kernel rejection changed installation state'
+done
+(
+    . "$REPO_DIR/scripts/lib/operation-lock.sh"
+    operation_lock_acquire || fail 'could not hold retry lock'
+    if CLASHCTL_HOME="$retry_home" bash "$retry_home/install.sh" >"$WORK_DIR/locked-retry.out" 2>&1; then
+        fail 'existing installation ignored held lock'
+    fi
+    grep -q '另一项 clashctl' "$WORK_DIR/locked-retry.out" || fail 'retry did not diagnose contention'
+    cmp -s "$retry_home/.env" "$WORK_DIR/kernel-env.expected" || fail 'locked retry modified config'
+    [ ! -e "$retry_home/.clashctl-incomplete" ] || fail 'locked retry changed installation state'
+)
 CLASHCTL_HOME="$retry_home" CLASHCTL_UPDATE_BRANCH=master GH_PROXY=https://env.proxy.test \
-    bash "$retry_home/install.sh" --kernel mihomo --gh-proxy=https://new.proxy.test >"$WORK_DIR/options.out" 2>&1
-[ "$(cat "$retry_home/data/download-options")" = 'mihomo|master|https://new.proxy.test' ] || fail 'saved options overrode retry arguments'
+    bash "$retry_home/install.sh" --kernel clash --gh-proxy=https://new.proxy.test >"$WORK_DIR/options.out" 2>&1
+[ "$(cat "$retry_home/data/download-options")" = 'clash|master|https://new.proxy.test' ] || fail 'saved options overrode retry arguments'
 env -u GH_PROXY -u CLASHCTL_UPDATE_BRANCH CLASHCTL_HOME="$retry_home" \
     bash "$retry_home/install.sh" --gh-proxy= >"$WORK_DIR/options.out" 2>&1
-[ "$(cat "$retry_home/data/download-options")" = 'mihomo|master|' ] || fail 'retry could not clear proxy'
+[ "$(cat "$retry_home/data/download-options")" = 'clash|master|' ] || fail 'retry could not clear proxy'
 env -u GH_PROXY -u CLASHCTL_UPDATE_BRANCH CLASHCTL_HOME="$retry_home" \
     bash "$retry_home/install.sh" >"$WORK_DIR/options.out" 2>&1
-[ "$(cat "$retry_home/data/download-options")" = 'mihomo|master|' ] || fail 'retry options were not persisted'
+[ "$(cat "$retry_home/data/download-options")" = 'clash|master|' ] || fail 'retry options were not persisted'
 CLASHCTL_HOME="$retry_home" CLASHCTL_DOWNLOAD_TIMEOUT=180 bash "$retry_home/install.sh" \
     >"$WORK_DIR/options.out" 2>&1
 [ "$(cat "$retry_home/data/download-timeout")" = 180 ] || fail 'retry timeout was overridden by saved config'
@@ -293,7 +343,7 @@ CLASHCTL_HOME="$ignored_existing" GH_PROXY=https://env.proxy.test \
     bash "$retry_home/install.sh" --install-dir "$retry_home" --gh-proxy=https://flag-existing.test \
     >"$WORK_DIR/existing-install-dir.out" 2>&1 ||
     { cat "$WORK_DIR/existing-install-dir.out"; fail 'install-dir could not update existing installation'; }
-[ "$(cat "$retry_home/data/download-options")" = 'mihomo|master|https://flag-existing.test' ] ||
+[ "$(cat "$retry_home/data/download-options")" = 'clash|master|https://flag-existing.test' ] ||
     fail 'install-dir did not update the selected installation'
 [ ! -e "$ignored_existing" ] || fail 'existing installation update used CLASHCTL_HOME instead of install-dir'
 # 源码不能通过重试初始化获得安装身份；克隆真实安装也不会继承 Git 私有标记。
@@ -367,6 +417,18 @@ printf 'CLASHCTL_KERNEL=mihomo\nCLASHCTL_UPDATE_BRANCH=iu\nGH_PROXY=https://lega
 printf 'CLASHCTL_INSTALLATION=clashctl\nCLASHCTL_INSTALLATION_FORMAT=1\nCLASHCTL_INSTALLATION_HOME=%s\nCLASHCTL_INSTALLATION_UID=%s\n' \
     "$legacy_v2" "$(id -u)" >"$legacy_v2/.clashctl-installation"
 chmod 0600 "$legacy_v2/.clashctl-installation"
+# 迁移也必须在停旧服务、复制数据和移动旧目录之前取得同一把锁。
+(
+    . "$REPO_DIR/scripts/lib/operation-lock.sh"
+    operation_lock_acquire || fail 'could not hold migration lock'
+    tar -cf "$WORK_DIR/legacy-before-lock.tar" -C "$legacy_v2" .
+    if CLASHCTL_HOME="$legacy_v2" bash "$local_source/install.sh" --local >"$WORK_DIR/locked-legacy.out" 2>&1; then
+        fail 'legacy migration ignored held lock'
+    fi
+    grep -q '另一项 clashctl' "$WORK_DIR/locked-legacy.out" || fail 'migration did not diagnose contention'
+    tar -df "$WORK_DIR/legacy-before-lock.tar" -C "$legacy_v2" || fail 'lock contention modified legacy installation'
+    [ -z "$(find "$WORK_DIR" -maxdepth 1 \( -name 'legacy-v2-home.bak.*' -o -name 'legacy-v2-home.download.*' \) -print -quit)" ] || fail 'locked migration left backup or staged source'
+)
 # 旧服务接管必须精确匹配旧二进制与配置路径；恢复时保留启用和运行状态。
 (
     . "$REPO_DIR/install.sh"
@@ -660,6 +722,7 @@ bash "$WORK_DIR/normalized/uninstall.sh" --yes >"$WORK_DIR/normalized-uninstall.
 [ ! -e "$WORK_DIR/normalized" ] || fail 'normalized installation could not be uninstalled'
 # 已有主配置时重试初始化：启动失败仍返回失败，恢复后可以继续。
 printf main-config >"$CLASHCTL_HOME/data/config.yaml"
+rm -f "$CLASHCTL_HOME/data/started"
 if FAIL_START=1 bash "$CLASHCTL_HOME/install.sh" >"$WORK_DIR/start-failed.out" 2>&1; then
     fail 'service failure succeeded'
 fi

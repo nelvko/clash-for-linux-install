@@ -8,7 +8,7 @@
 
 | 参数 | 说明 |
 | --- | --- |
-| `--kernel <mihomo\|clash>` | 选择内核，新安装默认使用 Mihomo |
+| `--kernel <mihomo\|clash>` | 选择内核，新安装默认使用 Mihomo；已有安装不支持切换内核 |
 | `--subscription <URL>` | 添加并启用订阅，跳过订阅的交互输入 |
 | `--install-dir <绝对路径>` | 指定安装目录，优先于 `CLASHCTL_HOME`，默认 `~/.clashctl` |
 | `--gh-proxy <URL>` | 为后续源码和组件下载设置 GitHub 加速前缀；`--gh-proxy=` 表示直连 |
@@ -64,6 +64,8 @@ bash install.sh --local --kernel clash --subscription "<订阅链接>" --gh-prox
 | `clashctl secret` | 查看面板登录密钥 |
 
 `on` / `off` 设置或清除当前 Shell 的代理环境变量。Web 面板地址以 `clashctl ui` 输出为准；新安装会生成随机登录密钥，用 `clashctl secret` 查看。
+
+`on` / `off` 只接受 `-h` / `--help`；旧版 `-e` / `--env-only` 和 `-s` / `--service-only` 选项已移除。仅启停内核请使用 `start` / `stop`；需要同时停止内核并清除当前终端代理时，先执行 `clashctl stop`，再执行 `clashctl off`。
 
 ## 订阅与配置
 
@@ -135,6 +137,8 @@ curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/nelvko/clash-f
 ```
 
 迁移可能短暂重启内核。旧目录会保留为同级的 `.bak.*` 备份，其中可能含订阅凭据和访问密钥；确认不再需要后再清理。搬迁目录后，记得修改写死旧路径的定时任务。
+
+安装失败按安装器输出的命令重试；迁移失败时核对旧目录与服务是否已恢复。成功迁移后需要退回旧版，先保存新版新增数据，再按[回退步骤](rollback-install-update.md)恢复旧目录、服务和 Shell 引导。
 
 ## 卸载
 
