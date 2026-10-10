@@ -132,7 +132,7 @@ bash "$CLASHCTL_HOME/uninstall.sh"
   <tr>
     <td width="180" align="center" valign="middle">
       <a href="https://api.muteki.site/register?aff=nelvko&promo=nelvko">
-        <img src="https://cdn.nodeimage.com/i/hc6anADTcLP0P2CTOoqUMkKcHER4KeYY.webp" alt="MaruCode" width=60">
+        <img src="https://cdn.nodeimage.com/i/hc6anADTcLP0P2CTOoqUMkKcHER4KeYY.webp" alt="MaruCode" width="60">
       </a>
     </td>
     <td valign="middle">
