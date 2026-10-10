@@ -867,7 +867,7 @@ main() (
   指定分支安装:
     bash install.sh --branch install-update --gh-proxy https://gh-proxy.org
 
-更多说明: docs/guide.md
+更多说明: https://github.com/nelvko/clash-for-linux-install/wiki/User-Guide
 HELP
             return 0 ;;
         *) printf '未知安装参数\n' >&2; return 1 ;;
