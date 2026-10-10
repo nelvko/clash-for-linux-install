@@ -49,7 +49,7 @@ curl -fsSL "${GH_PROXY}https://raw.githubusercontent.com/nelvko/clash-for-linux-
 - [自定义安装选项](https://github.com/nelvko/clash-for-linux-install/wiki/User-Guide#安装选项)
 - 没有订阅？[获取订阅](https://次元.net/auth/register?code=oUbI)
 
-## 🎯 快速上手
+## 🚀 快速上手
 
 添加并启用订阅，若安装时已配置可跳过：
 
@@ -107,7 +107,7 @@ clashctl update
 clashctl upgrade
 ```
 
-## 🧹 卸载
+## 🗑️ 卸载
 
 ```bash
 # 清理当前 Shell 的代理环境变量（卸载脚本无法清理）
@@ -126,14 +126,19 @@ bash "$CLASHCTL_HOME/uninstall.sh"
 - [Wiki](https://github.com/nelvko/clash-for-linux-install/wiki) — 更多使用说明。
 - [FAQ](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ) — 常见问题。
 
-## 🤝 赞助
+## 💖 赞助
+
 <table>
-<tr>
-<td width="180" align="center" valign="middle">
-  <a href="https://api.muteki.site/register?aff=kelivo&promo=kelivo"><img src="https://cdn.nodeimage.com/i/hc6anADTcLP0P2CTOoqUMkKcHER4KeYY.webp" alt="MaruCode" width="150"></a>
-</td>
-<td valign="middle"><b><a href="https://api.muteki.site/register?aff=kelivo&promo=kelivo">MaruCode</a></b> 是一家偶尔做做慈善的小破站 API，自营号池，主要提供 Codex、Claude Code、GPT Image 等主流模型，支持 Websocket 协议，明码标价(Codex 0.25x, CC 1.5x)，透明汇率(1:1)，<a href="https://api.muteki.site/register?aff=kelivo&promo=kelivo">新用户注册送 2 刀</a>。<a href="https://images-2.muteki.site">生图工作台🖼️</a></td>
-</tr>
+  <tr>
+    <td width="180" align="center" valign="middle">
+      <a href="https://api.muteki.site/register?aff=nelvko&promo=nelvko">
+        <img src="https://cdn.nodeimage.com/i/hc6anADTcLP0P2CTOoqUMkKcHER4KeYY.webp" alt="MaruCode" width=60">
+      </a>
+    </td>
+    <td valign="middle">
+      <b><a href="https://api.muteki.site/register?aff=nelvko&promo=nelvko">MaruCode</a></b> 是一家偶尔做做慈善的小破站 API，自营号池，主要提供 Codex、Claude Code、GPT Image 等主流模型，支持 Websocket 协议，明码标价(Codex 0.25x, CC 1.5x)，透明汇率(1:1)，<a href="https://api.muteki.site/register?aff=nelvko&promo=nelvko">新用户注册送 2 刀</a>。<a href="https://images-2.muteki.site">生图工作台🖼️</a>
+    </td>
+  </tr>
 </table>
 
 ## ⭐ Star History
