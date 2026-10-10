@@ -23,7 +23,7 @@
 
 ## 📸 Preview
 
-![preview](preview.png)
+![新版本地安装输出示例](preview.svg)
 
 ## ✨ Features
 

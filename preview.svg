@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1036" height="911" viewBox="0 0 1036 911" role="img" aria-labelledby="title desc">
+<title id="title">clashctl 新版本地安装输出示例</title>
+<desc id="desc">基于真实安装验收输出。默认安装到 /root/.clashctl；未配置订阅时内核不启动。</desc>
+<rect width="1036" height="911" rx="14" fill="#0f172a"/>
+<g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="20">
+<text x="32" y="46" fill="#f8fafc" font-weight="400" xml:space="preserve">$ bash install.sh --local --branch install-update --gh-proxy https://gh-proxy.org</text>
+<text x="32" y="108" fill="#60a5fa" font-weight="600" xml:space="preserve">[STEP] 新安装 clashctl（本地源码）</text>
+<text x="32" y="139" fill="#cbd5e1" font-weight="400" xml:space="preserve">       安装目录: /root/.clashctl</text>
+<text x="32" y="201" fill="#60a5fa" font-weight="600" xml:space="preserve">[STEP] 准备运行组件</text>
+<text x="32" y="232" fill="#cbd5e1" font-weight="400" xml:space="preserve"><tspan fill="#93c5fd">[INFO]</tspan> 复用系统 yq: /usr/local/bin/yq</text>
+<text x="32" y="263" fill="#cbd5e1" font-weight="400" xml:space="preserve">       加速代理: https://gh-proxy.org</text>
+<text x="32" y="294" fill="#cbd5e1" font-weight="400" xml:space="preserve"><tspan fill="#93c5fd">[INFO]</tspan> 查询 MetaCubeX/mihomo 版本</text>
+<text x="32" y="325" fill="#cbd5e1" font-weight="400" xml:space="preserve"><tspan fill="#93c5fd">[INFO]</tspan> 下载 mihomo v1.19.32（最新版本）</text>
+<text x="32" y="356" fill="#cbd5e1" font-weight="400" xml:space="preserve">       文件: mihomo-linux-amd64-v3-v1.19.32.gz</text>
+<text x="32" y="387" fill="#cbd5e1" font-weight="400" xml:space="preserve"><tspan fill="#4ade80">[ OK ]</tspan> 下载完成，校验通过</text>
+<text x="32" y="418" fill="#cbd5e1" font-weight="400" xml:space="preserve"><tspan fill="#4ade80">[ OK ]</tspan> 运行组件已安装</text>
+<text x="32" y="480" fill="#60a5fa" font-weight="600" xml:space="preserve">[STEP] 配置服务与终端命令</text>
+<text x="32" y="511" fill="#cbd5e1" font-weight="400" xml:space="preserve"><tspan fill="#4ade80">[ OK ]</tspan> 已注册 systemd 服务</text>
+<text x="32" y="542" fill="#cbd5e1" font-weight="400" xml:space="preserve"><tspan fill="#93c5fd">[INFO]</tspan> 尚未配置订阅，内核未启动</text>
+<text x="32" y="573" fill="#cbd5e1" font-weight="400" xml:space="preserve"><tspan fill="#93c5fd">[INFO]</tspan> 未启用内核，跳过开机自启设置</text>
+<text x="32" y="604" fill="#cbd5e1" font-weight="400" xml:space="preserve"><tspan fill="#4ade80">[ OK ]</tspan> Shell 集成已就绪</text>
+<text x="32" y="635" fill="#cbd5e1" font-weight="400" xml:space="preserve">       配置: /root/.bashrc</text>
+<text x="32" y="697" fill="#cbd5e1" font-weight="400" xml:space="preserve"><tspan fill="#4ade80">[ OK ]</tspan> 安装完成</text>
+<text x="32" y="759" fill="#cbd5e1" font-weight="400" xml:space="preserve">在当前终端执行（bash）:</text>
+<text x="32" y="790" fill="#cbd5e1" font-weight="400" xml:space="preserve">  source ~/.bashrc                  # 加载命令</text>
+<text x="32" y="821" fill="#cbd5e1" font-weight="400" xml:space="preserve">  clashctl sub add --use &quot;&lt;URL&gt;&quot;    # 添加并启用订阅</text>
+<text x="32" y="852" fill="#cbd5e1" font-weight="400" xml:space="preserve">  clashctl on                       # 启用当前终端代理</text>
+</g>
+</svg>

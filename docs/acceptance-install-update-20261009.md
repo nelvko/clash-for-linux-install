@@ -44,13 +44,44 @@ Git 安装与更新在真实 systemd 内核运行时通过：成功更新、部�
 
 ## 2026-10-10 本地补充验证
 
-以下本地验证针对 `2f2e14c` 之后的收尾修改。修改已作为最终代码候选 `13169dd72dba5ef51ad71f8390a3e8d2030aa2d7` 提交并推送；[GitHub Actions](https://github.com/nelvko/clash-for-linux-install/actions/runs/38017703053) 的 Bash 语法、全量回归和普通用户迁移检查均通过。
+以下本地验证针对 `2f2e14c` 之后的收尾修改。修改已作为当时的代码候选 `13169dd72dba5ef51ad71f8390a3e8d2030aa2d7` 提交并推送；[GitHub Actions](https://github.com/nelvko/clash-for-linux-install/actions/runs/38017703053) 的 Bash 语法、全量回归和普通用户迁移检查均通过。
 
 - 本地收尾审查：root 全量回归 15/15，普通用户 `install-update`、`install-legacy-nohup` 与 `uninstall-scope` 回归 3/3 通过；Bash/Fish 语法检查及改动涉及的生产脚本 ShellCheck 错误级检查通过。
 - 审查后复现 `--local` 更新部分写入失败、回滚也失败时，外层退出清理删除 `previous.tar` 的问题。新增安装入口回归在修复前失败；修复后 root 与普通用户 `install-update` 回归各 1/1 通过。测试确认恢复目录、原程序与清单备份均保留，备份可实际恢复，用户配置和 `.env` 不变；更新成功或回滚成功时仍清理临时目录。
 - 备份修复涉及的安装脚本和测试脚本 Bash 语法、ShellCheck 错误级检查及 `git diff --check` 通过。上述验证使用隔离 fixture 与故障注入，没有重新执行真实 systemd 或外部代理节点验收。
 - 命令示例与文档收尾：`command-load` 回归 1/1，通过实际 `sub add --help` 确认订阅链接占位符带引号；安装器与订阅脚本 Bash 语法及 ShellCheck 错误级检查通过。
 
+## 2026-10-10 当前候选 CI 与文档同步
+
+当前代码候选为 `76068b0b1a03c79dedc6cfdbfc3e7a7e55017c5d`。恢复目录整理与服务提示修复 `9eac8cb115139fcd3090fbffbfd93e2f69ebc27f` 的 [CI](https://github.com/nelvko/clash-for-linux-install/actions/runs/38021098444)，以及当前代码候选的 [CI](https://github.com/nelvko/clash-for-linux-install/actions/runs/38026033549)，均已通过 Bash 语法、全量回归与普通用户迁移检查。
+
+- 安装输出优化：root `common-ui`、`install-legacy-nohup`、`install-update` 与 `preflight-components` 回归 4/4，普通用户安装更新与旧版迁移回归 2/2 通过。
+- 集中恢复目录：root 与普通用户 `install-update`、`install-legacy-nohup`、`uninstall-scope` 各 3/3 通过，覆盖不安全的恢复路径、失败回滚和卸载后恢复；Bash 语法、ShellCheck 错误级检查与 `git diff --check` 通过。旧版 nohup 测试动态加载后替换函数的既有 `SC2218` 提示按实际执行顺序排除。单文件 ShellCheck 峰值常驻内存约 357 MiB。
+- 终端代理提示：`command-load` 与 `proxy-lifecycle` 通过 Bash/Zsh/Fish 的加载与启停检查。重复 `on` 隐藏内核已运行提示；独立 `start` 保留该提示，`off` 不停止内核。
+- Wiki 提交 `2548c4dd8ba816673c015b0c644f46a0b477cef4` 已推送，同步候选版安装参数、目录优先级与 `.clashctl-backups/` 保留行为；首页和 FAQ 明确标注旧 `master` 与候选版的行为差异。
+
+## 2026-10-10 当前候选真实迁移与回退验收
+
+从 `76068b0b1a03c79dedc6cfdbfc3e7a7e55017c5d` 的受版本控制文件建立独立源码快照，旧版仍由实际 `master` 提交 `b2d4cbd6e4bed4ee59e1a4495f931f6e5d5498bc` 安装。环境为新建 Ubuntu 24.04 容器，systemd 255 为 PID 1，内存上限 512 MiB、含交换总上限 768 MiB、CPU 上限 1 核。测试结束后无运行中的 mihomo；没有操作宿主机原有安装与服务。
+
+复用真实 mihomo v1.19.32 与 yq v4.53.3；yq 二进制重新打包用于本地下载缓存。版本查询使用固定标签，下载使用缓存；下载失败用例注入下载错误。旧版使用 subconverter v0.9.9 和已有 UI 制品。代理请求使用本地 HTTP 服务与 DIRECT 策略，没有验证外部机场节点、TUN 或公网下载速度。验收脚本复用组件时发现 yq 标签与二进制不一致，按实际版本修正后在新容器中完整重跑，以下结果以修正后的运行记录为准。
+
+| 用例 | root/systemd | 普通用户/nohup |
+| --- | --- | --- |
+| 新安装无订阅，不启动内核；添加订阅后代理请求成功 | 通过 | 通过 |
+| on/off/start/stop；off 不停内核，重复 on 不输出内核已运行 | 通过 | 通过 |
+| 重跑安装器，Mixin 与访问密钥不变 | 通过 | 通过 |
+| 下载失败与 Shell 初始化失败后重试 | 通过 | 通过 |
+| 实际旧 master 原路径升级、默认目录搬迁、自定义路径迁移 | 通过 | 通过 |
+| 迁移初始化失败，恢复旧目录、配置、Shell 与内核 | 通过 | 通过 |
+| 完整旧版备份集中于 backups/，失败现场集中于 failed/ | 通过 | 通过 |
+| 新版卸载后备份仍在，恢复旧版并完成代理请求 | 通过 | 通过 |
+| 卸载移除安装目录和对应服务，无遗留内核进程 | 通过 | 通过 |
+
+迁移检查主配置与 Mixin 的 SHA-256、provider 文件、Shell 目标路径、备份内核和代理请求；systemd 额外检查服务单元目标、运行状态与自启状态。恢复资料根目录权限为 0700，所有者分别为对应安装用户。容器内存控制记录 `oom=0`、`oom_kill=0`；达到内存上限时发生回收，没有压爆宿主机内存。
+
+本轮未重新执行真实 Git clone/fetch/checkout 的更新用例；这部分真实内核证据仍来自旧候选 `836e9c3`，当前版本由已通过的 CI 回归覆盖。本轮只更新文档和预览，代码候选保持 `76068b0`。
+
 ## 尚待发布阶段完成
 
-最终代码候选已推送并通过 CI，Wiki 候选说明中的安装参数仍需同步。旧候选的真实内核结果来自隔离 Linux/systemd 环境，不能替代所有发行版和物理机的兼容性验证。外部用户试用反馈仍待收集；正式合并时需要切换 Wiki 默认说明。此次只准备和验证候选版，没有合并 `master`。
+当前代码候选已推送并通过 CI，Wiki 候选说明已同步。真实内核结果来自隔离 Linux/systemd 环境，不能替代所有发行版和物理机的兼容性验证。外部用户试用反馈仍待收集；正式合并时需要切换 Wiki 默认说明。此次只准备和验证候选版，没有合并 `master`。

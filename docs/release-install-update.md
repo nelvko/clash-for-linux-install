@@ -4,15 +4,15 @@
 
 ## 当前验证状态（2026-10-10）
 
-旧候选 `836e9c3` 已完成真实内核验收。安装参数、配置持久化、日志与卸载提示调整，以及本地更新回滚失败时保留恢复备份的修复，已作为代码候选 `13169dd` 推送至 `install-update`；[GitHub Actions](https://github.com/nelvko/clash-for-linux-install/actions/runs/38017703053) 的 Bash 语法、全量回归和普通用户迁移检查均通过。
+当前代码候选为 `76068b0b1a03c79dedc6cfdbfc3e7a7e55017c5d`。集中恢复目录与服务提示修复 `9eac8cb` 的 [CI](https://github.com/nelvko/clash-for-linux-install/actions/runs/38021098444)，以及当前候选的 [CI](https://github.com/nelvko/clash-for-linux-install/actions/runs/38026033549)，均已通过 Bash 语法、全量回归和普通用户迁移检查。
 
-安装输出优化已提交为 `bc1d032`：区分原路径升级与搬迁、收敛源码下载日志、补充服务与自启结果、显示终端下载进度，以及将备份路径放在完成提示与操作指南之间。最新候选进一步将旧版迁移备份和失败现场集中到安装目录旁的 `.clashctl-backups/`，卸载保留恢复资料并提示路径，同时修复命令加载后服务方式被清空的问题。本轮本地验证已通过，推送后的 CI 结果仍待确认；本地试用使用 `--local`，在线试用只会获取已推送版本。
+当前候选已重新完成真实内核验收：在隔离 Ubuntu 24.04 / systemd 255 容器中，使用实际旧 `master` 安装器与真实 mihomo/yq，验证 root/systemd 和普通用户/nohup 的安装、启停、失败重试、三种路径迁移、失败自动恢复、卸载后手动回退和 HTTP 代理请求。迁移备份与失败现场集中在 `.clashctl-backups/`，卸载后仍可恢复；重复 `on` 不再输出内核已运行提示。容器内存上限 512 MiB，未发生 OOM，也未操作宿主机的现有安装与服务。范围和历史验证见[验收记录](acceptance-install-update-20261009.md)。
 
-安装输出优化的本地验证：root `common-ui`、`install-legacy-nohup`、`install-update` 与 `preflight-components` 回归 4/4，普通用户安装更新与旧版迁移回归 2/2 通过；改动涉及的脚本 Bash 语法、ShellCheck 错误级检查及 `git diff --check` 通过。服务结果通过隔离 fixture 验证，本轮没有操作本机真实服务。
+[Wiki 候选说明](https://github.com/nelvko/clash-for-linux-install/wiki/Install-Update-Preview)已同步 `--branch`、`--home`、`--sub`、目录优先级及恢复资料保留行为；首页与 FAQ 明确区分旧 `master` 与候选版。
 
-恢复目录整理的本地验证：root 与普通用户的 `install-update`、`install-legacy-nohup`、`uninstall-scope` 各 3/3 通过，覆盖迁移失败回滚、卸载后用集中备份恢复旧目录，以及恢复路径不安全时保持旧内核进程不变。Bash 语法、ShellCheck 错误级检查与 `git diff --check` 通过；旧版 nohup 测试中动态加载后再替换函数的既有 `SC2218` 提示按其实际执行顺序排除。检查进程设置内存上限，单文件 ShellCheck 的峰值常驻内存约 357 MiB；本轮没有操作本机真实服务。
+本轮未发现新的代码阻断问题。README 预览已替换为新版安装输出示例。
 
-本地收尾审查全量回归 15/15、普通用户迁移与卸载回归 3/3 通过。随后发现并修复了恢复备份被外层清理删除的问题；新增回归已确认修复前失败、修复后通过，root 与普通用户安装更新回归各 1/1 通过，且备份可实际恢复。各轮验证的范围见[本地补充记录](acceptance-install-update-20261009.md#2026-10-10-本地补充验证)。已推送候选通过 CI；真实 systemd 验收仍为旧候选的记录，本轮未重新执行。
+外部用户试用反馈尚未收集，正式合并时仍需切换 Wiki 默认说明；目前没有合并 `master`。本地试用使用 `--local`，在线试用只会获取已推送版本。
 
 ## 合并前试用
 
@@ -28,7 +28,7 @@ bash install.sh --local --branch install-update --gh-proxy https://gh-proxy.org
 curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/install-update/install.sh | bash -s -- --branch install-update --gh-proxy https://gh-proxy.org
 ```
 
-旧目录搬到新默认目录时，保留 `--branch install-update`，并在 `bash -s --` 后加 `--home "$HOME/.clashctl"`；原路径升级时改为 `--home /absolute/path/to/clashctl`。目录参数优先于已导出的 `CLASHCTL_HOME`。正式合并后，README 中的 `master` 命令才可使用。合并前的试用命令以本文件为准；功能与命令说明参考 README 和命令帮助。Wiki 候选说明中的环境变量写法仍兼容。
+旧目录搬到新默认目录时，保留 `--branch install-update`，并在 `bash -s --` 后加 `--home "$HOME/.clashctl"`；原路径升级时改为 `--home /absolute/path/to/clashctl`。目录参数优先于已导出的 `CLASHCTL_HOME`。正式合并后，README 中的 `master` 命令才可使用。合并前的试用命令以本文件和 Wiki 候选说明为准；功能与命令说明参考 README 和命令帮助。
 
 ## 用户可见变化
 
@@ -57,9 +57,10 @@ curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/inst
 - [x] 使用真实 mihomo/yq 验证普通用户 `nohup` 与 root `systemd` 安装；覆盖无订阅、有效订阅、下载失败、初始化失败后的重试及迁移回退。环境与限制见[验收记录](acceptance-install-update-20261009.md)。
 - [x] 明确 `off` 只清除终端代理、`start/stop` 启停内核，并移除 `on/off` 的旧选项，更新文档与命令帮助。
 - [x] 旧候选已推送至 `install-update`，提供同时指定脚本分支与 `CLASHCTL_UPDATE_BRANCH` 的试用命令，并发布 [Wiki 候选说明](https://github.com/nelvko/clash-for-linux-install/wiki/Install-Update-Preview)。
-- [x] 提交并推送当前收尾修改，确认最终代码候选 `13169dd` 的 CI 通过。
-- [ ] 确认最新迁移备份整理和服务提示修复的远端 CI 通过。
-- [ ] 同步 Wiki 候选说明中的 `--branch`、`--home`、`--sub` 等安装参数。
+- [x] 提交并推送当前收尾修改，确认代码候选 `76068b0` 的 CI 通过。
+- [x] 确认迁移备份整理和服务提示修复 `9eac8cb` 的远端 CI 通过。
+- [x] 当前候选 `76068b0` 重新完成真实 systemd/nohup 安装、迁移与回退验收；卸载后从集中备份恢复旧版并验证代理请求。
+- [x] 同步 Wiki 候选说明中的 `--branch`、`--home`、`--sub` 等安装参数，补充首页与 FAQ 的版本差异说明；Wiki 提交 `2548c4d` 已推送。
 - [ ] 收集外部用户试用反馈，处理发现的阻断问题；尚未收到试用结果时不将此项记为完成。
 - [ ] 正式合并时切换 Wiki 默认说明中的 `off` 行为、安装路径和 FAQ；候选期保留旧 `master` 文档并链接候选说明。README 已按合并后的 `master` 写法准备。
 - [x] 保存旧 `master` 基准 `b2d4cbd6e4bed4ee59e1a4495f931f6e5d5498bc` 的完整 Git bundle，并验证备份可读；[回退步骤](rollback-install-update.md)已通过真实 systemd/nohup 内核与 HTTP 请求验证。
@@ -75,3 +76,4 @@ curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/inst
 - 2026-09-26：增加迁移期间收到 TERM 的回归：分别在旧 nohup 内核停止后的数据复制阶段，以及 Bash/Fish 引导写入后中断；核对旧服务、目录、订阅锁和 Shell 配置恢复。Orb Linux 根用户全量回归 15/15，普通用户迁移回归 2/2。
 - 2026-10-09：修复 Git 更新落盘失败后的恢复、安装/迁移操作锁取得过晚，以及已有安装直接切换内核的问题。Git 回归覆盖部分写入、HEAD 切换后失败、TERM 中断、未跟踪文件冲突和恢复失败保留现场；操作锁回归覆盖首装、重试和旧版迁移，确认争用时旧 nohup 内核 PID 不变。根用户全量回归 15/15，普通用户迁移回归 2/2；Bash/Fish 语法检查通过。此阶段使用隔离 fixture 和本地下载源，真实内核验收见下一条记录。
 - 2026-10-09：完成[旧候选验收](acceptance-install-update-20261009.md)。真实 systemd 验收发现带订阅安装未设置自启，已在订阅启用成功后补上自启，并加入回归；无订阅安装仍不启动、不设自启。本轮全量回归 15/15、普通用户迁移回归 2/2 和 Bash/Fish 语法检查通过。
+- 2026-10-10：候选 `76068b0` 重新完成真实 systemd/nohup 验收，覆盖 `.clashctl-backups/` 集中备份与失败现场、自动回退、卸载后手动恢复、三种旧版迁移路径和重复 `on` 提示。具体范围见验收记录；Git 更新的真实内核验收仍为旧候选记录，当前版本由 CI 回归覆盖。
