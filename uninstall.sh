@@ -38,7 +38,7 @@ _uninstall_ui_log() {
 
 main() (
     _install_ui_output() { _uninstall_ui_log "$2" "$3" "$1"; }
-    local answer='' initialized=true script_home install_home marker cache
+    local answer='' initialized=true script_home install_home marker cache recovery_home
     local caller_shell proxy_present=false
     [ -z "${http_proxy:-}${https_proxy:-}${HTTP_PROXY:-}${HTTPS_PROXY:-}${all_proxy:-}${ALL_PROXY:-}" ] || proxy_present=true
     caller_shell=$(readlink "/proc/$PPID/exe" 2>/dev/null) || caller_shell=${SHELL:-}
@@ -147,6 +147,11 @@ main() (
         return 1
     }
     _uninstall_ui_log ok '卸载完成' 1
+    recovery_home="${install_home%/*}/.clashctl-backups"
+    if [ -d "$recovery_home" ] && [ ! -L "$recovery_home" ] &&
+        [ -n "$(find "$recovery_home" -mindepth 2 -maxdepth 2 -type d -print -quit 2>/dev/null)" ]; then
+        _uninstall_ui_log info "恢复资料已保留，确认无需回退后可手动清理：$recovery_home" 1
+    fi
     cache="${XDG_CACHE_HOME:-$HOME/.cache}/clashctl/proxy.fish"
     if [ -e "$cache" ] || [ -L "$cache" ]; then
         _uninstall_ui_log warn "保留了无法确认安装归属的 Fish 代理缓存，请检查后手动清理：$cache" 1

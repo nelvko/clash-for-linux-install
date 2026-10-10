@@ -286,4 +286,23 @@ run_uninstall "$WORK_DIR/clone" || { cat "$WORK_DIR/output"; fail 'default insta
 [ ! -d "$default_home" ] || fail 'default installation remains'
 [[ -f "$WORK_DIR/clone/.env" && -f "$WORK_DIR/clone/uninstall.sh" ]] || fail 'source installation discovery modified source'
 
+# 空恢复目录不增加提示；有旧备份或失败现场时保留并说明清理路径。
+recovery_home="$WORK_DIR/.clashctl-backups"
+mkdir -m 0700 "$recovery_home" "$recovery_home/backups" "$recovery_home/failed"
+setup_install "$WORK_DIR/empty-recovery"
+printf '%s\n' "$WORK_DIR/empty-recovery" >"$WORK_DIR/empty-recovery/.clashctl-uninitialized"
+run_uninstall "$WORK_DIR/empty-recovery" || fail 'uninstall with empty recovery directories failed'
+! grep -q '恢复资料已保留' "$WORK_DIR/output" || fail 'empty recovery directory received cleanup hint'
+mkdir "$recovery_home/backups/old-install" "$recovery_home/failed/new-install"
+printf 'old subscription\n' >"$recovery_home/backups/old-install/config.yaml"
+printf 'failed custom config\n' >"$recovery_home/failed/new-install/config.yaml"
+setup_install "$WORK_DIR/with-recovery"
+printf '%s\n' "$WORK_DIR/with-recovery" >"$WORK_DIR/with-recovery/.clashctl-uninitialized"
+run_uninstall "$WORK_DIR/with-recovery" || fail 'uninstall with recovery data failed'
+[ ! -e "$WORK_DIR/with-recovery" ] || fail 'uninstall retained runtime installation'
+grep -qx 'old subscription' "$recovery_home/backups/old-install/config.yaml" || fail 'uninstall deleted old backup'
+grep -qx 'failed custom config' "$recovery_home/failed/new-install/config.yaml" || fail 'uninstall deleted failure data'
+grep -Fq "恢复资料已保留，确认无需回退后可手动清理：$recovery_home" "$WORK_DIR/output" ||
+    fail 'uninstall did not identify recovery data'
+
 printf 'uninstall-scope: ok\n'

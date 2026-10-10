@@ -114,7 +114,8 @@ _ui_detail() {
     fi
 }
 STUB
-printf 'fixture_version=old\n' >"$FIXTURE/scripts/cmd/clashctl.sh"
+# 与真实加载器一致：重载服务库后需要重新检测管理方式。
+printf 'service_manager=\nfixture_version=old\n' >"$FIXTURE/scripts/cmd/clashctl.sh"
 "$REAL_GIT" -C "$FIXTURE" init -q -b master
 "$REAL_GIT" -C "$FIXTURE" config user.email test@example.invalid
 "$REAL_GIT" -C "$FIXTURE" config user.name test
@@ -554,6 +555,7 @@ bash "$local_home/uninstall.sh" --yes >"$WORK_DIR/local-uninstall.out" 2>&1 || f
 
 # 带旧身份标记的安装：先准备新源码，失败时恢复原目录，成功时备份旧目录。
 legacy_v2="$WORK_DIR/legacy-v2-home"
+recovery_root="$WORK_DIR/.clashctl-backups"
 mkdir -p "$legacy_v2/scripts/lib" "$legacy_v2/data/profiles" "$legacy_v2/resources/dist"
 cp "$FIXTURE/install.sh" "$legacy_v2/install.sh"
 cp "$FIXTURE/scripts/preflight.sh" "$legacy_v2/scripts/preflight.sh"
@@ -576,7 +578,8 @@ chmod 0600 "$legacy_v2/.clashctl-installation"
     fi
     grep -q '另一项 clashctl' "$WORK_DIR/locked-legacy.out" || fail 'migration did not diagnose contention'
     tar -df "$WORK_DIR/legacy-before-lock.tar" -C "$legacy_v2" || fail 'lock contention modified legacy installation'
-    [ -z "$(find "$WORK_DIR" -maxdepth 1 \( -name 'legacy-v2-home.bak.*' -o -name 'legacy-v2-home.download.*' \) -print -quit)" ] || fail 'locked migration left backup or staged source'
+    [ ! -e "$recovery_root" ] || fail 'locked migration created recovery directories'
+    [ -z "$(find "$WORK_DIR" -maxdepth 1 -name 'legacy-v2-home.download.*' -print -quit)" ] || fail 'locked migration left staged source'
 )
 # 旧服务接管必须精确匹配旧二进制与配置路径；恢复时保留启用和运行状态。
 (
@@ -611,6 +614,40 @@ chmod 0600 "$legacy_v2/.clashctl-installation"
     [ -d "$WORK_DIR/rollback-current" ] && [ -d "$WORK_DIR/rollback-backup" ] ||
         fail 'failed service stop moved installation directories'
 )
+# 不安全的恢复路径必须在修改旧目录之前拒绝，也不能写入链接指向的目录。
+rm -rf -- "$recovery_root"
+mkdir "$WORK_DIR/recovery-outside"
+printf 'keep outside data\n' >"$WORK_DIR/recovery-outside/sentinel"
+unsafe_cases=(root-link root-file root-mode backups-link failed-link)
+[ "$(id -u)" != 0 ] || unsafe_cases+=(foreign-owner)
+for unsafe_case in "${unsafe_cases[@]}"; do
+    case $unsafe_case in
+    root-link) ln -s "$WORK_DIR/recovery-outside" "$recovery_root" ;;
+    root-file) printf 'unrelated file\n' >"$recovery_root" ;;
+    root-mode) mkdir -m 0755 "$recovery_root" ;;
+    backups-link | failed-link)
+        mkdir -m 0700 "$recovery_root"
+        ln -s "$WORK_DIR/recovery-outside" "$recovery_root/${unsafe_case%-link}"
+        ;;
+    foreign-owner)
+        mkdir -m 0700 "$recovery_root"
+        chown 65534 "$recovery_root"
+        ;;
+    esac
+    tar -cf "$WORK_DIR/legacy-before-recovery.tar" -C "$legacy_v2" .
+    if CLASHCTL_HOME="$legacy_v2" bash "$local_source/install.sh" --local \
+        >"$WORK_DIR/recovery-unsafe.out" 2>&1; then
+        fail "migration accepted unsafe recovery directory: $unsafe_case"
+    fi
+    grep -q '恢复目录必须' "$WORK_DIR/recovery-unsafe.out" || fail 'unsafe recovery path was not diagnosed'
+    tar -df "$WORK_DIR/legacy-before-recovery.tar" -C "$legacy_v2" || fail 'unsafe recovery path modified old installation'
+    [ "$(find "$WORK_DIR/recovery-outside" -mindepth 1 | wc -l)" -eq 1 ] || fail 'unsafe recovery path wrote outside files'
+    grep -qx 'keep outside data' "$WORK_DIR/recovery-outside/sentinel" || fail 'unsafe recovery path changed outside data'
+    rm -rf -- "$recovery_root"
+done
+# 已有散落备份由用户管理；新迁移不搬动或删除它。
+mkdir "$WORK_DIR/legacy-v2-home.bak.existing"
+printf 'keep old backup\n' >"$WORK_DIR/legacy-v2-home.bak.existing/sentinel"
 if FAIL_PREPARE=1 CLASHCTL_HOME="$legacy_v2" bash "$local_source/install.sh" --local >"$WORK_DIR/legacy-failed.out" 2>&1; then
     fail 'failed legacy migration was accepted'
 fi
@@ -638,8 +675,14 @@ CLASHCTL_HOME="$WORK_DIR/ignored-legacy-v2" bash "$local_source/install.sh" --ke
 ! grep -Eq '^CLASHCTL_(HOME|SRC)=' "$legacy_v2/.env" || fail 'legacy path overrides were retained'
 [ "$(<"$legacy_v2/data/download-options")" = 'clash|iu|https://legacy.proxy.test' ] ||
     fail 'legacy v2 update options were not retained'
-[ -n "$(find "$WORK_DIR" -maxdepth 1 -name 'legacy-v2-home.bak.*' -print -quit)" ] ||
+[ -n "$(find "$recovery_root/backups" -maxdepth 1 -name 'legacy-v2-home.*' -print -quit)" ] ||
     fail 'legacy v2 backup missing'
+for directory in "$recovery_root" "$recovery_root/backups" "$recovery_root/failed"; do
+    [ "$(stat -c %a "$directory")" = 700 ] || fail 'recovery directory exposes old credentials'
+done
+grep -qx 'keep old backup' "$WORK_DIR/legacy-v2-home.bak.existing/sentinel" || fail 'migration modified existing scattered backup'
+[ "$(find "$WORK_DIR" -maxdepth 1 \( -name '*.bak.*' -o -name '*.failed.*' \) | wc -l)" -eq 1 ] ||
+    fail 'migration left new scattered recovery directories'
 
 # master 实际安装目录没有 install.sh 和 preflight.sh，只有运行脚本和用户数据。
 # 模板故意设置不同代理，确认迁移沿用旧配置，不依赖当前模板的默认值。
@@ -696,7 +739,7 @@ cmp -s "$legacy_user/.config/fish/conf.d/clashctl.fish" "$WORK_DIR/legacy-user.f
     fail 'failed legacy migration changed fish configuration'
 [ -f "$legacy_v1/resources/config.yaml" ] && [ ! -e "$legacy_v1/.clashctl-install" ] ||
     fail 'failed legacy migration did not restore master runtime directory'
-failed_v1=$(find "$WORK_DIR" -maxdepth 1 -name 'legacy-v1-home.failed.*' -print -quit)
+failed_v1=$(find "$recovery_root/failed" -maxdepth 1 -name 'legacy-v1-home.*' -print -quit)
 [ -n "$failed_v1" ] && [ ! -e "$failed_v1/data/started" ] ||
     fail 'failed legacy migration left the new nohup service running'
 # Shell 集成已写入时收到 TERM，迁移回滚必须恢复用户原有的 Bash/Fish 配置。
@@ -761,7 +804,7 @@ HOME="$legacy_user" bash -c '. "$HOME/.bashrc"; bash "$1" --local' _ \
     "$local_source/install.sh" >"$WORK_DIR/v1-success.out" 2>&1 ||
     { cat "$WORK_DIR/v1-success.out"; fail 'legacy v1 migration failed'; }
 wait "$profile_writer" || fail 'legacy profile writer failed'
-legacy_v1_backup=$(find "$WORK_DIR" -maxdepth 1 -name 'legacy-v1-home.bak.*' -print -quit)
+legacy_v1_backup=$(find "$recovery_root/backups" -maxdepth 1 -name 'legacy-v1-home.*' -print -quit)
 grep -q '原路径升级' "$WORK_DIR/v1-success.out" || fail 'in-place migration did not explain its path choice'
 ! grep -q '旧版目录:' "$WORK_DIR/v1-success.out" || fail 'in-place migration duplicated the installation path'
 grep -Fq "旧版备份: $legacy_v1_backup" "$WORK_DIR/v1-success.out" || fail 'migration did not identify its backup'
@@ -832,8 +875,19 @@ grep -Fq "安装目录: $legacy_default_user/.clashctl" "$WORK_DIR/v1-default.ou
 grep -Fqx "    path: $legacy_default_user/.clashctl/data/profiles/first.yaml" \
     "$legacy_default_user/.clashctl/data/profiles.yaml" ||
     fail 'default-path migration retained old profile path'
-[ -n "$(find "$legacy_default_user" -maxdepth 1 -name 'clashctl.bak.*' -print -quit)" ] ||
+default_backup=$(find "$legacy_default_user/.clashctl-backups/backups" -maxdepth 1 -name 'clashctl.*' -print -quit)
+[ -n "$default_backup" ] ||
     fail 'historical default directory was not backed up'
+# 卸载新版后，外部恢复资料仍可搬回旧路径，实现实际回退。
+bash "$legacy_default_user/.clashctl/uninstall.sh" --yes >"$WORK_DIR/default-uninstall.out" 2>&1 ||
+    fail 'migrated default installation could not be uninstalled'
+[ ! -e "$legacy_default_user/.clashctl" ] && [ -f "$default_backup/resources/config.yaml" ] ||
+    fail 'uninstall removed recovery backup'
+grep -Fq "恢复资料已保留，确认无需回退后可手动清理：$legacy_default_user/.clashctl-backups" \
+    "$WORK_DIR/default-uninstall.out" || fail 'uninstall did not identify preserved recovery data'
+mv -T -- "$default_backup" "$legacy_default_user/clashctl"
+cmp "$legacy_v1_backup/resources/config.yaml" "$legacy_default_user/clashctl/resources/config.yaml" ||
+    fail 'grouped backup could not restore old config'
 
 if CLASHCTL_HOME="$local_source/nested" bash "$local_source/install.sh" --local >"$WORK_DIR/local-nested.out" 2>&1; then
     fail 'local installation accepted a destination inside its source'

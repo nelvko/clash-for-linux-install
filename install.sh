@@ -381,9 +381,39 @@ _install_legacy_service_restore() {
     [ "$legacy_service_active" != true ] || systemctl start "$kernel" || return 1
 }
 
+# 恢复资料放在安装目录之外；私有目录同时保护旧版目录中的订阅与密钥。
+_install_recovery_path() {
+    local home=$1 category=$2 name=${3:-${1##*/}} root path uid
+    case $category in backups | failed) ;; *) return 1 ;; esac
+    root="${home%/*}/.clashctl-backups"
+    [ "$root" != "$home" ] || {
+        printf '安装目录不能占用恢复目录：%s\n' "$root" >&2
+        return 1
+    }
+    uid=$(id -u) || return 1
+    for path in "$root" "$root/$category"; do
+        if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+            mkdir -m 0700 -- "$path" || return 1
+        fi
+        if [ ! -d "$path" ] || [ -L "$path" ] ||
+            [ "$(stat -c %u -- "$path")" != "$uid" ] ||
+            [ "$(stat -c %a -- "$path")" != 700 ] || [ ! -w "$path" ] || [ ! -x "$path" ]; then
+            printf '恢复目录必须属于当前用户、权限为 700，且不能是符号链接：%s\n' "$path" >&2
+            return 1
+        fi
+    done
+    path="$root/$category/$name.$(date +%Y%m%d%H%M%S).$$"
+    [ ! -e "$path" ] && [ ! -L "$path" ] || {
+        printf '恢复路径已存在，未覆盖：%s\n' "$path" >&2
+        return 1
+    }
+    printf '%s\n' "$path"
+}
+
 _install_legacy_rollback() {
     local legacy=$1 backup=$2 current=$3 kernel=$4 target failed_home
     if [ -e "$current" ] || [ -L "$current" ]; then
+        failed_home=$(_install_recovery_path "$current" failed) || return 1
         if [ "$service_manager" = nohup ] && [ "${CLASH_DATA_DIR:-}" = "$current/data" ]; then
             service_stop_checked || {
                 printf '无法停止新内核，已保留新旧目录以供检查\n' >&2
@@ -398,8 +428,6 @@ _install_legacy_rollback() {
                 return 1
             fi
         fi
-        failed_home="${current}.failed.$$"
-        [ ! -e "$failed_home" ] && [ ! -L "$failed_home" ] || return 1
         mv -T -- "$current" "$failed_home" || return 1
         printf '失败的新目录保留在：%s\n' "$failed_home" >&2
     fi
@@ -671,6 +699,8 @@ _install_initialize() {
     # shellcheck disable=SC2154  # detect_service_manager 设置
     _set_env INIT_TYPE "$service_manager" || return 1
     . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" || return 1
+    # 命令加载器会重新加载 service.sh，清空之前检测到的服务方式与路径。
+    detect_service_manager
 
     _install_ui_step '配置服务与终端命令'
     # 密钥直接写入 Mixin，无主配置时不生成 runtime。
@@ -1028,6 +1058,9 @@ HELP
         (umask 077; printf '%s\n%s\n' "$install_home" "$method" >"$stage/.clashctl-install")
         (umask 077; printf '%s\n' "$install_home" >"$stage/.clashctl-uninitialized")
         if [ -n "$legacy_home" ]; then
+            # 先确认备份与失败现场都能安全保存，再停旧内核或修改旧数据。
+            backup=$(_install_recovery_path "$install_home" backups "${legacy_home##*/}") || return 1
+            _install_recovery_path "$install_home" failed >/dev/null || return 1
             export CLASHCTL_HOME="$stage" CLASHCTL_SRC="$stage" CLASHCTL_KERNEL="${kernel:-mihomo}"
             . "$stage/scripts/preflight.sh" || return 1
             legacy_recovery_required=true
@@ -1048,7 +1081,6 @@ HELP
                 return 1
             }
             export CLASHCTL_HOME="$install_home" CLASHCTL_KERNEL="${kernel:-mihomo}"
-            backup="${legacy_home}.bak.$(date +%Y%m%d%H%M%S).$$"
             [ ! -e "$backup" ] && [ ! -L "$backup" ] || {
                 _install_legacy_profiles_lock_release
                 _install_legacy_service_restore "$legacy_kernel" || return 1

@@ -230,9 +230,25 @@ _service_process_snapshot "$interrupt_old_pid" "$interrupt_legacy/bin/mihomo" "$
     _service_process_snapshot "$interrupt_old_pid" "$interrupt_legacy/bin/mihomo" "$interrupt_expected" ||
         fail 'lock contention stopped or replaced old daemon'
     [ -d "$interrupt_legacy" ] || fail 'lock contention moved old installation'
-    [ -z "$(find "$WORK_DIR" -maxdepth 1 \( -name 'interrupt-old.bak.*' -o -name 'interrupt-old.download.*' \) -print -quit)" ] ||
+    [ ! -e "$WORK_DIR/.clashctl-backups" ] || fail 'lock contention created recovery directories'
+    [ -z "$(find "$WORK_DIR" -maxdepth 1 -name 'interrupt-old.download.*' -print -quit)" ] ||
         fail 'lock contention left migration directories'
 )
+# 无法安全保存恢复资料时，也必须保持旧内核的同一进程继续运行。
+mkdir "$WORK_DIR/recovery-outside"
+printf 'keep outside data\n' >"$WORK_DIR/recovery-outside/sentinel"
+ln -s "$WORK_DIR/recovery-outside" "$WORK_DIR/.clashctl-backups"
+if CLASHCTL_HOME="$interrupt_legacy" INIT_TYPE=nohup LOCK_PROBE=1 \
+    INTERRUPT_WRAPPER_MARKER="$WORK_DIR/unsafe-launcher.pid" bash "$WORK_DIR/interrupt-install.sh" \
+    "$REPO_DIR/install.sh" >"$WORK_DIR/unsafe-recovery.out" 2>&1; then
+    fail 'migration accepted symlink recovery directory'
+fi
+grep -q '恢复目录必须' "$WORK_DIR/unsafe-recovery.out" || fail 'unsafe recovery directory was not diagnosed'
+_service_process_snapshot "$interrupt_old_pid" "$interrupt_legacy/bin/mihomo" "$interrupt_expected" ||
+    fail 'unsafe recovery directory stopped or replaced old daemon'
+[ -d "$interrupt_legacy" ] && [ ! -e "$WORK_DIR/recovery-outside/backups" ] ||
+    fail 'unsafe recovery directory moved old installation or wrote through symlink'
+rm -- "$WORK_DIR/.clashctl-backups"
 interrupt_marker="$WORK_DIR/interrupt-main.pid"
 interrupt_wrapper_marker="$WORK_DIR/interrupt-wrapper.pid"
 INTERRUPT_MARKER="$interrupt_marker" INTERRUPT_WRAPPER_MARKER="$interrupt_wrapper_marker" \
