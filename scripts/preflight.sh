@@ -93,7 +93,10 @@ _resolve_version() {
     # 版本来源优先级：最新版本查询 > 内置备用版本
     if tag=$(_fetch_latest_tag "$repo"); then
         printf -v "$varname" '%s' "$tag"
-        _ui_detail "$repo" "$tag（最新版本）"
+        printf -v "${varname}_SOURCE" '%s' '最新版本'
+        if ! typeset -f _install_ui_output >/dev/null 2>&1 || [ "${_INSTALL_VERBOSE:-}" = 1 ]; then
+            _ui_detail "$repo" "$tag（最新版本）"
+        fi
         return 0
     fi
 
@@ -109,7 +112,10 @@ _resolve_version() {
             CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=1
         fi
         printf -v "$varname" '%s' "$local_version"
-        _ui_detail "$repo" "$local_version（内置钉版）"
+        printf -v "${varname}_SOURCE" '%s' '内置版本'
+        if ! typeset -f _install_ui_output >/dev/null 2>&1 || [ "${_INSTALL_VERBOSE:-}" = 1 ]; then
+            _ui_detail "$repo" "$local_version（内置钉版）"
+        fi
         return 0
     fi
 
@@ -216,7 +222,11 @@ _download_archive() {
 
     if _archive_is_valid "$target"; then
         _ui_ok "$label 使用本地安装包"
-        _ui_detail "文件" "$target"
+        if ! typeset -f _install_ui_output >/dev/null 2>&1 || [ "${_INSTALL_VERBOSE:-}" = 1 ]; then
+            _ui_detail "文件" "$target"
+        else
+            _ui_detail "文件" "${target##*/}"
+        fi
         return 0
     fi
 
@@ -241,7 +251,11 @@ _download_archive() {
     fi
 
     _ui_info "下载 $label"
-    _ui_detail "下载地址" "$download_url"
+    if ! typeset -f _install_ui_output >/dev/null 2>&1 || [ "${_INSTALL_VERBOSE:-}" = 1 ]; then
+        _ui_detail "下载地址" "$download_url"
+    else
+        _ui_detail "文件" "${target##*/}"
+    fi
     curl "${curl_args[@]}" --output "$part" --url "$download_url" || download_rc=$?
     if [ "$download_rc" -ne 0 ]; then
         if [ "$download_rc" -eq 28 ]; then
@@ -261,6 +275,7 @@ _download_archive() {
                 _ui_detail '建议' '检查网络；需要时可用 --gh-proxy 指定加速代理'
             fi
         fi
+        _ui_detail "下载地址" "$download_url"
         _ui_detail "目标" "$target"
         return 1
     fi
@@ -276,13 +291,17 @@ _download_archive() {
         return 1
     fi
 
-    _ui_ok "$label 已下载并通过校验"
+    if typeset -f _install_ui_output >/dev/null 2>&1; then
+        _ui_ok '下载完成，校验通过'
+    else
+        _ui_ok "$label 已下载并通过校验"
+    fi
     return 0
 }
 
 download_zip() {
     (($#)) || return 0
-    # 仅配置加速时提示；每个制品的实际请求地址由 _download_archive 输出。
+    # 显示实际使用的代理；完整请求地址在安装失败时输出。
     if [ -n "${GH_PROXY:-}" ]; then
         _ui_detail '加速代理' "$GH_PROXY"
     fi
@@ -354,7 +373,7 @@ download_zip() {
 
     # UI 为纯静态资源，与架构无关
     local url_ui="https://github.com/Zephyruso/zashboard/releases/download/${VERSION_UI}/dist.zip"
-    local url target label version_token
+    local url target label version_token version_source_var
 
     for item in "$@"; do
         case $item in
@@ -388,6 +407,11 @@ download_zip() {
             ;;
         esac
 
+        if [ "$item" != clash ] && typeset -f _install_ui_output >/dev/null 2>&1 &&
+            [ "${_INSTALL_VERBOSE:-}" != 1 ]; then
+            version_source_var="VERSION_${item^^}_SOURCE"
+            [ -z "${!version_source_var:-}" ] || label+="（${!version_source_var}）"
+        fi
         _download_archive "$label" "$url" "$target" || return 1
         case $item in
         clash | mihomo) ZIP_KERNEL=$target ;;

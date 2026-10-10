@@ -1,8 +1,52 @@
 #!/usr/bin/env bash
 
+# 确认卸载前尚未加载安装配置，仍需提供相同的前缀和颜色规则。
+_uninstall_ui_log() {
+    local level=$1 msg=$2 fd=${3:-2} prefix color colored=false
+    if declare -F _install_ui_emit_fd >/dev/null 2>&1; then
+        _install_ui_emit_fd "$fd" "$level" "$msg"
+        return
+    fi
+    case $level in
+    step) prefix='[STEP]'; color=36 ;;
+    ok) prefix='[ OK ]'; color=32 ;;
+    warn) prefix='[WARN]'; color=33 ;;
+    error | fail) prefix='[FAIL]'; color=31 ;;
+    *) prefix='[INFO]'; color=36 ;;
+    esac
+    if [ "${NO_COLOR+x}" != x ]; then
+        case ${CLASHCTL_COLOR:-auto} in
+        always) colored=true ;;
+        never) ;;
+        *)
+            if [ "${CI+x}" != x ] && [ "${TERM:-dumb}" != dumb ] && [ -t "$fd" ]; then
+                colored=true
+            fi
+            ;;
+        esac
+    fi
+    if [ "$colored" = true ]; then
+        if [ "$level" = step ]; then
+            printf '\033[1;%sm%s %s\033[0m\n' "$color" "$prefix" "$msg" >&"$fd"
+        else
+            printf '\033[1;%sm%s\033[0m %s\n' "$color" "$prefix" "$msg" >&"$fd"
+        fi
+    else
+        printf '%s %s\n' "$prefix" "$msg" >&"$fd"
+    fi
+}
+
 main() (
-    _install_ui_output() { _install_ui_emit_fd "$@"; }
+    _install_ui_output() { _uninstall_ui_log "$2" "$3" "$1"; }
     local answer='' initialized=true script_home install_home marker cache
+    local caller_shell proxy_present=false
+    [ -z "${http_proxy:-}${https_proxy:-}${HTTP_PROXY:-}${HTTPS_PROXY:-}${all_proxy:-}${ALL_PROXY:-}" ] || proxy_present=true
+    caller_shell=$(readlink "/proc/$PPID/exe" 2>/dev/null) || caller_shell=${SHELL:-}
+    caller_shell=${caller_shell##*/}
+    case $caller_shell in
+    bash | zsh | fish) ;;
+    *) caller_shell=${SHELL:-}; caller_shell=${caller_shell##*/} ;;
+    esac
     [ "$#" -le 1 ] || { printf '用法: bash uninstall.sh [--yes]\n' >&2; return 1; }
     case ${1:-} in
     -y | --yes) answer=y ;;
@@ -53,13 +97,20 @@ main() (
             return 1
         fi
     fi
-    printf '将卸载 clashctl 并删除 %s（含订阅和自定义配置）' "$install_home"
-    if [ "$answer" = y ]; then
-        printf '\n'
-    else
-        printf '，继续？[y/N] '
-        IFS= read -r answer || { printf '\n未收到确认，已取消；无人值守卸载请显式使用 --yes。\n' >&2; return 1; }
-        [[ $answer == y || $answer == Y ]] || return 1
+    _uninstall_ui_log step '卸载 clashctl'
+    printf '       安装目录: %s\n       将删除订阅、自定义配置、程序和日志\n' "$install_home" >&2
+    if [ "$answer" != y ]; then
+        printf '       继续卸载？[y/N] ' >&2
+        IFS= read -r answer || {
+            printf '\n' >&2
+            _uninstall_ui_log warn '未收到确认，已取消卸载；无人值守卸载请显式使用 --yes'
+            return 1
+        }
+        [ -t 0 ] || printf '\n' >&2
+        if [[ $answer != y && $answer != Y ]]; then
+            _uninstall_ui_log info '已取消卸载'
+            return 1
+        fi
     fi
     if [ "$initialized" = true ]; then
         # 必须从本次安装的 .env 读取内核，不能沿用调用终端的安装状态。
@@ -67,7 +118,10 @@ main() (
             printf '.env 无法读取，已保留安装目录\n' >&2; return 1
         fi
         unset CLASHCTL_KERNEL INIT_TYPE
-        . "$CLASHCTL_SRC/scripts/preflight.sh" || return 1
+        . "$CLASHCTL_SRC/scripts/preflight.sh" || {
+            _uninstall_ui_log error '加载安装配置失败，卸载中止，已保留安装目录'
+            return 1
+        }
         if [ "$CLASHCTL_HOME" != "$install_home" ] || [ "$CLASHCTL_SRC" != "$install_home" ]; then
             _install_ui_error '.env 改写了安装路径，已停止卸载'
             return 1
@@ -76,23 +130,41 @@ main() (
         mihomo | clash) ;;
         *) _install_ui_error '.env 中缺少有效的内核信息，已保留安装目录'; return 1 ;;
         esac
-        uninstall_service || return 1
-        revoke_rc || return 1
+        _uninstall_ui_log info '停止内核并移除服务'
+        uninstall_service || {
+            _uninstall_ui_log error '停止内核或移除服务失败，卸载中止，已保留安装目录'
+            return 1
+        }
+        _uninstall_ui_log info '清理 Shell 配置'
+        revoke_rc || {
+            _uninstall_ui_log error '清理 Shell 配置失败，卸载中止，已保留安装目录'
+            return 1
+        }
     fi
-    command rm -rf -- "$install_home" || return 1
-    if declare -F _install_ui_ok_out >/dev/null 2>&1; then
-        _install_ui_ok_out '卸载完成'
-    else
-        printf '[ OK ] 卸载完成\n'
-    fi
+    _uninstall_ui_log info '删除安装目录'
+    command rm -rf -- "$install_home" || {
+        _uninstall_ui_log error '删除安装目录失败，请检查残留文件'
+        return 1
+    }
+    _uninstall_ui_log ok '卸载完成' 1
     cache="${XDG_CACHE_HOME:-$HOME/.cache}/clashctl/proxy.fish"
     if [ -e "$cache" ] || [ -L "$cache" ]; then
-        printf '保留了无法确认安装归属的 Fish 代理缓存，请检查后手动清理：%s\n' "$cache"
+        _uninstall_ui_log warn "保留了无法确认安装归属的 Fish 代理缓存，请检查后手动清理：$cache" 1
     fi
-    if [ -n "${http_proxy:-}${https_proxy:-}${HTTP_PROXY:-}${HTTPS_PROXY:-}${all_proxy:-}${ALL_PROXY:-}${no_proxy:-}${NO_PROXY:-}" ]; then
-        printf '当前终端可能仍保留代理变量；本脚本无法修改父 Shell，请按需在原终端执行：\n'
-        printf '  bash/zsh: unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY\n'
-        printf '  fish: set -e http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY\n'
+    if [ "$proxy_present" = true ]; then
+        local proxy_vars='http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY'
+        printf '\n'
+        case $caller_shell in
+        bash | zsh)
+            printf '清除当前终端代理（%s）:\n  unset %s\n' "$caller_shell" "$proxy_vars"
+            ;;
+        fish)
+            printf '清除当前终端代理（fish）:\n  set -e %s\n' "$proxy_vars"
+            ;;
+        *)
+            printf '清除当前终端代理，请按所用 Shell 执行:\n  bash/zsh: unset %s\n  fish: set -e %s\n' "$proxy_vars" "$proxy_vars"
+            ;;
+        esac
     fi
 )
 

@@ -8,17 +8,23 @@
 
 | 参数 | 说明 |
 | --- | --- |
+| `--branch <分支>` | 选择源码及后续更新分支，新安装默认 `master`；`--local` 时仅设置后续更新分支 |
 | `--kernel <mihomo\|clash>` | 选择内核，新安装默认使用 Mihomo；已有安装不支持切换内核 |
-| `--subscription <URL>` | 添加并启用订阅，跳过订阅的交互输入 |
-| `--install-dir <绝对路径>` | 指定安装目录，优先于 `CLASHCTL_HOME`，默认 `~/.clashctl` |
+| `--sub <URL>` | 添加并启用订阅；省略且无现有配置时交互询问，回车可跳过 |
+| `--home <绝对路径>` | 指定安装目录，优先于 `CLASHCTL_HOME`，默认 `~/.clashctl` |
 | `--gh-proxy <URL>` | 为后续源码和组件下载设置 GitHub 加速前缀；`--gh-proxy=` 表示直连 |
 | `--local` | 使用安装脚本所在目录的源码，依赖仍按需下载；不支持管道输入 |
+| `--verbose` | 显示完整下载地址和缓存路径；在终端中显示依赖下载进度 |
+
+`.env.example` 是配置模板；安装选项会写入安装目录中的 `.env`。模板中的 `GH_PROXY` 为空表示直连，`CLASHCTL_UPDATE_BRANCH` 默认是 `master`；`CLASHCTL_KERNEL` 留空，由安装时的选择确定，新安装默认使用 `mihomo`。实际选中的代理、分支、内核与自动检测的服务类型会在安装时保存。后续安装沿用已保存配置，显式选项可覆盖；已有安装不支持切换内核。
+
+依赖下载超时可用环境变量指定，例如 `CLASHCTL_DOWNLOAD_TIMEOUT=180 bash install.sh --local`；安装时会将该值保存到 `.env`。订阅超时、节点测速等常规配置仍保留模板中的默认值。
 
 例如，指定安装目录和订阅：
 
 ```bash
 curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | \
-  bash -s -- --install-dir "$HOME/apps/clashctl" --subscription "<订阅链接>" --gh-proxy https://gh-proxy.org
+  bash -s -- --home "$HOME/apps/clashctl" --sub "<订阅链接>" --gh-proxy https://gh-proxy.org
 ```
 
 安装目录必须是绝对路径，只能包含字母、数字、`_`、`.`、`/` 和 `-`。
@@ -45,7 +51,7 @@ bash install.sh --local --gh-proxy https://gh-proxy.org
 也可在本地安装时指定内核和订阅：
 
 ```bash
-bash install.sh --local --kernel clash --subscription "<订阅链接>" --gh-proxy https://gh-proxy.org
+bash install.sh --local --kernel clash --sub "<订阅链接>" --gh-proxy https://gh-proxy.org
 ```
 
 本地安装仍会将程序安装到目标目录；目标目录不能位于源码目录内。安装结束后按提示加载命令，或重新打开终端。
@@ -89,7 +95,7 @@ clashctl sub update --all                      # 更新全部订阅
 clashctl sub add --name local --raw --use "file://$PWD/a.yaml"
 ```
 
-`file://` 后必须是绝对路径，`file://./a.yaml` 不受支持。安装器的 `--subscription` 也接受本地文件 URL。`--raw` 跳过订阅转换，仅对本次操作生效。
+`file://` 后必须是绝对路径，`file://./a.yaml` 不受支持。安装器的 `--sub` 也接受本地文件 URL。`--raw` 跳过订阅转换，仅对本次操作生效。
 
 ### 保留自定义配置
 
@@ -114,7 +120,16 @@ clashctl upgrade        # 通过内核 API 请求升级
 
 内核升级是否可用取决于所选内核，更多选项见 `clashctl upgrade --help`。
 
-源码下载与脚本更新跟踪安装目录 `.env` 中的 `CLASHCTL_UPDATE_BRANCH`，新安装默认为 `master`。入口脚本 URL 中的分支只选择安装器；试用其他分支时，需要同时指定 `CLASHCTL_UPDATE_BRANCH`。
+源码下载与脚本更新跟踪安装目录 `.env` 中的 `CLASHCTL_UPDATE_BRANCH`，新安装默认为 `master`。安装时的分支优先级为：`--branch` > `CLASHCTL_UPDATE_BRANCH` 环境变量 > 已保存配置 > `master`。选中的分支会保存到 `.env`，供重复安装和 `clashctl update` 沿用。
+
+入口脚本 URL 中的分支只选择安装器；试用其他分支时，还需要用 `--branch` 指定源码分支。例如：
+
+```bash
+curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/nelvko/clash-for-linux-install/install-update/install.sh | \
+  bash -s -- --branch install-update --gh-proxy https://gh-proxy.org
+```
+
+从本地工作区试用时使用 `bash install.sh --local --branch install-update`；`--branch` 不改变本次读取的本地源码，只设置后续更新来源。环境变量写法仍兼容。
 
 从其他分支切换到正式版时，先将 `.env` 中的 `CLASHCTL_UPDATE_BRANCH` 改为 `master`，再运行 `clashctl update`。
 
@@ -126,14 +141,14 @@ clashctl upgrade        # 通过内核 API 请求升级
 
 ```bash
 curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | \
-  bash -s -- --install-dir "$HOME/.clashctl" --gh-proxy https://gh-proxy.org
+  bash -s -- --home "$HOME/.clashctl" --gh-proxy https://gh-proxy.org
 ```
 
-沿原路径升级时，将 `--install-dir` 改为实际旧目录，自定义路径也适用：
+沿原路径升级时，将 `--home` 改为实际旧目录，自定义路径也适用：
 
 ```bash
 curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/nelvko/clash-for-linux-install/master/install.sh | \
-  bash -s -- --install-dir /absolute/path/to/clashctl --gh-proxy https://gh-proxy.org
+  bash -s -- --home /absolute/path/to/clashctl --gh-proxy https://gh-proxy.org
 ```
 
 迁移可能短暂重启内核。旧目录会保留为同级的 `.bak.*` 备份，其中可能含订阅凭据和访问密钥；确认不再需要后再清理。搬迁目录后，记得修改写死旧路径的定时任务。
@@ -152,3 +167,5 @@ bash "$CLASHCTL_HOME/uninstall.sh"
 默认安装且尚未加载命令时，也可运行 `bash ~/.clashctl/uninstall.sh`；自定义安装则使用实际路径。
 
 卸载会停止内核、移除本项目的服务与 Shell 引导，并删除整个安装目录，包括订阅、自定义配置、内核和日志。
+
+`-y` / `--yes` 仅跳过确认，仍显示删除范围。检测到当前终端继承的代理变量时，卸载器会给出对应 Shell 的清理命令；没有代理变量时不显示该提示。

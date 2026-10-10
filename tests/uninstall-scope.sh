@@ -3,12 +3,15 @@
 # shellcheck disable=SC2016  # 引导文件中的变量必须原样写入
 set -euo pipefail
 unset CLASHCTL_HOME
+unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY
 REPO_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf -- "$WORK_DIR"' EXIT
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 mkdir -p "$WORK_DIR/bin" "$WORK_DIR/user/.config/fish/conf.d"
 export UNINSTALL_CALLS="$WORK_DIR/service.calls" UNINSTALL_ACTIVE="$WORK_DIR/active"
+REAL_FISH=$(command -v fish)
+REAL_ZSH=$(command -v zsh)
 cat >"$WORK_DIR/bin/systemctl" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$UNINSTALL_CALLS"
@@ -134,6 +137,8 @@ printf 'ExecStart=%s/bin/clash/clash -d %s/resources -f %s/data/runtime.yaml\n' 
 write_rc "$WORK_DIR/installed"
 touch "$UNINSTALL_ACTIVE"
 if FAIL_STOP=1 run_uninstall "$WORK_DIR/installed"; then fail 'failed service stop was ignored'; fi
+grep -q '卸载中止，已保留安装目录' "$WORK_DIR/output" || fail 'failed stop omitted retained-directory result'
+! grep -q '删除安装目录' "$WORK_DIR/output" || fail 'failed stop reached deletion step'
 [ -f "$WORK_DIR/installed/service.unit" ] || fail 'failed stop removed service definition'
 grep -q '# >>> clashctl >>>' "$WORK_DIR/user/.bashrc" || fail 'failed stop removed shell integration'
 CLASHCTL_HOME="$WORK_DIR/other-install" run_uninstall "$WORK_DIR/installed" || { cat "$WORK_DIR/output"; fail 'installed cleanup failed'; }
@@ -177,10 +182,60 @@ printf 'CLASHCTL_KERNEL=clash\n' >"$WORK_DIR/messages/.env"
 mkdir -p "$WORK_DIR/cache/clashctl"
 printf 'foreign-cache\n' >"$WORK_DIR/cache/clashctl/proxy.fish"
 http_proxy=http://127.0.0.1:7890 XDG_CACHE_HOME="$WORK_DIR/cache" run_uninstall "$WORK_DIR/messages" || fail 'uninstall with proxy failed'
-grep -q '含订阅和自定义配置' "$WORK_DIR/output" || fail 'missing data deletion notice'
+grep -q '将删除订阅、自定义配置、程序和日志' "$WORK_DIR/output" || fail 'missing data deletion notice'
 grep -q 'unset http_proxy' "$WORK_DIR/output" || fail 'missing parent shell cleanup command'
+grep -q '清除当前终端代理（bash）' "$WORK_DIR/output" || fail 'proxy hint did not identify caller shell'
+! grep -q 'set -e http_proxy' "$WORK_DIR/output" || fail 'bash uninstall displayed fish commands'
 grep -Fq "$WORK_DIR/cache/clashctl/proxy.fish" "$WORK_DIR/output" || fail 'residual cache was not reported'
 [ "$(cat "$WORK_DIR/cache/clashctl/proxy.fish")" = foreign-cache ] || fail 'unowned cache was changed'
+
+# 无代理时不提示清理；安装配置里设置代理也不能误报当前终端状态。
+setup_install "$WORK_DIR/no-proxy"
+printf 'CLASHCTL_KERNEL=clash\nhttp_proxy=http://config-only.example\n' >"$WORK_DIR/no-proxy/.env"
+NO_PROXY=localhost run_uninstall "$WORK_DIR/no-proxy" || fail 'uninstall without inherited proxy failed'
+! grep -q '清除当前终端代理' "$WORK_DIR/output" || fail 'proxy-free shell received cleanup instructions'
+[ "$(tail -n 1 "$WORK_DIR/output")" = '[ OK ] 卸载完成' ] || fail 'proxy-free uninstall did not end with completion'
+
+# 真实 Zsh/Fish 调用 Bash 卸载器时，只显示对应的清理命令。
+for caller in zsh fish; do
+    caller_home="$WORK_DIR/caller-$caller"
+    mkdir -p "$caller_home"
+    setup_install "$WORK_DIR/proxy-$caller"
+    printf 'CLASHCTL_KERNEL=clash\n' >"$WORK_DIR/proxy-$caller/.env"
+    caller_exe=$REAL_ZSH
+    caller_args=(-f -c)
+    caller_script='bash "$UNINSTALL_TEST_SCRIPT" --yes; uninstall_result=$?; true; exit "$uninstall_result"'
+    if [ "$caller" = fish ]; then
+        caller_exe=$REAL_FISH
+        caller_args=(--no-config --private -c)
+        caller_script='bash "$UNINSTALL_TEST_SCRIPT" --yes; set -l uninstall_result $status; true; exit $uninstall_result'
+    fi
+    HOME="$caller_home" http_proxy=http://127.0.0.1:7890 \
+        UNINSTALL_TEST_SCRIPT="$WORK_DIR/proxy-$caller/uninstall.sh" \
+        "$caller_exe" "${caller_args[@]}" "$caller_script" \
+        >"$WORK_DIR/proxy-$caller.out" 2>&1 ||
+        { cat "$WORK_DIR/proxy-$caller.out"; fail "$caller uninstall failed"; }
+    grep -q "清除当前终端代理（$caller）" "$WORK_DIR/proxy-$caller.out" || fail 'proxy hint used wrong shell'
+    if [ "$caller" = fish ]; then
+        grep -q 'set -e http_proxy' "$WORK_DIR/proxy-$caller.out" || fail 'fish erase command missing'
+        ! grep -q 'unset http_proxy' "$WORK_DIR/proxy-$caller.out" || fail 'fish uninstall displayed bash commands'
+    else
+        grep -q 'unset http_proxy' "$WORK_DIR/proxy-$caller.out" || fail 'zsh unset command missing'
+        ! grep -q 'set -e http_proxy' "$WORK_DIR/proxy-$caller.out" || fail 'zsh uninstall displayed fish commands'
+    fi
+done
+
+# 无法识别调用 Shell 时，保留两种清理命令供用户选择。
+setup_install "$WORK_DIR/proxy-unknown"
+printf 'CLASHCTL_KERNEL=clash\n' >"$WORK_DIR/proxy-unknown/.env"
+mkdir -p "$WORK_DIR/caller-unknown"
+HOME="$WORK_DIR/caller-unknown" SHELL=/bin/sh http_proxy=http://127.0.0.1:7890 \
+    python3 - "$WORK_DIR/proxy-unknown/uninstall.sh" >"$WORK_DIR/proxy-unknown.out" 2>&1 <<'PY'
+import subprocess, sys
+raise SystemExit(subprocess.run(["bash", sys.argv[1], "--yes"]).returncode)
+PY
+grep -q 'bash/zsh: unset http_proxy' "$WORK_DIR/proxy-unknown.out" || fail 'unknown shell omitted bash cleanup'
+grep -q 'fish: set -e http_proxy' "$WORK_DIR/proxy-unknown.out" || fail 'unknown shell omitted fish cleanup'
 
 # 拒绝额外参数、EOF 和默认否，不能因 --yes 在首位而忽略误拼参数。
 setup_install "$WORK_DIR/cancelled"
@@ -188,6 +243,7 @@ printf '%s\n' "$WORK_DIR/cancelled" >"$WORK_DIR/cancelled/.clashctl-uninitialize
 if bash "$WORK_DIR/cancelled/uninstall.sh" --yes --typo >"$WORK_DIR/output" 2>&1; then fail 'extra argument was ignored'; fi
 if bash "$WORK_DIR/cancelled/uninstall.sh" </dev/null >"$WORK_DIR/output" 2>&1; then fail 'EOF confirmed uninstall'; fi
 if printf '\n' | bash "$WORK_DIR/cancelled/uninstall.sh" >"$WORK_DIR/output" 2>&1; then fail 'empty input confirmed uninstall'; fi
+grep -q '已取消卸载' "$WORK_DIR/output" || fail 'declining uninstall did not report cancellation'
 [ -d "$WORK_DIR/cancelled" ] || fail 'cancelled uninstall removed installation'
 
 # 已初始化的旧安装也不能清理指向其他安装的引导。
@@ -201,6 +257,7 @@ setup_install "$WORK_DIR/rc-failed"
 printf 'CLASHCTL_KERNEL=clash\nINIT_TYPE=systemd\n' >"$WORK_DIR/rc-failed/.env"
 printf '\nrevoke_rc() { return 1; }\n' >>"$WORK_DIR/rc-failed/scripts/preflight.sh"
 if run_uninstall "$WORK_DIR/rc-failed"; then fail 'failed shell cleanup was ignored'; fi
+grep -q '卸载中止，已保留安装目录' "$WORK_DIR/output" || fail 'failed shell cleanup omitted retained-directory result'
 [ -d "$WORK_DIR/rc-failed" ] || fail 'failed shell cleanup removed installation'
 ! grep -q '卸载完成' "$WORK_DIR/output" || fail 'failed shell cleanup reported success'
 

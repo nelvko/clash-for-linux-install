@@ -1,6 +1,6 @@
 # 安装/更新候选版验收记录：2026-10-09
 
-验收使用 `install-update` 当前代码，包含 Git 失败恢复、安装/迁移提前加锁、已有安装禁止切换内核，以及 `off` 不停内核、移除 `on/off` 旧选项的修改。旧版本由实际 `master` 提交 `b2d4cbd6e4bed4ee59e1a4495f931f6e5d5498bc` 的安装器建立。
+本节真实内核验收使用 `install-update` 候选代码 `836e9c35c3fe73e69921c022ef150bbf857788b4`，包含 Git 失败恢复、安装/迁移提前加锁、已有安装禁止切换内核，以及 `off` 不停内核、移除 `on/off` 旧选项的修改。旧版本由实际 `master` 提交 `b2d4cbd6e4bed4ee59e1a4495f931f6e5d5498bc` 的安装器建立。后续工作区修改的本地验证单独记录于下文。
 
 ## 环境
 
@@ -42,6 +42,15 @@ Git 安装与更新在真实 systemd 内核运行时通过：成功更新、部�
 
 候选代码已作为 `836e9c35c3fe73e69921c022ef150bbf857788b4` 推送至 `install-update`，[GitHub Actions](https://github.com/nelvko/clash-for-linux-install/actions/runs/37882411799) 的语法、全量回归和普通用户迁移检查通过。[Wiki 候选说明](https://github.com/nelvko/clash-for-linux-install/wiki/Install-Update-Preview)已发布，旧 `master` 的默认说明保留。
 
+## 2026-10-10 本地补充验证
+
+当前已提交版本为 `2f2e14c`，以下工作区修改尚未提交或推送；旧候选的 CI 结果不覆盖这些修改。
+
+- 本地收尾审查：root 全量回归 15/15，普通用户 `install-update`、`install-legacy-nohup` 与 `uninstall-scope` 回归 3/3 通过；Bash/Fish 语法检查及改动涉及的生产脚本 ShellCheck 错误级检查通过。
+- 审查后复现 `--local` 更新部分写入失败、回滚也失败时，外层退出清理删除 `previous.tar` 的问题。新增安装入口回归在修复前失败；修复后 root 与普通用户 `install-update` 回归各 1/1 通过。测试确认恢复目录、原程序与清单备份均保留，备份可实际恢复，用户配置和 `.env` 不变；更新成功或回滚成功时仍清理临时目录。
+- 备份修复涉及的安装脚本和测试脚本 Bash 语法、ShellCheck 错误级检查及 `git diff --check` 通过。上述验证使用隔离 fixture 与故障注入，没有重新执行真实 systemd 或外部代理节点验收。
+- 命令示例与文档收尾：`command-load` 回归 1/1，通过实际 `sub add --help` 确认订阅链接占位符带引号；安装器与订阅脚本 Bash 语法及 ShellCheck 错误级检查通过。
+
 ## 尚待发布阶段完成
 
-这些结果来自隔离 Linux/systemd 环境，不能替代所有发行版和物理机的兼容性验证。外部用户试用反馈仍待收集；正式合并时需要切换 Wiki 默认说明。此次只准备和验证候选版，没有合并 `master`。
+当前收尾修改仍需提交、推送并确认最终候选 CI。旧候选的真实内核结果来自隔离 Linux/systemd 环境，不能替代所有发行版和物理机的兼容性验证。外部用户试用反馈仍待收集；正式合并时需要切换 Wiki 默认说明。此次只准备和验证候选版，没有合并 `master`。

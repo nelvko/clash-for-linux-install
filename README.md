@@ -14,6 +14,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/github/license/nelvko/clash-for-linux-install" /></a>
+
   <a href="https://github.com/nelvko/clash-for-linux-install/stargazers"><img alt="GitHub Stars" src="https://img.shields.io/github/stars/nelvko/clash-for-linux-install" /></a>
   <a href="https://deepwiki.com/nelvko/clash-for-linux-install"><img alt="Ask DeepWiki" src="https://deepwiki.com/badge.svg" /></a>
 </p>
@@ -24,12 +25,6 @@
   <a href="docs/guide.md">使用指南</a> ·
   <a href="https://github.com/nelvko/clash-for-linux-install/wiki/FAQ">常见问题</a>
 </p>
-
-
-<p align="center">
-  <img src="preview.png" alt="clashctl 终端界面预览（旧版占位）" width="760" />
-</p>
-<p align="center"><sub>终端界面预览 · 暂用旧版截图，后续更新</sub></p>
 
 ## 特性
 
