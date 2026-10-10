@@ -363,16 +363,18 @@ for invalid_dir in relative-home "$WORK_DIR/invalid install dir"; do
     grep -q '安装目录必须是绝对路径' "$WORK_DIR/invalid-home.out" ||
         fail "home invalid path lacked a diagnosis: $invalid_dir"
 done
-# 执行 README 原文中的管道命令，只把入口下载替换成本地脚本。
+# 执行 README 原文中的安装代码块，只把入口下载替换成本地脚本。
 readme_command=$(awk '
-    /^curl .*install\.sh[[:space:]]*\|/ {
-        print
-        while ($0 ~ /\\[[:space:]]*$/) {
-            if ((getline) <= 0) exit 1
-            print
+    /^```bash[[:space:]]*$/ { in_block=1; command=""; next }
+    in_block && /^```[[:space:]]*$/ {
+        if (command ~ /curl .*install\.sh.*\|/ && command ~ /bash -s/) {
+            printf "%s", command
+            exit
         }
-        exit
+        in_block=0
+        next
     }
+    in_block { command=command $0 "\n" }
 ' "$REPO_DIR/README.md")
 [ -n "$readme_command" ] || fail 'README installation command missing'
 CLASHCTL_HOME="$WORK_DIR/readme-home" bash -c '
@@ -382,7 +384,7 @@ CLASHCTL_HOME="$WORK_DIR/readme-home" bash -c '
 ' _ "$REPO_DIR/install.sh" "$readme_command" >"$WORK_DIR/readme.out" 2>&1 || {
     cat "$WORK_DIR/readme.out"; fail 'README installation command failed'
 }
-grep -q '^GH_PROXY=https://gh-proxy.org$' "$WORK_DIR/readme-home/.env" || fail 'README proxy was not persisted'
+grep -Eq '^GH_PROXY=https://gh-proxy\.org/?$' "$WORK_DIR/readme-home/.env" || fail 'README proxy was not persisted'
 grep -q '^CLASHCTL_UPDATE_BRANCH=master$' "$WORK_DIR/readme-home/.env" || fail 'README master branch was not persisted'
 # 续装保留已保存的选项；显式参数优先，空代理可切回直连。
 retry_home="$WORK_DIR/retry-options"
