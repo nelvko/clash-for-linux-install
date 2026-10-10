@@ -4,19 +4,19 @@
 
 ## 当前验证状态（2026-10-10）
 
-真实内核验收与已通过的 CI 对应旧候选 `836e9c3`；后续已提交的 `2f2e14c` 为文档更新。当前工作区中的安装参数、配置持久化、日志与卸载提示调整，以及本地更新回滚失败时保留恢复备份的修复，尚未提交、推送或经过 CI。
+旧候选 `836e9c3` 已完成真实内核验收。安装参数、配置持久化、日志与卸载提示调整，以及本地更新回滚失败时保留恢复备份的修复，已作为最终代码候选 `13169dd` 推送至 `install-update`；[GitHub Actions](https://github.com/nelvko/clash-for-linux-install/actions/runs/38017703053) 的 Bash 语法、全量回归和普通用户迁移检查均通过。
 
-本地收尾审查全量回归 15/15、普通用户迁移与卸载回归 3/3 通过。随后发现并修复了恢复备份被外层清理删除的问题；新增回归已确认修复前失败、修复后通过，root 与普通用户安装更新回归各 1/1 通过，且备份可实际恢复。各轮验证的范围见[本地补充记录](acceptance-install-update-20261009.md#2026-10-10-本地补充验证)。这些结果不代表最终候选已通过 CI 或重新完成真实 systemd 验收。
+本地收尾审查全量回归 15/15、普通用户迁移与卸载回归 3/3 通过。随后发现并修复了恢复备份被外层清理删除的问题；新增回归已确认修复前失败、修复后通过，root 与普通用户安装更新回归各 1/1 通过，且备份可实际恢复。各轮验证的范围见[本地补充记录](acceptance-install-update-20261009.md#2026-10-10-本地补充验证)。最终候选已通过 CI；真实 systemd 验收仍为旧候选的记录，本轮未重新执行。
 
 ## 合并前试用
 
-最终候选推送前，可先从当前工作区试用：
+从本地工作区试用：
 
 ```bash
 bash install.sh --local --branch install-update --gh-proxy https://gh-proxy.org
 ```
 
-下列在线试用命令用于最终候选推送之后；当前远端旧候选尚不支持新的 `--branch` 和 `--home` 参数。远端 `master` 仍是旧安装器，在线试用必须同时选择脚本和源码分支：
+最终候选已推送，可以使用下列在线试用命令。远端 `master` 仍是旧安装器，在线试用必须同时选择脚本和源码分支：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/install-update/install.sh | bash -s -- --branch install-update --gh-proxy https://gh-proxy.org
@@ -51,7 +51,8 @@ curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/inst
 - [x] 使用真实 mihomo/yq 验证普通用户 `nohup` 与 root `systemd` 安装；覆盖无订阅、有效订阅、下载失败、初始化失败后的重试及迁移回退。环境与限制见[验收记录](acceptance-install-update-20261009.md)。
 - [x] 明确 `off` 只清除终端代理、`start/stop` 启停内核，并移除 `on/off` 的旧选项，更新文档与命令帮助。
 - [x] 旧候选已推送至 `install-update`，提供同时指定脚本分支与 `CLASHCTL_UPDATE_BRANCH` 的试用命令，并发布 [Wiki 候选说明](https://github.com/nelvko/clash-for-linux-install/wiki/Install-Update-Preview)。
-- [ ] 提交并推送当前收尾修改，确认最终候选 CI 通过；同步 Wiki 候选说明中的安装参数。
+- [x] 提交并推送当前收尾修改，确认最终代码候选 `13169dd` 的 CI 通过。
+- [ ] 同步 Wiki 候选说明中的 `--branch`、`--home`、`--sub` 等安装参数。
 - [ ] 收集外部用户试用反馈，处理发现的阻断问题；尚未收到试用结果时不将此项记为完成。
 - [ ] 正式合并时切换 Wiki 默认说明中的 `off` 行为、安装路径和 FAQ；候选期保留旧 `master` 文档并链接候选说明。README 已按合并后的 `master` 写法准备。
 - [x] 保存旧 `master` 基准 `b2d4cbd6e4bed4ee59e1a4495f931f6e5d5498bc` 的完整 Git bundle，并验证备份可读；[回退步骤](rollback-install-update.md)已通过真实 systemd/nohup 内核与 HTTP 请求验证。
