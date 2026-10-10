@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # 全量回归入口：顺序执行本目录全部测试（排除自身）。
 # 用法：bash tests/run-all.sh [测试名 …]
-# 示例：bash tests/run-all.sh                 # 全量
-#       bash tests/run-all.sh update-ux sub-ux  # 按名筛选子集
+# 示例：sudo bash tests/run-all.sh            # 全量（含 root 属主检查）
+#       bash tests/run-all.sh install-update install-legacy-nohup  # 按名筛选子集
 set -u
 
 TESTS_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+# 过时名称或误拼不能被静默跳过并报告 PASS: 0。
+for name in "$@"; do
+    if [ "$name" = run-all ] || [[ "$name" == */* ]] || [ ! -f "$TESTS_DIR/$name.sh" ]; then
+        printf '未知测试: %s\n' "$name" >&2
+        exit 2
+    fi
+done
 pass=0
 fail=0
 failed=()

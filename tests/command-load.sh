@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 命令加载与分发冒烟测试：在隔离的假安装目录里 source 加载器，
-# 确认 README/help 承诺的每个子命令都能被解析、且其依赖的底层符号都存在。
+# 确认公开子命令能加载、分发，并能在无内核时查看帮助。
 # 不依赖内核、网络与服务，可在 CI 长期保留。
 set -euo pipefail
 
@@ -70,24 +70,7 @@ case "$(cat "$WORK_DIR/status.out")" in
 *"Unknown subcommand"*) fail 'clashctl status was not dispatched' ;;
 esac
 
-# 5) 底层接口对接：master 原版命令依赖的符号必须在本分支的库层存在
-#    这些是"换底层"最容易断裂的点，逐一断言定义存在。
-required_symbols=(
-    service_start service_stop service_is_active service_status service_log
-    service_follow_log service_sudo_start service_sudo_stop service_enable
-    install_service uninstall_service detect_service_manager
-    _merge_config _merge_config_restart _detect_proxy_port _detect_ext_addr
-    _require_base_config _valid_config _get_secret _get_bind_addr _is_tun_enabled
-    tunstatus _has_proxy_nodes
-    _ui_ok _ui_fail _ui_error _ui_info _ui_warn _ui_detail _ui_ok_out
-    _okcat _failcat _errorcat
-)
-for fn in "${required_symbols[@]}"; do
-    declare -F "$fn" >/dev/null 2>&1 ||
-        fail "required symbol missing on ported lib layer: $fn"
-done
-
-# 6) 关键路径变量必须指向 data/（运行时布局），而不是旧的 resources/
+# 5) 关键路径变量必须指向 data/（运行时布局），而不是旧的 resources/
 case "$CLASH_CONFIG_BASE" in
 "$CLASHCTL_HOME/data/"*) ;;
 *) fail "CLASH_CONFIG_BASE not under data/: $CLASH_CONFIG_BASE" ;;

@@ -115,12 +115,23 @@ _has_proxy_nodes() {
 
 # service.sh 启动服务前的门禁：主配置必须存在、有节点且通过内核校验。
 _require_base_config() {
-  if _has_proxy_nodes "$CLASH_CONFIG_BASE" &&
-    _valid_config "$CLASH_CONFIG_BASE" >/dev/null 2>&1; then
+  if [ ! -s "$CLASH_CONFIG_BASE" ]; then
+    _ui_error '尚未配置订阅，无法启动内核'
+    _ui_detail '添加并启用订阅' 'clashctl sub add --use "<URL>"'
+    return 1
+  fi
+  if ! _has_proxy_nodes "$CLASH_CONFIG_BASE"; then
+    _ui_error '主配置无效或缺少代理节点，无法启动内核'
+    _ui_detail '配置文件' "$CLASH_CONFIG_BASE"
+    return 1
+  fi
+  local validation_log
+  if validation_log=$(_valid_config "$CLASH_CONFIG_BASE" 2>&1); then
     return 0
   fi
-  _ui_error '尚未配置有效的主配置，Mixin 不能单独运行'
-  _ui_detail '添加并启用订阅' 'clashctl sub add --use <URL>'
+  _ui_error '主配置校验失败，无法启动内核'
+  _ui_detail '配置文件' "$CLASH_CONFIG_BASE"
+  [ -z "$validation_log" ] || printf '%s\n' "$validation_log" >&2
   return 1
 }
 

@@ -62,10 +62,62 @@ _update_scripts() (
     [ ! -e "$stage/.git" ] && [ ! -L "$stage/.git" ] || return 1
     _source_validate "$stage" || return 1
     if [ "$method" = git ]; then
-        git -C "$CLASHCTL_HOME" checkout --detach -q "$target" || return 1
+        _update_git_checkout "$target" "$work" || return 1
     else
         _update_archive "$stage" "$work"
     fi
+)
+
+# 工作树已确认干净；只回退程序文件，保留未跟踪的用户文件。
+_update_git_checkout() (
+    local target=$1 work=$2 previous previous_ref file dirty failed=false
+    local started=false complete=false rc
+    local -a added_files=()
+    previous=$(git -C "$CLASHCTL_HOME" rev-parse HEAD) || return 1
+    previous_ref=$(git -C "$CLASHCTL_HOME" symbolic-ref --quiet HEAD) || previous_ref=''
+    git -C "$CLASHCTL_HOME" ls-tree -rz --name-only "$target" >"$work/git-target-files" || return 1
+    while IFS= read -r -d '' file; do
+        _update_path_safe "$file" || { _ui_error "更新路径无法安全使用：$file"; return 1; }
+        if ! git -C "$CLASHCTL_HOME" ls-files --error-unmatch -- "$file" >/dev/null 2>&1; then
+            if [ -e "$CLASHCTL_HOME/$file" ] || [ -L "$CLASHCTL_HOME/$file" ]; then
+                _ui_error "更新会覆盖未跟踪文件，已停止更新：$file"
+                return 1
+            fi
+            added_files+=("$file")
+        fi
+    done <"$work/git-target-files"
+    printf '%s\n%s\n' "$previous" "$previous_ref" >"$work/git-previous" || return 1
+    trap '
+        rc=$?
+        trap - EXIT INT TERM
+        if [ "$started" = true ] && [ "$complete" = false ]; then
+            # checkout 可能只写了新文件，尚未更新索引；reset 不一定会清理它们。
+            for file in "${added_files[@]}"; do
+                rm -f -- "$CLASHCTL_HOME/$file" || failed=true
+            done
+            git -C "$CLASHCTL_HOME" reset --hard -q "$previous" || failed=true
+            if [ -n "$previous_ref" ]; then
+                git -C "$CLASHCTL_HOME" symbolic-ref HEAD "$previous_ref" || failed=true
+            fi
+            dirty=$(git -C "$CLASHCTL_HOME" status --porcelain --untracked-files=no) || failed=true
+            [ -z "$dirty" ] || failed=true
+            [ "$(git -C "$CLASHCTL_HOME" rev-parse HEAD)" = "$previous" ] || failed=true
+            if [ "$failed" = true ]; then
+                touch "$work/keep"
+                _ui_error "更新失败且无法完整恢复原版本，请保留现场检查"
+                _ui_detail "恢复信息" "$work/git-previous"
+            else
+                _ui_error "更新未完成，已恢复原版本"
+            fi
+            [ "$rc" -ne 0 ] || rc=1
+        fi
+        exit "$rc"
+    ' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    started=true
+    git -C "$CLASHCTL_HOME" checkout --detach -q "$target" || return 1
+    complete=true
 )
 
 # 检查整个目标路径，防止通过目录软链接覆盖安装目录以外的文件。

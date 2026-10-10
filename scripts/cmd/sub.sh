@@ -472,7 +472,7 @@ Options:
   --ua <UA>           请求 User-Agent（默认 ${CLASHCTL_SUB_UA:-clash-verge/v2.4.0}）
 
 --raw 和 --convert 仅对本次添加生效，更新时需重新指定。
-示例：clashctl sub add --use <URL>
+示例：clashctl sub add --use "<URL>"
 
 EOF
             return 0

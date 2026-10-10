@@ -195,12 +195,14 @@ _ui_emoji_emit_fd() {
 _install_ui_emit_fd() {
     local fd=${1:-2} level=${2:-info} msg=${3:-} prefix
     case $level in
-    step) prefix='==>' ;;
+    step) prefix='[STEP]' ;;
     ok) prefix='[ OK ]' ;;
     warn) prefix='[WARN]' ;;
-    error | fail) prefix='[ERROR]' ;;
+    error | fail) prefix='[FAIL]' ;;
     info | *) prefix='[INFO]' ;;
     esac
+    # 前缀均为六列，正文从第 8 列开始。
+    [ "$level" != step ] || printf '\n' >&"$fd"
     _ui_print_fd "$fd" "$level" "$prefix" "$msg"
 }
 
@@ -254,13 +256,16 @@ _ui_fail() {
 }
 
 _ui_detail() {
-    local label=${1:-}
+    local label=${1:-} indent='   '
+    if typeset -f _install_ui_output >/dev/null 2>&1; then
+        indent='       '
+    fi
     [ $# -gt 0 ] && shift
 
     if [ $# -gt 0 ]; then
-        printf '        %s: %s\n' "$label" "$*" >&2
+        printf '%s%s: %s\n' "$indent" "$label" "$*" >&2
     else
-        printf '        %s\n' "$label" >&2
+        printf '%s%s\n' "$indent" "$label" >&2
     fi
     return 0
 }

@@ -48,24 +48,27 @@ clashctl stop
 [ "$(grep -c '^stop$' "$CLASHCTL_HOME/calls")" = 1 ]
 clashctl on
 [ "$(grep -c '^start$' "$CLASHCTL_HOME/calls")" = 2 ]
-clashctl on -s
-[ "$http_proxy" = http://127.0.0.1:7890 ] && [ -f "$CLASHCTL_HOME/running" ]
-clashctl off -e
-[ -z "${http_proxy:-}" ] && [ -f "$CLASHCTL_HOME/running" ]
-clashctl on --env-only
-[ "$http_proxy" = http://127.0.0.1:7890 ] && [ -f "$CLASHCTL_HOME/running" ]
-clashctl off --service-only
-[ "$http_proxy" = http://127.0.0.1:7890 ] && [ ! -f "$CLASHCTL_HOME/running" ]
-if clashctl on -e; then exit 1; fi
-[ "$http_proxy" = http://127.0.0.1:7890 ]
-clashctl on --service-only
-[ "$http_proxy" = http://127.0.0.1:7890 ] && [ -f "$CLASHCTL_HOME/running" ]
-clashctl off -s
-[ "$http_proxy" = http://127.0.0.1:7890 ] && [ ! -f "$CLASHCTL_HOME/running" ]
-clashctl on -s
-[ "$http_proxy" = http://127.0.0.1:7890 ] && [ -f "$CLASHCTL_HOME/running" ]
-clashctl off --env-only
-[ -z "${http_proxy:-}" ] && [ -f "$CLASHCTL_HOME/running" ]
+# 移除的选项必须报错，且不能改变当前终端环境或内核状态。
+for kernel_state in running stopped; do
+    [ "$kernel_state" != stopped ] || clashctl stop
+    for proxy_command in on off; do
+        for legacy_option in -e -s --env-only --service-only; do
+            prior_calls=$(wc -l <"$CLASHCTL_HOME/calls")
+            if clashctl "$proxy_command" "$legacy_option"; then exit 1; fi
+            [ "$http_proxy" = http://127.0.0.1:7890 ]
+            [ "$(wc -l <"$CLASHCTL_HOME/calls")" = "$prior_calls" ]
+            if [ "$kernel_state" = running ]; then
+                [ -f "$CLASHCTL_HOME/running" ]
+            else
+                [ ! -f "$CLASHCTL_HOME/running" ]
+            fi
+        done
+        if clashctl "$proxy_command" --help -s; then exit 1; fi
+        option_help=$(clashctl "$proxy_command" --help)
+        if printf '%s\n' "$option_help" | grep -Eq -- '--env-only|--service-only|^[[:space:]]+-[es],'; then exit 1; fi
+        [ "$http_proxy" = http://127.0.0.1:7890 ]
+    done
+done
 clashctl on
 touch "$CLASHCTL_HOME/fail-stop"
 if clashctl stop; then exit 1; fi
@@ -107,31 +110,28 @@ test -n "$http_proxy"; or exit 1
 test ! -f "$CLASHCTL_HOME/running"; or exit 1
 clashctl on; or exit 1
 test (grep -c '^start$' "$CLASHCTL_HOME/calls") = 2; or exit 1
-clashctl on -s; or exit 1
-test "$http_proxy" = http://127.0.0.1:7890; or exit 1
-test -f "$CLASHCTL_HOME/running"; or exit 1
-clashctl off -e; or exit 1
-set -q http_proxy; and exit 1
-test -f "$CLASHCTL_HOME/running"; or exit 1
-clashctl on --env-only; or exit 1
-test "$http_proxy" = http://127.0.0.1:7890; or exit 1
-clashctl off --service-only; or exit 1
-test "$http_proxy" = http://127.0.0.1:7890; or exit 1
-test ! -f "$CLASHCTL_HOME/running"; or exit 1
-clashctl on -e; and exit 1
-test "$http_proxy" = http://127.0.0.1:7890; or exit 1
-clashctl on --service-only; or exit 1
-test "$http_proxy" = http://127.0.0.1:7890; or exit 1
-test -f "$CLASHCTL_HOME/running"; or exit 1
-clashctl off -s; or exit 1
-test "$http_proxy" = http://127.0.0.1:7890; or exit 1
-test ! -f "$CLASHCTL_HOME/running"; or exit 1
-clashctl on -s; or exit 1
-test "$http_proxy" = http://127.0.0.1:7890; or exit 1
-test -f "$CLASHCTL_HOME/running"; or exit 1
-clashctl off --env-only; or exit 1
-set -q http_proxy; and exit 1
-test -f "$CLASHCTL_HOME/running"; or exit 1
+for kernel_state in running stopped
+    if test "$kernel_state" = stopped
+        clashctl stop; or exit 1
+    end
+    for proxy_command in on off
+        for legacy_option in -e -s --env-only --service-only
+            set prior_calls (wc -l <"$CLASHCTL_HOME/calls")
+            clashctl $proxy_command $legacy_option; and exit 1
+            test "$http_proxy" = http://127.0.0.1:7890; or exit 1
+            test (wc -l <"$CLASHCTL_HOME/calls") = "$prior_calls"; or exit 1
+            if test "$kernel_state" = running
+                test -f "$CLASHCTL_HOME/running"; or exit 1
+            else
+                test ! -f "$CLASHCTL_HOME/running"; or exit 1
+            end
+        end
+        clashctl $proxy_command --help -s; and exit 1
+        set option_help (clashctl $proxy_command --help); or exit 1
+        printf '%s\n' $option_help | grep -Eq -- '--env-only|--service-only|^[[:space:]]+-[es],'; and exit 1
+        test "$http_proxy" = http://127.0.0.1:7890; or exit 1
+    end
+end
 clashctl on; or exit 1
 clashctl off; or exit 1
 clashctl stop; or exit 1

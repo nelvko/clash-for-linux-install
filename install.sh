@@ -15,6 +15,14 @@ _install_method() {
     return 1
 }
 
+# 自举入口先准备并校验源码，再从该源码加载同一套生命周期锁。
+# 锁必须由 main 持有，覆盖落盘、迁移、初始化以及失败恢复。
+_install_lock() {
+    # shellcheck source=/dev/null
+    . "$1/scripts/lib/operation-lock.sh" || return 1
+    operation_lock_acquire
+}
+
 # 已有目录只凭安装身份和可信脚本布局进入自动更新/迁移分支。
 _install_existing_kind() {
     local home=$1 marker owner mode path unsafe
@@ -213,7 +221,8 @@ _install_refresh_current() (
             return 1
         }
         work=$(mktemp -d "${home}.update.XXXXXX") || return 1
-        trap 'rm -rf -- "$work"' EXIT
+        # 回滚失败时，更新器会标记 keep 并留下 previous.tar 供手动恢复。
+        trap '[ -f "$work/keep" ] || rm -rf -- "$work"' EXIT
         stage="$work/source"
         mkdir "$stage" || return 1
         _install_copy_local_source "$script_dir" "$stage" || return 1
@@ -221,12 +230,9 @@ _install_refresh_current() (
         . "$home/scripts/preflight.sh" || return 1
         . "$home/scripts/cmd/update.sh" || return 1
         operation_lock_acquire || return 1
-        # 现有安装可能尚无新版输出函数；源码更新落位后才会加载它。
-        if declare -F _install_ui_step >/dev/null 2>&1; then
-            _install_ui_step '应用本地源码更新'
-        else
-            printf '==> 应用本地源码更新\n' >&2
-        fi
+        # 使用本次安装器的样式，避免旧安装的输出函数改变阶段前缀。
+        printf '\n' >&2
+        _install_bootstrap_step '应用本地源码更新'
         _update_archive "$stage" "$work"
     else
         . "$home/scripts/preflight.sh" || return 1
@@ -375,9 +381,39 @@ _install_legacy_service_restore() {
     [ "$legacy_service_active" != true ] || systemctl start "$kernel" || return 1
 }
 
+# 恢复资料放在安装目录之外；私有目录同时保护旧版目录中的订阅与密钥。
+_install_recovery_path() {
+    local home=$1 category=$2 name=${3:-${1##*/}} root path uid
+    case $category in backups | failed) ;; *) return 1 ;; esac
+    root="${home%/*}/.clashctl-backups"
+    [ "$root" != "$home" ] || {
+        printf '安装目录不能占用恢复目录：%s\n' "$root" >&2
+        return 1
+    }
+    uid=$(id -u) || return 1
+    for path in "$root" "$root/$category"; do
+        if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+            mkdir -m 0700 -- "$path" || return 1
+        fi
+        if [ ! -d "$path" ] || [ -L "$path" ] ||
+            [ "$(stat -c %u -- "$path")" != "$uid" ] ||
+            [ "$(stat -c %a -- "$path")" != 700 ] || [ ! -w "$path" ] || [ ! -x "$path" ]; then
+            printf '恢复目录必须属于当前用户、权限为 700，且不能是符号链接：%s\n' "$path" >&2
+            return 1
+        fi
+    done
+    path="$root/$category/$name.$(date +%Y%m%d%H%M%S).$$"
+    [ ! -e "$path" ] && [ ! -L "$path" ] || {
+        printf '恢复路径已存在，未覆盖：%s\n' "$path" >&2
+        return 1
+    }
+    printf '%s\n' "$path"
+}
+
 _install_legacy_rollback() {
     local legacy=$1 backup=$2 current=$3 kernel=$4 target failed_home
     if [ -e "$current" ] || [ -L "$current" ]; then
+        failed_home=$(_install_recovery_path "$current" failed) || return 1
         if [ "$service_manager" = nohup ] && [ "${CLASH_DATA_DIR:-}" = "$current/data" ]; then
             service_stop_checked || {
                 printf '无法停止新内核，已保留新旧目录以供检查\n' >&2
@@ -392,8 +428,6 @@ _install_legacy_rollback() {
                 return 1
             fi
         fi
-        failed_home="${current}.failed.$$"
-        [ ! -e "$failed_home" ] && [ ! -L "$failed_home" ] || return 1
         mv -T -- "$current" "$failed_home" || return 1
         printf '失败的新目录保留在：%s\n' "$failed_home" >&2
     fi
@@ -521,7 +555,7 @@ _source_archive() (
 
 _source_validate() {
     local directory=$1 file relative
-    for file in .env.example install.sh uninstall.sh scripts/preflight.sh scripts/cmd/clashctl.sh scripts/cmd/update.sh; do
+    for file in .env.example install.sh uninstall.sh scripts/preflight.sh scripts/lib/operation-lock.sh scripts/cmd/clashctl.sh scripts/cmd/update.sh; do
         if [ ! -f "$directory/$file" ] || [ -L "$directory/$file" ]; then
             printf '源码不兼容：缺少必需文件 %s\n' "$file" >&2
             return 1
@@ -544,8 +578,54 @@ _source_manifest() (
         sort -z | xargs -0 -r sha256sum
 )
 
+# 在线安装的第一个阶段尚无公共库；颜色规则与 _ui_color_enabled 保持一致。
+_install_bootstrap_log() {
+    local level=$1 msg=$2 prefix color colored=false
+    case $level in
+    step) prefix='[STEP]'; color=36 ;;
+    ok) prefix='[ OK ]'; color=32 ;;
+    *) prefix='[INFO]'; color=36 ;;
+    esac
+    if [ "${NO_COLOR+x}" != x ]; then
+        case ${CLASHCTL_COLOR:-auto} in
+        always) colored=true ;;
+        never) ;;
+        *)
+            if [ "${CI+x}" != x ] && [ "${TERM:-dumb}" != dumb ] && [ -t 2 ]; then
+                colored=true
+            fi
+            ;;
+        esac
+    fi
+    if [ "$colored" = true ]; then
+        if [ "$level" = step ]; then
+            printf '\033[1;%sm%s %s\033[0m\n' "$color" "$prefix" "$msg" >&2
+        else
+            printf '\033[1;%sm%s\033[0m %s\n' "$color" "$prefix" "$msg" >&2
+        fi
+    else
+        printf '%s %s\n' "$prefix" "$msg" >&2
+    fi
+}
+
+_install_bootstrap_step() { _install_bootstrap_log step "$1"; }
+
+_install_intro() {
+    local action=$1 home=$2 home_source=$3 local_source=$4 branch=$5
+    if [ "$local_source" = true ]; then
+        _install_bootstrap_step "$action（本地源码）"
+    else
+        _install_bootstrap_step "$action（分支 $branch）"
+    fi
+    if [ "$home_source" = CLASHCTL_HOME ]; then
+        printf '       安装目录: %s（CLASHCTL_HOME）\n' "$home" >&2
+    else
+        printf '       安装目录: %s\n' "$home" >&2
+    fi
+}
+
 _install_next_step() {
-    local shell=$1 rc_var rc_path load_command
+    local shell=$1 rc_var rc_path load_command command_width=32
     case "$shell" in bash | zsh | fish) ;; *) shell=bash ;; esac
     rc_var=SHELL_RC_${shell^^}
     rc_path=${!rc_var:-}
@@ -561,24 +641,36 @@ _install_next_step() {
         printf -v load_command 'export CLASHCTL_HOME=%q; source %q' \
             "$CLASHCTL_HOME" "$CLASHCTL_HOME/scripts/cmd/clashctl.sh"
     fi
-    _ui_detail "当前 Shell 加载 clashctl（$shell）:"
-    _ui_detail "  $load_command"
+    [ "${#load_command}" -le "$command_width" ] || command_width=${#load_command}
+    printf '\n在当前终端执行（%s）:\n' "$shell" >&2
+    printf '  %-*s  # %s\n' "$command_width" "$load_command" '加载命令' >&2
     if [ ! -s "$CLASH_CONFIG_BASE" ]; then
-        _ui_detail '添加并使用订阅:'
-        _ui_detail '  clashctl sub add --use "<URL>"'
+        printf '  %-*s  # %s\n' "$command_width" 'clashctl sub add --use "<URL>"' '添加并启用订阅' >&2
     fi
-    _ui_detail '启动代理:'
-    _ui_detail '  clashctl on'
+    printf '  %-*s  # %s\n' "$command_width" 'clashctl on' '启用当前终端代理' >&2
+    if service_is_active >/dev/null 2>&1; then
+        printf '  %-*s  # %s\n' "$command_width" 'clashctl ui' '查看面板地址' >&2
+    fi
+}
+
+_install_complete() {
+    printf '\n' >&2
+    _install_ui_ok '安装完成'
+    [ -z "${1:-}" ] || _ui_detail '旧版备份' "$1"
+    # 安装器运行在子进程中；优先识别调用它的 Shell，登录 Shell 只作兜底。
+    local shell
+    shell=$(readlink "/proc/$PPID/exe" 2>/dev/null) || shell=${SHELL:-bash}
+    case ${shell##*/} in bash | zsh | fish) ;; *) shell=${SHELL:-bash} ;; esac
+    _install_next_step "${shell##*/}"
 }
 
 _install_initialize() {
     export CLASHCTL_SRC="$CLASHCTL_HOME"
     . "$CLASHCTL_SRC/scripts/preflight.sh" || return 1
-    [ "${5:-}" != x ] || CLASHCTL_DOWNLOAD_TIMEOUT=$6
+    [ "${4:-}" != x ] || CLASHCTL_DOWNLOAD_TIMEOUT=$5
     # 参数在 main 中保存，不受 preflight 加载已有 .env 的影响。
     local kernel=${1:-${CLASHCTL_KERNEL:-mihomo}} branch=${2:-${CLASHCTL_UPDATE_BRANCH:-master}}
-    local proxy=${GH_PROXY:-} subscription='' rc secret shell_backup=''
-    [ "$4" != x ] || proxy=$3
+    local proxy=${3:-} subscription=${7:-} rc secret shell_backup=''
     export -n subscription secret
     export CLASHCTL_KERNEL="$kernel" CLASHCTL_UPDATE_BRANCH="$branch" GH_PROXY="$proxy"
     # shellcheck disable=SC2034  # preflight 中的组件安装与服务定义共用此路径。
@@ -603,9 +695,12 @@ _install_initialize() {
     _set_env CLASHCTL_KERNEL "$kernel" || return 1
     _set_env CLASHCTL_UPDATE_BRANCH "$branch" || return 1
     _set_env GH_PROXY "$proxy" || return 1
+    _set_env CLASHCTL_DOWNLOAD_TIMEOUT "$CLASHCTL_DOWNLOAD_TIMEOUT" || return 1
     # shellcheck disable=SC2154  # detect_service_manager 设置
     _set_env INIT_TYPE "$service_manager" || return 1
     . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" || return 1
+    # 命令加载器会重新加载 service.sh，清空之前检测到的服务方式与路径。
+    detect_service_manager
 
     _install_ui_step '配置服务与终端命令'
     # 密钥直接写入 Mixin，无主配置时不生成 runtime。
@@ -615,22 +710,35 @@ _install_initialize() {
         SECRET=$secret "$BIN_YQ" -i '.secret = env(SECRET)' "$CLASH_CONFIG_MIXIN" || return 1
     fi
     install_service || return 1
+    if [ "$service_manager" = nohup ]; then
+        _install_ui_info '运行方式: nohup（不设置开机自启）'
+    else
+        _install_ui_ok "已注册 $service_manager 服务"
+    fi
 
-    if [ "${CI+x}" != x ] && ( : </dev/tty ) 2>/dev/null; then
-        IFS= read -r -p '订阅链接（回车跳过）: ' subscription </dev/tty || subscription=''
+    if [ -z "$subscription" ] && [ ! -s "$CLASH_CONFIG_BASE" ] &&
+        [ "${CI+x}" != x ] && ( : </dev/tty ) 2>/dev/null; then
+        IFS= read -r -p '       订阅链接（回车跳过，稍后可添加）: ' subscription </dev/tty || subscription=''
     fi
     if [ -n "$subscription" ]; then
         # 订阅失败不算安装失败：组件、命令和服务都已就绪，此时报"安装未完成"会误导用户重装。
         if ! clashsub add --use "$subscription"; then
             _install_ui_warn '订阅添加失败，已跳过；组件与命令安装完成'
-            _ui_detail '稍后重试' 'clashctl sub add --use <URL>'
+            _ui_detail '稍后重试' 'clashctl sub add --use "<URL>"'
         fi
     elif [ -s "$CLASH_CONFIG_BASE" ]; then
         clashstart || return 1
     else
         _install_ui_info '尚未配置订阅，内核未启动'
     fi
-    if [ -n "${7:-}" ]; then
+    # 订阅生效直接启服；续装时已运行的内核也会跳过 clashstart 的自启步骤。
+    if [ -s "$CLASH_CONFIG_BASE" ] && service_is_active >/dev/null 2>&1; then
+        service_enable || return 1
+        [ "$service_manager" = nohup ] || _install_ui_ok '已设置开机自启'
+    elif [ "$service_manager" != nohup ]; then
+        _install_ui_info '未启用内核，跳过开机自启设置'
+    fi
+    if [ -n "${6:-}" ]; then
         shell_backup=$(mktemp -d "${CLASHCTL_HOME}.shell.XXXXXX") || return 1
         _install_shell_snapshot "$shell_backup" || {
             rm -rf -- "$shell_backup"
@@ -651,12 +759,7 @@ _install_initialize() {
         fi
         return "$rc"
     fi
-    _install_ui_ok '安装完成'
-    # 安装器运行在子进程中；优先识别调用它的 Shell，登录 Shell 只作兜底。
-    local shell
-    shell=$(readlink "/proc/$PPID/exe" 2>/dev/null) || shell=${SHELL:-bash}
-    case ${shell##*/} in bash | zsh | fish) ;; *) shell=${SHELL:-bash} ;; esac
-    _install_next_step "${shell##*/}"
+    return 0
 }
 
 # 可直接 curl .../install.sh | bash；交互输入从 /dev/tty 读取。
@@ -666,7 +769,10 @@ main() (
     # 更新器会再次 source 安装器以复用函数；同一路径执行时不能递归进入 main。
     CLASHCTL_INSTALL_RUNNING=1
     local install_home=${CLASHCTL_HOME:-$HOME/.clashctl}
-    local branch=${CLASHCTL_UPDATE_BRANCH:-} kernel=''
+    local _INSTALL_VERBOSE=${_INSTALL_VERBOSE:-}
+    local home_source='默认值（~/.clashctl）'
+    [ -z "${CLASHCTL_HOME:-}" ] || home_source=CLASHCTL_HOME
+    local branch=${CLASHCTL_UPDATE_BRANCH:-} kernel='' subscription=''
     local proxy=${GH_PROXY:-} proxy_set=${GH_PROXY+x} stage='' arg method
     local requested_timeout=${CLASHCTL_DOWNLOAD_TIMEOUT-} timeout_set=${CLASHCTL_DOWNLOAD_TIMEOUT+x}
     local local_source=false script_dir='' existing_kind='' legacy_home='' legacy_kernel='' backup=''
@@ -680,15 +786,44 @@ main() (
         arg=$1
         shift
         case $arg in
-        mihomo | clash) kernel=$arg ;;
-        --local) local_source=true ;;
-        --install-dir=*)
-            install_home=${arg#--install-dir=}
-            [ -n "$install_home" ] || { printf '%s\n' '--install-dir 需要一个绝对路径' >&2; return 1; }
+        --branch=*)
+            branch=${arg#*=}
+            [ -n "$branch" ] && [[ "$branch" != -* ]] || { printf '%s\n' '--branch 需要一个分支名称' >&2; return 1; }
             ;;
-        --install-dir)
-            [ "$#" -gt 0 ] && [ -n "$1" ] || { printf '%s\n' '--install-dir 需要一个绝对路径' >&2; return 1; }
+        --branch)
+            [ "$#" -gt 0 ] && [ -n "$1" ] && [[ "$1" != -* ]] || { printf '%s\n' '--branch 需要一个分支名称' >&2; return 1; }
+            branch=$1
+            shift
+            ;;
+        --kernel=*)
+            kernel=${arg#*=}
+            [ -n "$kernel" ] || { printf '%s\n' '--kernel 需要 mihomo 或 clash' >&2; return 1; }
+            ;;
+        --kernel)
+            [ "$#" -gt 0 ] || { printf '%s\n' '--kernel 需要 mihomo 或 clash' >&2; return 1; }
+            kernel=$1
+            shift
+            ;;
+        --sub=*)
+            subscription=${arg#*=}
+            [ -n "$subscription" ] || { printf '%s\n' '--sub 需要一个订阅链接' >&2; return 1; }
+            ;;
+        --sub)
+            [ "$#" -gt 0 ] && [ -n "$1" ] || { printf '%s\n' '--sub 需要一个订阅链接' >&2; return 1; }
+            subscription=$1
+            shift
+            ;;
+        --local) local_source=true ;;
+        --verbose) _INSTALL_VERBOSE=1 ;;
+        --home=*)
+            install_home=${arg#--home=}
+            home_source=--home
+            [ -n "$install_home" ] || { printf '%s\n' '--home 需要一个绝对路径' >&2; return 1; }
+            ;;
+        --home)
+            [ "$#" -gt 0 ] && [ -n "$1" ] || { printf '%s\n' '--home 需要一个绝对路径' >&2; return 1; }
             install_home=$1
+            home_source=--home
             shift
             ;;
         --gh-proxy=*) proxy=${arg#--gh-proxy=}; proxy_set=x ;;
@@ -699,11 +834,49 @@ main() (
             shift
             ;;
         -h | --help)
-            printf '用法: bash install.sh [mihomo|clash] [--local] [--install-dir <绝对路径>] [--gh-proxy <URL>]\n--local: 使用本脚本所在目录的源码，依赖仍按需下载\n安装目录优先级: --install-dir > CLASHCTL_HOME > ~/.clashctl\n环境变量: CLASHCTL_HOME、CLASHCTL_UPDATE_BRANCH、GH_PROXY\n'
+            cat <<'HELP'
+安装或更新 clashctl
+
+用法: bash install.sh [选项]
+
+安装选项:
+  --local                 使用本地源码安装，依赖仍按需下载
+  --home <路径>           指定安装目录（绝对路径，默认 ~/.clashctl）
+  --kernel <内核>         mihomo（默认）或 clash；已有安装不可切换
+  --sub <URL>             添加并启用订阅；无现有配置时交互询问
+
+下载与更新:
+  --branch <分支>         源码及后续更新分支（新安装默认 master）
+                          配合 --local 时，仅设置后续更新分支
+  --gh-proxy <URL>        GitHub 下载代理前缀；--gh-proxy= 表示直连
+  --verbose               显示源码下载详情、完整下载地址和缓存路径
+  -h, --help              显示帮助
+
+环境变量（可选）:
+  CLASHCTL_HOME              安装目录
+  CLASHCTL_UPDATE_BRANCH     源码及后续更新分支
+  GH_PROXY                   GitHub 下载代理前缀
+  CLASHCTL_DOWNLOAD_TIMEOUT   依赖下载超时（秒，默认 60）
+
+重复安装沿用已保存配置，命令行参数可覆盖。参数支持 --选项 值 或 --选项=值。
+--local 需从本地 install.sh 执行，不支持管道安装。
+
+示例:
+  本地源码安装:
+    bash install.sh --local --gh-proxy https://gh-proxy.org
+  指定分支安装:
+    bash install.sh --branch install-update --gh-proxy https://gh-proxy.org
+
+更多说明: https://github.com/nelvko/clash-for-linux-install/wiki/User-Guide
+HELP
             return 0 ;;
         *) printf '未知安装参数\n' >&2; return 1 ;;
         esac
     done
+    case $kernel in
+    '' | mihomo | clash) ;;
+    *) printf '%s\n' '--kernel 仅支持 mihomo 或 clash' >&2; return 1 ;;
+    esac
     if [ -f "${BASH_SOURCE[0]:-}" ]; then
         script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
     fi
@@ -728,7 +901,7 @@ main() (
     fi
     if [ "$local_source" = true ]; then
         case "$install_home/" in
-        "$script_dir/"*) printf '本地安装目录不能位于源码目录内，请通过 --install-dir 指定其他目录\n' >&2; return 1 ;;
+        "$script_dir/"*) printf '本地安装目录不能位于源码目录内，请通过 --home 指定其他目录\n' >&2; return 1 ;;
         esac
     fi
     if [ -e "$install_home" ] || [ -L "$install_home" ]; then
@@ -737,12 +910,23 @@ main() (
             return 1
         }
         if [ "$existing_kind" = current ]; then
+            _install_lock "$install_home" || return 1
+            # 等待准备/加锁期间，另一操作可能已经卸载或替换此目录。
+            [ "$(_install_existing_kind "$install_home")" = current ] || {
+                printf '安装目录状态已变化，请重新运行安装器\n' >&2
+                return 1
+            }
             method=$(_install_method "$install_home") || return 1
             # 先读取已保存的选项；本次显式参数与环境变量优先。
             if [ -f "$install_home/.env" ]; then
                 local requested_kernel=$kernel requested_branch=$branch requested_proxy=$proxy
                 # shellcheck source=/dev/null
                 . "$install_home/.env" || return 1
+                if [ -n "$requested_kernel" ] && [ "$requested_kernel" != "${CLASHCTL_KERNEL:-mihomo}" ]; then
+                    printf '已有安装不支持切换内核（%s → %s），请使用原内核重试\n' \
+                        "${CLASHCTL_KERNEL:-mihomo}" "$requested_kernel" >&2
+                    return 1
+                fi
                 kernel=${requested_kernel:-${CLASHCTL_KERNEL:-mihomo}}
                 branch=${requested_branch:-${CLASHCTL_UPDATE_BRANCH:-master}}
                 [ "$proxy_set" = x ] && proxy=$requested_proxy || proxy=${GH_PROXY:-}
@@ -753,12 +937,13 @@ main() (
             export CLASHCTL_HOME="$install_home" CLASHCTL_SRC="$install_home"
             if [ -f "$install_home/.env" ] && [ ! -e "$install_home/.clashctl-uninitialized" ] &&
                 [ ! -e "$install_home/.clashctl-incomplete" ]; then
+                _install_intro '更新现有安装' "$install_home" "$home_source" "$local_source" "$branch"
                 _install_refresh_current "$install_home" "$method" "$local_source" "$script_dir" "$branch" "$proxy" || return 1
             else
+                _install_intro '继续未完成的安装' "$install_home" "$home_source" "$local_source" "$branch"
                 if [ "$local_source" = true ] && [ "$method" = archive ] && [ "$script_dir" != "$install_home" ]; then
                     _install_refresh_current "$install_home" "$method" "$local_source" "$script_dir" "$branch" "$proxy" || return 1
                 fi
-                printf '继续未完成的安装：%s\n' "$install_home"
             fi
         else
             legacy_home=$install_home
@@ -770,7 +955,7 @@ main() (
                 case $existing_kind in
                 legacy-v1 | legacy-v2) legacy_home="$HOME/clashctl" ;;
                 current)
-                    printf '已在旧默认路径发现新版安装，请使用 --install-dir %s 后重试\n' "$HOME/clashctl" >&2
+                    printf '已在旧默认路径发现新版安装，请使用 --home %s 后重试\n' "$HOME/clashctl" >&2
                     return 1
                     ;;
                 *) existing_kind='' ;;
@@ -819,11 +1004,22 @@ main() (
     if [ -z "$existing_kind" ] || [ -n "$legacy_home" ]; then
         [ -z "$legacy_home" ] || legacy_kernel=${legacy_kernel:-mihomo}
         branch=${branch:-master}
+        if [ -n "$legacy_home" ]; then
+            if [ "$legacy_home" = "$install_home" ]; then
+                _install_intro '原路径升级' "$install_home" "$home_source" "$local_source" "$branch"
+            else
+                _install_intro '迁移旧版安装' "$install_home" "$home_source" "$local_source" "$branch"
+                printf '       旧版目录: %s\n' "$legacy_home" >&2
+            fi
+        else
+            _install_intro '新安装 clashctl' "$install_home" "$home_source" "$local_source" "$branch"
+        fi
         mkdir -p -- "$(dirname -- "$install_home")"
         stage=$(mktemp -d "${install_home}.download.XXXXXX")
         trap _install_main_cleanup EXIT
         trap 'exit 130' INT
         trap 'exit 143' TERM
+        [ "$local_source" = true ] || _install_bootstrap_log info "下载源码（分支 $branch）"
         if [ "$local_source" = true ]; then
             method=archive
             # 保留工作区修改；排除运行数据与被 .gitignore 忽略的本地文件。
@@ -831,21 +1027,40 @@ main() (
         elif command -v git >/dev/null 2>&1; then
             method=git
             local url=https://github.com/nelvko/clash-for-linux-install.git
+            local -a clone_options=(--depth 1 --branch "$branch")
+            [ "${_INSTALL_VERBOSE:-}" = 1 ] || clone_options+=(--quiet)
             [ -z "$proxy" ] || url="${proxy%/}/$url"
             git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 \
-                clone --depth 1 --branch "$branch" -- "$url" "$stage"
+                clone "${clone_options[@]}" -- "$url" "$stage"
         else
             method=archive
             _source_archive "$stage" "$branch" "$proxy"
             [ ! -e "$stage/.git" ] && [ ! -L "$stage/.git" ] || return 1
         fi
         _source_validate "$stage"
+        [ "$local_source" = true ] || _install_bootstrap_log ok '源码已准备'
+        _install_lock "$stage" || return 1
+        # 源码准备不占锁；取得锁后重新核对目录，避免覆盖并发安装的结果。
+        if [ -n "$legacy_home" ]; then
+            [ "$(_install_existing_kind "$legacy_home")" = "$existing_kind" ] || {
+                printf '旧安装目录状态已变化，请重新运行安装器\n' >&2
+                return 1
+            }
+        fi
+        if [ "$legacy_home" != "$install_home" ] &&
+            { [ -e "$install_home" ] || [ -L "$install_home" ]; }; then
+            printf '安装目录在准备源码期间已被创建，未修改目录：%s\n' "$install_home" >&2
+            return 1
+        fi
         if [ "$method" = archive ]; then
             _source_manifest "$stage" >"$stage/.clashctl-files"
         fi
         (umask 077; printf '%s\n%s\n' "$install_home" "$method" >"$stage/.clashctl-install")
         (umask 077; printf '%s\n' "$install_home" >"$stage/.clashctl-uninitialized")
         if [ -n "$legacy_home" ]; then
+            # 先确认备份与失败现场都能安全保存，再停旧内核或修改旧数据。
+            backup=$(_install_recovery_path "$install_home" backups "${legacy_home##*/}") || return 1
+            _install_recovery_path "$install_home" failed >/dev/null || return 1
             export CLASHCTL_HOME="$stage" CLASHCTL_SRC="$stage" CLASHCTL_KERNEL="${kernel:-mihomo}"
             . "$stage/scripts/preflight.sh" || return 1
             legacy_recovery_required=true
@@ -866,7 +1081,6 @@ main() (
                 return 1
             }
             export CLASHCTL_HOME="$install_home" CLASHCTL_KERNEL="${kernel:-mihomo}"
-            backup="${legacy_home}.bak.$(date +%Y%m%d%H%M%S).$$"
             [ ! -e "$backup" ] && [ ! -L "$backup" ] || {
                 _install_legacy_profiles_lock_release
                 _install_legacy_service_restore "$legacy_kernel" || return 1
@@ -901,21 +1115,23 @@ main() (
     export CLASHCTL_HOME="$install_home" CLASHCTL_SRC="$install_home" CLASHCTL_KERNEL="$kernel"
     export CLASHCTL_UPDATE_BRANCH="$branch" GH_PROXY="$proxy"
     if ! { (umask 077; : >"$install_home/.clashctl-incomplete") &&
-        _install_initialize "$kernel" "$branch" "$proxy" "$proxy_set" "$timeout_set" "$requested_timeout" "$backup"; }; then
+        _install_initialize "$kernel" "$branch" "$proxy" "$timeout_set" "$requested_timeout" "$backup" "$subscription"; }; then
         if [ -n "$backup" ]; then
             _install_legacy_rollback "$legacy_home" "$backup" "$install_home" "$legacy_kernel" || return 1
         else
-            local retry_command proxy_arg
+            local retry_command branch_arg proxy_arg
             if [ "${CLASHCTL_DOWNLOAD_TIMED_OUT:-0}" = 1 ]; then
                 local retry_timeout=${CLASHCTL_DOWNLOAD_TIMEOUT:-60}
                 if [[ ! $retry_timeout =~ ^[0-9]+$ ]] || [ "$retry_timeout" -lt 180 ]; then
                     retry_timeout=180
                 fi
-                printf -v retry_command 'CLASHCTL_DOWNLOAD_TIMEOUT=%q bash %q --install-dir %q' \
+                printf -v retry_command 'CLASHCTL_DOWNLOAD_TIMEOUT=%q bash %q --home %q' \
                     "$retry_timeout" "$install_home/install.sh" "$install_home"
             else
-                printf -v retry_command 'bash %q --install-dir %q' "$install_home/install.sh" "$install_home"
+                printf -v retry_command 'bash %q --home %q' "$install_home/install.sh" "$install_home"
             fi
+            printf -v branch_arg ' --branch=%q' "$branch"
+            retry_command+=$branch_arg
             if [ -n "$proxy" ] || [ "$proxy_set" = x ]; then
                 printf -v proxy_arg ' --gh-proxy=%q' "$proxy"
                 retry_command+=$proxy_arg
@@ -931,7 +1147,7 @@ main() (
         rm -rf -- "$legacy_shell_backup" ||
             printf '无法清理 Shell 配置备份，请手动检查：%s\n' "$legacy_shell_backup" >&2
     fi
-    [ -z "$backup" ] || printf '旧版目录已备份：%s\n' "$backup"
+    _install_complete "$backup"
 )
 
 # 完整读取脚本后才执行，下载中断时不会提前开始安装。

@@ -9,13 +9,14 @@ clashstart() {
     *) _ui_fail '用法: clashctl start'; return 1 ;;
     esac
     if [ -n "${ZSH_VERSION:-}" ]; then
-        CLASHCTL_HOME="$CLASHCTL_HOME" bash -c '
+        CLASHCTL_HOME="$CLASHCTL_HOME" _CLASHCTL_START_FROM_ON="${_CLASHCTL_START_FROM_ON:-}" bash -c '
             . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" && clashstart
         '
         return
     fi
     if service_is_active >&/dev/null; then
-        _ui_ok_out "$CLASHCTL_KERNEL 已运行"
+        # on 会报告终端代理状态；独立执行 start 时仍显示内核状态。
+        [ "${_CLASHCTL_START_FROM_ON:-}" = 1 ] || _ui_ok_out "$CLASHCTL_KERNEL 已运行"
         return 0
     fi
     if [ ! -x "$BIN_KERNEL" ]; then
