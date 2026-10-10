@@ -90,6 +90,9 @@ _fetch_latest_tag() {
 _resolve_version() {
     local varname=$1 repo=$2 tag local_version
 
+    if typeset -f _install_ui_output >/dev/null 2>&1; then
+        _ui_info "查询 $repo 版本"
+    fi
     # 版本来源优先级：最新版本查询 > 内置备用版本
     if tag=$(_fetch_latest_tag "$repo"); then
         printf -v "$varname" '%s' "$tag"
@@ -244,7 +247,8 @@ _download_archive() {
         return 1
     }
 
-    if [ -t 2 ] && [ "${_INSTALL_VERBOSE:-}" = 1 ]; then
+    if [ -t 2 ] && { [ "${_INSTALL_VERBOSE:-}" = 1 ] ||
+        typeset -f _install_ui_output >/dev/null 2>&1; }; then
         curl_args+=(--progress-bar)
     else
         curl_args+=(--silent)

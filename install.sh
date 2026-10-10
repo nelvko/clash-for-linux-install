@@ -551,8 +551,13 @@ _source_manifest() (
 )
 
 # 在线安装的第一个阶段尚无公共库；颜色规则与 _ui_color_enabled 保持一致。
-_install_bootstrap_step() {
-    local colored=false
+_install_bootstrap_log() {
+    local level=$1 msg=$2 prefix color colored=false
+    case $level in
+    step) prefix='[STEP]'; color=36 ;;
+    ok) prefix='[ OK ]'; color=32 ;;
+    *) prefix='[INFO]'; color=36 ;;
+    esac
     if [ "${NO_COLOR+x}" != x ]; then
         case ${CLASHCTL_COLOR:-auto} in
         always) colored=true ;;
@@ -565,11 +570,17 @@ _install_bootstrap_step() {
         esac
     fi
     if [ "$colored" = true ]; then
-        printf '\033[1;36m[STEP] %s\033[0m\n' "$1" >&2
+        if [ "$level" = step ]; then
+            printf '\033[1;%sm%s %s\033[0m\n' "$color" "$prefix" "$msg" >&2
+        else
+            printf '\033[1;%sm%s\033[0m %s\n' "$color" "$prefix" "$msg" >&2
+        fi
     else
-        printf '[STEP] %s\n' "$1" >&2
+        printf '%s %s\n' "$prefix" "$msg" >&2
     fi
 }
+
+_install_bootstrap_step() { _install_bootstrap_log step "$1"; }
 
 _install_intro() {
     local action=$1 home=$2 home_source=$3 local_source=$4 branch=$5
@@ -609,6 +620,20 @@ _install_next_step() {
         printf '  %-*s  # %s\n' "$command_width" 'clashctl sub add --use "<URL>"' '添加并启用订阅' >&2
     fi
     printf '  %-*s  # %s\n' "$command_width" 'clashctl on' '启用当前终端代理' >&2
+    if service_is_active >/dev/null 2>&1; then
+        printf '  %-*s  # %s\n' "$command_width" 'clashctl ui' '查看面板地址' >&2
+    fi
+}
+
+_install_complete() {
+    printf '\n' >&2
+    _install_ui_ok '安装完成'
+    [ -z "${1:-}" ] || _ui_detail '旧版备份' "$1"
+    # 安装器运行在子进程中；优先识别调用它的 Shell，登录 Shell 只作兜底。
+    local shell
+    shell=$(readlink "/proc/$PPID/exe" 2>/dev/null) || shell=${SHELL:-bash}
+    case ${shell##*/} in bash | zsh | fish) ;; *) shell=${SHELL:-bash} ;; esac
+    _install_next_step "${shell##*/}"
 }
 
 _install_initialize() {
@@ -655,6 +680,11 @@ _install_initialize() {
         SECRET=$secret "$BIN_YQ" -i '.secret = env(SECRET)' "$CLASH_CONFIG_MIXIN" || return 1
     fi
     install_service || return 1
+    if [ "$service_manager" = nohup ]; then
+        _install_ui_info '运行方式: nohup（不设置开机自启）'
+    else
+        _install_ui_ok "已注册 $service_manager 服务"
+    fi
 
     if [ -z "$subscription" ] && [ ! -s "$CLASH_CONFIG_BASE" ] &&
         [ "${CI+x}" != x ] && ( : </dev/tty ) 2>/dev/null; then
@@ -672,8 +702,11 @@ _install_initialize() {
         _install_ui_info '尚未配置订阅，内核未启动'
     fi
     # 订阅生效直接启服；续装时已运行的内核也会跳过 clashstart 的自启步骤。
-    if [ -s "$CLASH_CONFIG_BASE" ] && service_is_active; then
+    if [ -s "$CLASH_CONFIG_BASE" ] && service_is_active >/dev/null 2>&1; then
         service_enable || return 1
+        [ "$service_manager" = nohup ] || _install_ui_ok '已设置开机自启'
+    elif [ "$service_manager" != nohup ]; then
+        _install_ui_info '未启用内核，跳过开机自启设置'
     fi
     if [ -n "${6:-}" ]; then
         shell_backup=$(mktemp -d "${CLASHCTL_HOME}.shell.XXXXXX") || return 1
@@ -696,13 +729,7 @@ _install_initialize() {
         fi
         return "$rc"
     fi
-    printf '\n' >&2
-    _install_ui_ok '安装完成'
-    # 安装器运行在子进程中；优先识别调用它的 Shell，登录 Shell 只作兜底。
-    local shell
-    shell=$(readlink "/proc/$PPID/exe" 2>/dev/null) || shell=${SHELL:-bash}
-    case ${shell##*/} in bash | zsh | fish) ;; *) shell=${SHELL:-bash} ;; esac
-    _install_next_step "${shell##*/}"
+    return 0
 }
 
 # 可直接 curl .../install.sh | bash；交互输入从 /dev/tty 读取。
@@ -792,7 +819,7 @@ main() (
   --branch <分支>         源码及后续更新分支（新安装默认 master）
                           配合 --local 时，仅设置后续更新分支
   --gh-proxy <URL>        GitHub 下载代理前缀；--gh-proxy= 表示直连
-  --verbose               显示完整下载地址、缓存路径和下载进度
+  --verbose               显示源码下载详情、完整下载地址和缓存路径
   -h, --help              显示帮助
 
 环境变量（可选）:
@@ -948,8 +975,12 @@ HELP
         [ -z "$legacy_home" ] || legacy_kernel=${legacy_kernel:-mihomo}
         branch=${branch:-master}
         if [ -n "$legacy_home" ]; then
-            _install_intro '迁移旧版安装' "$install_home" "$home_source" "$local_source" "$branch"
-            printf '       旧版目录: %s\n' "$legacy_home" >&2
+            if [ "$legacy_home" = "$install_home" ]; then
+                _install_intro '原路径升级' "$install_home" "$home_source" "$local_source" "$branch"
+            else
+                _install_intro '迁移旧版安装' "$install_home" "$home_source" "$local_source" "$branch"
+                printf '       旧版目录: %s\n' "$legacy_home" >&2
+            fi
         else
             _install_intro '新安装 clashctl' "$install_home" "$home_source" "$local_source" "$branch"
         fi
@@ -958,6 +989,7 @@ HELP
         trap _install_main_cleanup EXIT
         trap 'exit 130' INT
         trap 'exit 143' TERM
+        [ "$local_source" = true ] || _install_bootstrap_log info "下载源码（分支 $branch）"
         if [ "$local_source" = true ]; then
             method=archive
             # 保留工作区修改；排除运行数据与被 .gitignore 忽略的本地文件。
@@ -965,15 +997,18 @@ HELP
         elif command -v git >/dev/null 2>&1; then
             method=git
             local url=https://github.com/nelvko/clash-for-linux-install.git
+            local -a clone_options=(--depth 1 --branch "$branch")
+            [ "${_INSTALL_VERBOSE:-}" = 1 ] || clone_options+=(--quiet)
             [ -z "$proxy" ] || url="${proxy%/}/$url"
             git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 \
-                clone --depth 1 --branch "$branch" -- "$url" "$stage"
+                clone "${clone_options[@]}" -- "$url" "$stage"
         else
             method=archive
             _source_archive "$stage" "$branch" "$proxy"
             [ ! -e "$stage/.git" ] && [ ! -L "$stage/.git" ] || return 1
         fi
         _source_validate "$stage"
+        [ "$local_source" = true ] || _install_bootstrap_log ok '源码已准备'
         _install_lock "$stage" || return 1
         # 源码准备不占锁；取得锁后重新核对目录，避免覆盖并发安装的结果。
         if [ -n "$legacy_home" ]; then
@@ -1080,7 +1115,7 @@ HELP
         rm -rf -- "$legacy_shell_backup" ||
             printf '无法清理 Shell 配置备份，请手动检查：%s\n' "$legacy_shell_backup" >&2
     fi
-    [ -z "$backup" ] || printf '旧版目录已备份：%s\n' "$backup"
+    _install_complete "$backup"
 )
 
 # 完整读取脚本后才执行，下载中断时不会提前开始安装。

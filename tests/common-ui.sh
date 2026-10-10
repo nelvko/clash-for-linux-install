@@ -251,6 +251,11 @@ assert_contains "$WORK_DIR/proxied/terminal" "下载地址: $requested_url" \
 run_preflight_probe install-quiet '' https://gh-proxy.example/ install
 assert_not_contains "$WORK_DIR/install-quiet/terminal" '下载地址:' 'concise installation output'
 assert_contains "$WORK_DIR/install-quiet/terminal" '文件: component.tar.gz' 'installation shows artifact name'
+assert_contains "$WORK_DIR/install-quiet/curl-args" --progress-bar 'terminal installation shows download progress by default'
+bash "$preflight_probe" "$REPO_DIR" "$WORK_DIR/install-redirected" '' https://gh-proxy.example/ install \
+    >"$WORK_DIR/install-redirected.out" 2>&1
+assert_contains "$WORK_DIR/install-redirected/curl-args" --silent 'redirected installation omits progress'
+assert_not_contains "$WORK_DIR/install-redirected/curl-args" --progress-bar 'redirected installation omits progress bar'
 run_preflight_probe install-verbose 1 https://gh-proxy.example/ install
 assert_contains "$WORK_DIR/install-verbose/terminal" "下载地址: $requested_url" 'verbose installation shows full URL'
 assert_contains "$WORK_DIR/install-verbose/curl-args" --progress-bar 'verbose installation shows download progress'

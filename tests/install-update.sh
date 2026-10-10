@@ -40,7 +40,7 @@ bin_kernel_path() { printf '%s/bin/%s/%s' "$CLASHCTL_HOME" "$CLASHCTL_KERNEL" "$
 gh_proxy_url() { [ -z "${GH_PROXY:-}" ] && printf '%s\n' "$1" || printf '%s/%s\n' "${GH_PROXY%/}" "$1"; }
 operation_lock_acquire() { :; }
 valid_required() { :; }
-detect_service_manager() { service_manager=nohup; }
+detect_service_manager() { service_manager=${TEST_SERVICE_MANAGER:-nohup}; }
 detect_rc() {
     SHELL_RC_BASH="$HOME/.bashrc"
     SHELL_RC_ZSH=
@@ -155,11 +155,15 @@ export PATH="$WORK_DIR/bin:$PATH"
 # stdin 是脚本，CI 跳过 /dev/tty 输入；初始化不能只安装命令空壳。
 # shellcheck disable=SC2002  # 必须验证管道输入，不能改成文件执行
 # 两个 env -u：未设时才走管道安装，保证下面断言的是"未提供即直连"。
-env -u GH_PROXY -u CLASHCTL_UPDATE_BRANCH bash -c 'cat "$1" | bash' _ "$REPO_DIR/install.sh" >"$WORK_DIR/install.out" 2>&1
+GIT_CALL_LOG="$WORK_DIR/quiet-git.log" env -u GH_PROXY -u CLASHCTL_UPDATE_BRANCH \
+    bash -c 'cat "$1" | bash' _ "$REPO_DIR/install.sh" >"$WORK_DIR/install.out" 2>&1
 [ ! -f "$CLASHCTL_HOME/data/started" ] || fail 'empty install started service'
 [ ! -f "$CLASHCTL_HOME/data/enabled" ] || fail 'empty install enabled service'
 [ ! -e "$CLASHCTL_HOME/data/runtime.yaml" ] || fail 'empty install generated runtime'
 grep -q '尚未配置订阅' "$WORK_DIR/install.out" || fail 'empty install did not explain missing configuration'
+grep -Fq '运行方式: nohup（不设置开机自启）' "$WORK_DIR/install.out" || fail 'nohup install did not explain its startup mode'
+! grep -q '已设置开机自启' "$WORK_DIR/install.out" || fail 'nohup install claimed boot startup'
+grep -q 'clone .*--quiet' "$WORK_DIR/quiet-git.log" || fail 'default source download did not quiet Git progress'
 [ -f "$CLASHCTL_HOME/data/shell-ready" ] || fail 'pipeline did not install shell integration'
 [ -f "$CLASHCTL_HOME/.env" ] || fail 'pipeline did not write environment'
 [ ! -e "$CLASHCTL_HOME/.clashctl-uninitialized" ] || fail 'initialized installation retains uninitialized marker'
@@ -250,7 +254,7 @@ for form in separate equals; do
     else
         option_args=(--kernel=clash '--sub=file:///install-sub?token=example&name=main')
     fi
-    CLASHCTL_HOME="$option_home" bash "$REPO_DIR/install.sh" "${option_args[@]}" \
+    TEST_SERVICE_MANAGER=systemd CLASHCTL_HOME="$option_home" bash "$REPO_DIR/install.sh" "${option_args[@]}" \
         >"$WORK_DIR/options-$form.out" 2>&1 ||
         { cat "$WORK_DIR/options-$form.out"; fail "install options rejected: $form"; }
     [ "$(cat "$option_home/data/subscription")" = 'file:///install-sub?token=example&name=main' ] ||
@@ -259,12 +263,15 @@ for form in separate equals; do
         fail "install kernel option was not applied: $form"
     [ -f "$option_home/data/started" ] || fail "install subscription was not activated: $form"
     [ -f "$option_home/data/enabled" ] || fail "install subscription did not enable service: $form"
+    grep -q '已注册 systemd 服务' "$WORK_DIR/options-$form.out" || fail 'managed service registration result missing'
+    grep -q '已设置开机自启' "$WORK_DIR/options-$form.out" || fail 'managed service startup result missing'
 done
 # 详细模式必须从安装入口传递到组件下载阶段。
 verbose_home="$WORK_DIR/verbose-install"
-CLASHCTL_HOME="$verbose_home" bash "$REPO_DIR/install.sh" --verbose >"$WORK_DIR/verbose.out" 2>&1 ||
+GIT_CALL_LOG="$WORK_DIR/verbose-git.log" CLASHCTL_HOME="$verbose_home" bash "$REPO_DIR/install.sh" --verbose >"$WORK_DIR/verbose.out" 2>&1 ||
     { cat "$WORK_DIR/verbose.out"; fail 'verbose installation failed'; }
 [ "$(cat "$verbose_home/data/download-verbose")" = 1 ] || fail 'verbose option did not reach component downloads'
+! grep -q 'clone .*--quiet' "$WORK_DIR/verbose-git.log" || fail 'verbose source download hid Git progress'
 # 内核已启动但设置自启失败时，续装不能因“已运行”而跳过恢复自启。
 enable_failed_home="$WORK_DIR/enable-failed"
 if FAIL_ENABLE=1 CLASHCTL_HOME="$enable_failed_home" bash "$REPO_DIR/install.sh" \
@@ -755,6 +762,15 @@ HOME="$legacy_user" bash -c '. "$HOME/.bashrc"; bash "$1" --local' _ \
     { cat "$WORK_DIR/v1-success.out"; fail 'legacy v1 migration failed'; }
 wait "$profile_writer" || fail 'legacy profile writer failed'
 legacy_v1_backup=$(find "$WORK_DIR" -maxdepth 1 -name 'legacy-v1-home.bak.*' -print -quit)
+grep -q '原路径升级' "$WORK_DIR/v1-success.out" || fail 'in-place migration did not explain its path choice'
+! grep -q '旧版目录:' "$WORK_DIR/v1-success.out" || fail 'in-place migration duplicated the installation path'
+grep -Fq "旧版备份: $legacy_v1_backup" "$WORK_DIR/v1-success.out" || fail 'migration did not identify its backup'
+awk '
+    /安装完成/ { completed = 1 }
+    /旧版备份:/ { if (!completed) exit 1; backed_up = 1 }
+    /在当前终端执行/ { if (!backed_up) exit 1; guided = 1 }
+    END { if (!guided) exit 1 }
+' "$WORK_DIR/v1-success.out" || fail 'migration backup was not shown between completion and guidance'
 [ "$(<"$legacy_v1/data/config.yaml")" = 'legacy v1 config' ] || fail 'legacy v1 config was not migrated'
 [ "$(<"$legacy_v1/data/profiles/first.yaml")" = 'legacy v1 profile after update' ] ||
     fail 'legacy v1 profile was copied before the old writer completed'

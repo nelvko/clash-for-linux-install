@@ -4,9 +4,13 @@
 
 ## 当前验证状态（2026-10-10）
 
-旧候选 `836e9c3` 已完成真实内核验收。安装参数、配置持久化、日志与卸载提示调整，以及本地更新回滚失败时保留恢复备份的修复，已作为最终代码候选 `13169dd` 推送至 `install-update`；[GitHub Actions](https://github.com/nelvko/clash-for-linux-install/actions/runs/38017703053) 的 Bash 语法、全量回归和普通用户迁移检查均通过。
+旧候选 `836e9c3` 已完成真实内核验收。安装参数、配置持久化、日志与卸载提示调整，以及本地更新回滚失败时保留恢复备份的修复，已作为代码候选 `13169dd` 推送至 `install-update`；[GitHub Actions](https://github.com/nelvko/clash-for-linux-install/actions/runs/38017703053) 的 Bash 语法、全量回归和普通用户迁移检查均通过。
 
-本地收尾审查全量回归 15/15、普通用户迁移与卸载回归 3/3 通过。随后发现并修复了恢复备份被外层清理删除的问题；新增回归已确认修复前失败、修复后通过，root 与普通用户安装更新回归各 1/1 通过，且备份可实际恢复。各轮验证的范围见[本地补充记录](acceptance-install-update-20261009.md#2026-10-10-本地补充验证)。最终候选已通过 CI；真实 systemd 验收仍为旧候选的记录，本轮未重新执行。
+当前工作区另有安装输出优化：区分原路径升级与搬迁、收敛源码下载日志、补充服务与自启结果、显示终端下载进度，以及将备份路径放在完成提示与操作指南之间。这些后续修改尚未提交或推送，旧候选的 CI 不覆盖它们；本地试用使用 `--local`，在线试用只会获取已推送版本。
+
+安装输出优化的本地验证：root `common-ui`、`install-legacy-nohup`、`install-update` 与 `preflight-components` 回归 4/4，普通用户安装更新与旧版迁移回归 2/2 通过；改动涉及的脚本 Bash 语法、ShellCheck 错误级检查及 `git diff --check` 通过。服务结果通过隔离 fixture 验证，本轮没有操作本机真实服务。
+
+本地收尾审查全量回归 15/15、普通用户迁移与卸载回归 3/3 通过。随后发现并修复了恢复备份被外层清理删除的问题；新增回归已确认修复前失败、修复后通过，root 与普通用户安装更新回归各 1/1 通过，且备份可实际恢复。各轮验证的范围见[本地补充记录](acceptance-install-update-20261009.md#2026-10-10-本地补充验证)。已推送候选通过 CI；真实 systemd 验收仍为旧候选的记录，本轮未重新执行。
 
 ## 合并前试用
 
@@ -52,6 +56,7 @@ curl -fsSL https://raw.githubusercontent.com/nelvko/clash-for-linux-install/inst
 - [x] 明确 `off` 只清除终端代理、`start/stop` 启停内核，并移除 `on/off` 的旧选项，更新文档与命令帮助。
 - [x] 旧候选已推送至 `install-update`，提供同时指定脚本分支与 `CLASHCTL_UPDATE_BRANCH` 的试用命令，并发布 [Wiki 候选说明](https://github.com/nelvko/clash-for-linux-install/wiki/Install-Update-Preview)。
 - [x] 提交并推送当前收尾修改，确认最终代码候选 `13169dd` 的 CI 通过。
+- [ ] 提交并推送后续安装输出优化，确认更新后的代码候选 CI 通过。
 - [ ] 同步 Wiki 候选说明中的 `--branch`、`--home`、`--sub` 等安装参数。
 - [ ] 收集外部用户试用反馈，处理发现的阻断问题；尚未收到试用结果时不将此项记为完成。
 - [ ] 正式合并时切换 Wiki 默认说明中的 `off` 行为、安装路径和 FAQ；候选期保留旧 `master` 文档并链接候选说明。README 已按合并后的 `master` 写法准备。
