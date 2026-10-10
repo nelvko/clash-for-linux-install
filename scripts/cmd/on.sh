@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 clashon() {
+    local _CLASHCTL_START_FROM_ON=1
     [ "$#" -le 1 ] || { _ui_fail '用法: clashctl on [--help]'; return 1; }
     case "${1:-}" in
     -h | --help)

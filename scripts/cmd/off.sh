@@ -11,7 +11,7 @@ clashoff() {
     *) _ui_fail '用法: clashctl off [--help]'; return 1 ;;
     esac
     unset_system_proxy
-    _ui_ok_out "当前终端代理环境已清除，内核运行状态未改变"
+    _ui_ok_out "当前终端代理已关闭"
 }
 
 unset_system_proxy() {
