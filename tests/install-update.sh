@@ -19,7 +19,7 @@ export FIXTURE="$WORK_DIR/source" CI=1 CLASHCTL_HOME="$WORK_DIR/installed"
 mkdir -p "$FIXTURE/scripts/lib" "$FIXTURE/scripts/cmd" "$FIXTURE/resources" "$WORK_DIR/bin"
 cp "$REPO_DIR/scripts/lib/operation-lock.sh" "$FIXTURE/scripts/lib/"
 cp "$REPO_DIR/scripts/lib/service-process.sh" "$FIXTURE/scripts/lib/"
-printf '#!/usr/bin/env bash\n' >"$FIXTURE/scripts/lib/common.sh"
+cp "$REPO_DIR/scripts/lib/common.sh" "$FIXTURE/scripts/lib/"
 cp "$REPO_DIR/scripts/cmd/update.sh" "$FIXTURE/scripts/cmd/"
 cp "$REPO_DIR/install.sh" "$FIXTURE/"
 cp "$REPO_DIR/uninstall.sh" "$FIXTURE/"
@@ -28,6 +28,7 @@ cp "$REPO_DIR/resources/"{mixin.yaml.example,profiles.yaml} "$FIXTURE/resources/
 printf 'data/\nbin/\n.env\n.clashctl-install\n.clashctl-uninitialized\n.clashctl-incomplete\n.clashctl-files\n' >"$FIXTURE/.gitignore"
 cat >"$FIXTURE/scripts/preflight.sh" <<'STUB'
 [ ! -f "$CLASHCTL_HOME/.env" ] || . "$CLASHCTL_HOME/.env"
+. "$CLASHCTL_SRC/scripts/lib/common.sh"
 . "$CLASHCTL_SRC/scripts/lib/service-process.sh"
 CLASH_DATA_DIR="$CLASHCTL_HOME/data"
 CLASH_PROFILES_DIR="$CLASH_DATA_DIR/profiles"
@@ -987,6 +988,8 @@ def install_in_terminal(name, args=(), subscription=None):
         os.environ.pop("CI", None)
         os.environ["CLASHCTL_HOME"] = home
         os.environ["CLASHCTL_UPDATE_BRANCH"] = "master"
+        os.environ["TERM"] = "xterm-256color"
+        os.environ["INPUTRC"] = "/dev/null"
         os.execvp("bash", ["bash", "-c",
                   'cat "$TEST_REPO/install.sh" | bash -s -- "$@"',
                   "terminal-install", *args])
@@ -1006,7 +1009,8 @@ def install_in_terminal(name, args=(), subscription=None):
                     break
                 output += chunk
                 if subscription is not None and not sent and prompt in output:
-                    os.write(fd, subscription.encode() + b"\n")
+                    data = subscription if isinstance(subscription, bytes) else subscription.encode() + b"\n"
+                    os.write(fd, data)
                     sent = True
             child, child_status = os.waitpid(pid, os.WNOHANG)
             if child:
@@ -1042,6 +1046,23 @@ assert "启用当前终端代理".encode() in output, "missing proxy activation 
 assert b"clashctl on" in output, "missing proxy activation step"
 with open(home + "/data/subscription") as saved:
     assert saved.read() == "file:///private-subscription"
+
+# 安装器从 /dev/tty 读取时，同样支持粘贴、方向键编辑，以及回车/EOF 跳过。
+for name, data, expected in [
+    ("paste", b"\x1b[200~file:///pasted?token=a&b=2\x1b[201~\n", "file:///pasted?token=a&b=2"),
+    ("arrow", b"file:///sb\x1b[Du\n", "file:///sub"),
+    ("empty", b"\n", None),
+    ("eof", b"\x04", None),
+]:
+    test_home, _, sent = install_in_terminal("tty-" + name, subscription=data)
+    assert sent, name + ": subscription prompt missing"
+    saved = test_home + "/data/subscription"
+    if expected is None:
+        assert not os.path.exists(saved), name + ": skipped input added a subscription"
+        assert not os.path.exists(test_home + "/data/started"), name + ": skipped input started kernel"
+    else:
+        with open(saved) as file:
+            assert file.read() == expected, name + ": incorrect subscription URL"
 
 # 已有配置的重复安装不能再次询问或覆盖订阅，内核应正常启动。
 os.remove(home + "/data/started")

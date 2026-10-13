@@ -718,7 +718,7 @@ _install_initialize() {
 
     if [ -z "$subscription" ] && [ ! -s "$CLASH_CONFIG_BASE" ] &&
         [ "${CI+x}" != x ] && ( : </dev/tty ) 2>/dev/null; then
-        IFS= read -r -p '       订阅链接（回车跳过，稍后可添加）: ' subscription </dev/tty || subscription=''
+        _read_subscription_url subscription '       订阅链接（回车跳过，稍后可添加）: ' </dev/tty || subscription=''
     fi
     if [ -n "$subscription" ]; then
         # 订阅失败不算安装失败：组件、命令和服务都已就绪，此时报"安装未完成"会误导用户重装。

@@ -74,6 +74,21 @@ gh_proxy_url() {
     fi
 }
 
+# 订阅入口在 Bash 中执行；终端启用行编辑，管道保留普通读取方式。
+_read_subscription_url() {
+    local _subscription_input=''
+    if [ -t 0 ]; then
+        IFS= read -e -r -p "${2:-}" _subscription_input || return
+    else
+        printf '%s' "${2:-}" >&2
+        IFS= read -r _subscription_input || [ -n "$_subscription_input" ] || return 1
+    fi
+    # 普通读取或终端未处理粘贴标记时，只移除 URL 首尾的边界。
+    _subscription_input=${_subscription_input#$'\033[200~'}
+    _subscription_input=${_subscription_input%$'\033[201~'}
+    printf -v "$1" '%s' "$_subscription_input"
+}
+
 _is_port_used() {
     local port=${1:-} sockets
     [[ $port =~ ^[0-9]+$ ]] && [ "${#port}" -le 5 ] &&

@@ -567,8 +567,7 @@ EOF
 
     [ -z "$url" ] && [ $# -gt 0 ] && url=$1
     [ -z "$url" ] && {
-        printf '%s' '请输入要添加的订阅链接：'
-        read -r url
+        _read_subscription_url url '请输入要添加的订阅链接：' || return 1
         [ -z "$url" ] && {
             _errorcat "订阅链接不能为空"
             return 1
