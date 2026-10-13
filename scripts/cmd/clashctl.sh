@@ -21,6 +21,7 @@ clashctl() {
 
     case $sub_cmd in
     -h | --help | help) sub_cmd=help ;;
+    -v | --version) sub_cmd=version ;;
     -*)
         _ui_fail "Unknown option: $sub_cmd"
         _ui_fail "Use 'clashctl help' for usage information."

@@ -82,9 +82,11 @@ Commands:
   log                   查看日志
   upgrade               升级内核
   update                更新 clashctl
+  version               脚本和内核版本
 
 Global Options:
   -h, --help            显示帮助信息
+  -v, --version         显示版本信息
 ```
 
 使用示例与进阶配置，详见 [Wiki](https://github.com/nelvko/clash-for-linux-install/wiki)。

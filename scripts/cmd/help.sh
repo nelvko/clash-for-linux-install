@@ -21,9 +21,11 @@ Commands:
   log                   查看日志
   upgrade               升级内核
   update                更新 clashctl
+  version               脚本和内核版本
 
 Global Options:
   -h, --help            显示帮助信息
+  -v, --version         显示版本信息
 
 For more help on how to use clashctl, head to https://github.com/nelvko/clash-for-linux-install
 EOF

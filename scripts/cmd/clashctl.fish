@@ -65,6 +65,8 @@ function clashctl
     switch $sub
         case -h --help help
             set sub help
+        case -v --version
+            set sub version
         case '-*'
             echo "Unknown option: $sub" >&2
             echo "Use 'clashctl help' for usage information." >&2
