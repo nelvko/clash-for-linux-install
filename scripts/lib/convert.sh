@@ -224,7 +224,12 @@ _start_convert() {
     _detect_subconverter_port
     check_url="http://localhost:${BIN_SUBCONVERTER_PORT}/version"
     BIN_SUBCONVERTER_PID=$(
-        "$BIN_SUBCONVERTER" >"$BIN_SUBCONVERTER_LOG" 2>&1 &
+        (
+            if typeset -f operation_lock_close_fd >/dev/null 2>&1; then
+                operation_lock_close_fd || exit 1
+            fi
+            exec "$BIN_SUBCONVERTER"
+        ) </dev/null >"$BIN_SUBCONVERTER_LOG" 2>&1 9>&- &
         echo $!
     )
 
@@ -235,6 +240,7 @@ _start_convert() {
         now=$(date +%s)
         [ $((now - start)) -gt 10 ] && { _errorcat "订阅转换服务未启动，请检查日志：$BIN_SUBCONVERTER_LOG"; return 1; }
     done
+    return 0
 }
 
 _stop_convert() {

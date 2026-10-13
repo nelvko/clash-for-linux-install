@@ -581,7 +581,10 @@ ${_SUB_DL_DEBUG_HINT:-转换日志：$BIN_SUBCONVERTER_LOG}"
         return 1
     }
 
-    _with_profiles_lock _sub_add_locked "$name" "$url" "$use_after_add" "$_SUB_DL_FILE" "$FETCH_USERINFO" "$FETCH_FILENAME"
+    local dl_file=$_SUB_DL_FILE rc=0
+    _with_profiles_lock _sub_add_locked "$name" "$url" "$use_after_add" "$dl_file" "$FETCH_USERINFO" "$FETCH_FILENAME" || rc=$?
+    [ "$rc" -eq 0 ] || /usr/bin/rm -f -- "$dl_file"
+    return "$rc"
 }
 
 # 临界区：确定唯一名称/路径、落盘、写入元数据（可选立即启用）
@@ -1013,7 +1016,10 @@ ${_SUB_DL_DEBUG_HINT:-转换日志：$BIN_SUBCONVERTER_LOG}"
         return 1
     }
 
-    _with_profiles_lock _sub_update_locked "$name" "$url" "$path" "$_SUB_DL_FILE" "$FETCH_USERINFO"
+    local dl_file=$_SUB_DL_FILE rc=0
+    _with_profiles_lock _sub_update_locked "$name" "$url" "$path" "$dl_file" "$FETCH_USERINFO" || rc=$?
+    [ "$rc" -eq 0 ] || /usr/bin/rm -f -- "$dl_file"
+    return "$rc"
 }
 
 _sub_update_locked() {
