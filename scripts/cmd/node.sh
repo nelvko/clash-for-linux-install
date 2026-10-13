@@ -15,6 +15,19 @@ clashnode() {
         ;;
     esac
 
+    # node 使用 Bash 数组和关联数组；与 start/update 一样交给 Bash 执行。
+    if [ -n "${ZSH_VERSION:-}" ]; then
+        command -v bash >/dev/null 2>&1 || {
+            _ui_error '未找到 Bash，请安装后重试'
+            return 127
+        }
+        CLASHCTL_HOME="$CLASHCTL_HOME" bash -c '
+            unset ZSH_VERSION
+            . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" && clashnode "$@"
+        ' -- "$@"
+        return
+    fi
+
     service_is_active >&/dev/null || {
         _failcat "$CLASHCTL_KERNEL 未运行，请先执行 clashctl on"
         return 1

@@ -33,14 +33,14 @@ BIN_YQ="${BIN_BASE_DIR}/yq"
 # 兼容性判定：仅 mikefarah yq v4（发行版打包的 Python yq 是 jq 语法，不兼容）。
 # 成功输出系统 yq 路径，不兼容/未安装时返回非零。
 _get_system_yq() {
-    local path
+    local yq_path
     command -v yq >/dev/null 2>&1 || return 1
     case $(yq --version 2>&1) in
     *mikefarah*v4.*) ;;
     *) return 1 ;;
     esac
-    path=$(command -v yq) || return 1
-    printf '%s\n' "$path"
+    yq_path=$(command -v yq) || return 1
+    printf '%s\n' "$yq_path"
 }
 
 # 本地未下载 yq 时复用系统兼容副本；bin/yq 一旦存在即优先——

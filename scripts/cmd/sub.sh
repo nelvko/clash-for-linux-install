@@ -15,6 +15,19 @@ clashsub() {
         ;;
     esac
 
+    # 订阅命令使用 Bash 数组及文件描述符语法，避免在 Zsh 中直接执行。
+    if [ -n "${ZSH_VERSION:-}" ]; then
+        command -v bash >/dev/null 2>&1 || {
+            _ui_error '未找到 Bash，请安装后重试'
+            return 127
+        }
+        CLASHCTL_HOME="$CLASHCTL_HOME" bash -c '
+            unset ZSH_VERSION
+            . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" && clashsub "$@"
+        ' -- "$@"
+        return
+    fi
+
     _sub_migrate
 
     case "${1:-}" in
@@ -632,7 +645,9 @@ _sub_add_locked() {
 
     _logging_sub "➕ 已添加订阅：[$name]"
     _okcat '🎉' "订阅已添加：[$name]"
-    [ "$use_after_add" = true ] && _sub_use_locked "$name"
+    if [ "$use_after_add" = true ]; then
+        _sub_use_locked "$name"
+    fi
 }
 
 _sub_del() {
