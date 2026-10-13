@@ -23,10 +23,6 @@
   <a href="https://deepwiki.com/nelvko/clash-for-linux-install"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki" /></a>
 </p>
 
-<p align="center">
-  <img src="preview.png" alt="preview" />
-</p>
-
 ## ✨ 特性
 
 - **开箱即用**：一键部署 `mihomo` 内核、Web 面板及运行依赖。
