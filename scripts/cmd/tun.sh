@@ -1,20 +1,32 @@
 #!/usr/bin/env bash
 
 clashtun() {
-    case "$1" in
+    case "${1:-}" in
     -h | --help)
         tun_help
         return 0
         ;;
+    esac
+    if [ -n "${ZSH_VERSION:-}" ]; then
+        command -v bash >/dev/null 2>&1 || { _ui_error '未找到 Bash，请安装后重试'; return 127; }
+        CLASHCTL_HOME="$CLASHCTL_HOME" bash -c '
+            unset ZSH_VERSION
+            . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" && clashtun "$@"
+        ' -- "$@"
+        return
+    fi
+    [ "$#" -le 1 ] || { _ui_error '用法: clashctl tun [on|off]'; return 1; }
+    case "${1:-}" in
     on)
         tunon
         ;;
     off)
         tunoff
         ;;
-    *)
+    '')
         tunstatus
         ;;
+    *) _ui_error '用法: clashctl tun [on|off]'; return 1 ;;
     esac
 }
 
@@ -33,6 +45,7 @@ tunoff() {
 
 tunon() {
     tunstatus 2>/dev/null && return 0
+    _tun_check_device_available || return 1
     service_stop >&/dev/null
     "$BIN_YQ" -i '.tun.enable = true' "$CLASH_CONFIG_MIXIN"
     _merge_config

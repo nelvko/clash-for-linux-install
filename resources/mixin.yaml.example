@@ -35,6 +35,7 @@ proxy-groups:
 # tun 配置
 tun:
   enable: false
+  device: clashctl
   stack: system
   auto-route: true
   auto-redir: true # clash

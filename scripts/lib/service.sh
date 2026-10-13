@@ -33,6 +33,30 @@ _service_owned_pids() {
     _service_process_record_pid "$service_pid_path" 2>/dev/null
 }
 
+# 只返回与本次安装的二进制、启动参数一致的 PID，供 TUN 归属检查使用。
+service_main_pid() {
+    detect_service_manager
+    local pid='' expected_argv record
+    case "$service_manager" in
+    systemd) pid=$(systemctl show "$CLASHCTL_KERNEL" -p MainPID --value 2>/dev/null) ;;
+    runit) pid=$(sv status "$CLASHCTL_KERNEL" 2>/dev/null | sed -n 's/.*(pid \([0-9]*\)).*/\1/p') ;;
+    sysvinit | openrc) read -r pid <"$service_pid_path" 2>/dev/null || return 1 ;;
+    *)
+        pid=$(_service_owned_pids) || {
+            record=$(_service_privileged_record_path /run/clashctl "$(id -u)" "$CLASHCTL_KERNEL") || return 1
+            _service_privileged_record_is_secure "$record" || return 1
+            pid=$(_service_process_record_pid "$record" 2>/dev/null) || return 1
+        }
+        ;;
+    esac
+    case $pid in '' | *[!0-9]*) return 1 ;; esac
+    [ "$pid" -gt 1 ] || return 1
+    expected_argv=$(_service_process_values_argv_hex \
+        "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME") || return 1
+    _service_process_snapshot "$pid" "$BIN_KERNEL" "$expected_argv" || return 1
+    printf '%s\n' "$pid"
+}
+
 _service_privileged_marker_exists() {
     local record
     _is_root && return 1

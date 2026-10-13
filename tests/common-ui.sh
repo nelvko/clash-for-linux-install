@@ -117,6 +117,7 @@ assert_not_contains "$stdout_file" $'\033[' 'redirected auto output has no ANSI'
         unset NO_COLOR
         CLASHCTL_COLOR=$policy
         if [ "$policy" = no-color ]; then
+            # shellcheck disable=SC2034  # 由 install.sh 的颜色判定读取。
             NO_COLOR=1
             CLASHCTL_COLOR=always
         fi
@@ -151,9 +152,7 @@ fake_yq() {
     printf '%s\n' Meta
 }
 TUN_PRESENT=1
-ip() {
-    [ "$TUN_PRESENT" -eq 1 ] && printf '%s\n' '7: Meta: <POINTOPOINT,UP>'
-}
+_tun_is_active() { [ "$TUN_PRESENT" -eq 1 ]; }
 
 : >"$stdout_file"
 : >"$stderr_file"
