@@ -40,7 +40,7 @@ done
 if clashctl definitely-not-a-command >"$WORK_DIR/unknown.out" 2>&1; then
     fail 'unknown subcommand was accepted'
 fi
-grep -q 'Unknown subcommand' "$WORK_DIR/unknown.out" ||
+grep -q 'Unknown subcommand: definitely-not-a-command' "$WORK_DIR/unknown.out" ||
     fail 'unknown subcommand had no diagnosis'
 
 # 3) help 必须能执行且列出核心命令
@@ -81,5 +81,39 @@ case "$CLASH_CONFIG_MIXIN" in
 esac
 [ "$BIN_KERNEL" = "$CLASHCTL_HOME/bin/mihomo/mihomo" ] ||
     fail "BIN_KERNEL layout unexpected: $BIN_KERNEL"
+
+# 6) 三种 Shell 都区分未知选项和子命令，并报告用户的原始输入。
+command_in_shell() {
+    local shell=$1
+    shift
+    local -a command
+    # shellcheck disable=SC2016  # 变量在被调用的 Shell 中展开。
+    case $shell in
+    bash) command=(bash --noprofile --norc -c '. "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" && clashctl "$@"' command-test) ;;
+    zsh) command=(zsh -f -c '. "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" && clashctl "$@"' command-test) ;;
+    fish) command=(fish --no-config -c 'source "$CLASHCTL_HOME/scripts/cmd/clashctl.fish"; clashctl $argv' --) ;;
+    esac
+    env -i PATH="$PATH" HOME="$WORK_DIR/user" CLASHCTL_HOME="$HOME_DIR" \
+        TERM=dumb "${command[@]}" "$@"
+}
+
+mkdir -p "$WORK_DIR/user"
+for shell in bash zsh fish; do
+    command -v "$shell" >/dev/null || fail "$shell is required"
+    for input in --unknown-option unknown-command; do
+        case $input in
+        -*) expected="Unknown option: $input" ;;
+        *) expected="Unknown subcommand: $input" ;;
+        esac
+        if command_in_shell "$shell" "$input" >"$WORK_DIR/unknown.stdout" 2>"$WORK_DIR/unknown.stderr"; then
+            fail "$shell accepted $input"
+        fi
+        grep -Fq "$expected" "$WORK_DIR/unknown.stderr" || fail "$shell misreported $input"
+        [ ! -s "$WORK_DIR/unknown.stdout" ] || fail "$shell wrote $input error to stdout"
+        if grep -Fq "clash$input" "$WORK_DIR/unknown.stderr"; then
+            fail "$shell exposed an internal function name"
+        fi
+    done
+done
 
 printf 'command-load: ok\n'

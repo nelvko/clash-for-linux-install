@@ -65,12 +65,16 @@ function clashctl
     switch $sub
         case -h --help help
             set sub help
+        case '-*'
+            echo "Unknown option: $sub" >&2
+            echo "Use 'clashctl help' for usage information." >&2
+            return 1
     end
 
     set -l target clash$sub
     if not functions -q $target
-        echo "Unknown subcommand: $target"
-        echo "Use 'clashctl help' for usage information."
+        echo "Unknown subcommand: $sub" >&2
+        echo "Use 'clashctl help' for usage information." >&2
         return 1
     end
     $target $argv

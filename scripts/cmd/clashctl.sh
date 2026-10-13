@@ -21,13 +21,18 @@ clashctl() {
 
     case $sub_cmd in
     -h | --help | help) sub_cmd=help ;;
+    -*)
+        _ui_fail "Unknown option: $sub_cmd"
+        _ui_fail "Use 'clashctl help' for usage information."
+        return 1
+        ;;
     esac
 
     local target="clash${sub_cmd}"
-    declare -F "$target" >&/dev/null || {
-        _ui_fail "Unknown subcommand: $target"
+    typeset -f "$target" >/dev/null 2>&1 || {
+        _ui_fail "Unknown subcommand: $sub_cmd"
         _ui_fail "Use 'clashctl help' for usage information."
-        return
+        return 1
     }
     "$target" "$@"
 }
