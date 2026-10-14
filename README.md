@@ -102,7 +102,7 @@ Commands:
   off                   关闭当前终端代理，默认保留内核运行
   start                 仅启动内核
   stop                  仅停止内核
-  status                内核状态
+  status                内核、终端代理状态及代理地址
   ui                    面板地址
   sub                   订阅管理
   node                  节点切换

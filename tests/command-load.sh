@@ -51,9 +51,9 @@ for word in on off start stop status ui sub node update; do
 done
 
 # 4) 声明支持 -h/--help 的子命令，其 --help 不应因缺依赖而崩溃。
-#    其余命令（如 status/log）本就没有 help 分支，不在此断言。
+#    其余命令（如 log）本就没有 help 分支，不在此断言。
 #    -h 是最轻的路径，能在无内核/无配置下验证函数体前半段接线正确。
-for sub in on off start stop sub node tun mixin secret upgrade update version; do
+for sub in on off start stop status sub node tun mixin secret upgrade update version; do
     rc=0
     clashctl "$sub" --help >"$WORK_DIR/$sub-help.out" 2>&1 || rc=$?
     [ "$rc" -eq 0 ] ||
@@ -62,8 +62,7 @@ for sub in on off start stop sub node tun mixin secret upgrade update version; d
         fail "clashctl $sub --help produced no output"
 done
 
-# 无 help 分支的命令也必须能被调用（不报 Unknown subcommand）。
-# status 在服务未运行时返回非零属正常，只要求它执行到服务查询。
+# status 在服务未运行时返回非零属正常，只要求它执行到状态查询。
 rc=0
 clashctl status >"$WORK_DIR/status.out" 2>&1 || rc=$?
 case "$(cat "$WORK_DIR/status.out")" in

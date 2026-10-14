@@ -25,6 +25,21 @@ clashversion() {
     fi
     local kernel_info kernel_version
     kernel_info=$("$BIN_KERNEL" -v) || return
+    kernel_version=$(_kernel_version "$kernel_info") || {
+        _ui_error '无法读取内核版本信息'
+        return 1
+    }
+    printf '%s %s\n' "${CLASHCTL_KERNEL:-mihomo}" "$kernel_version"
+}
+
+# 无参数时查询内核；也可传入已读取的 banner，以区分查询失败与格式错误。
+_kernel_version() {
+    local kernel_info kernel_version
+    if [ "$#" -eq 0 ]; then
+        kernel_info=$("$BIN_KERNEL" -v) || return
+    else
+        kernel_info=$1
+    fi
     kernel_info=${kernel_info%%$'\n'*}
     case $kernel_info in
     'Mihomo Meta '* | 'Clash Meta '*) kernel_version=${kernel_info#* Meta } ;;
@@ -32,9 +47,6 @@ clashversion() {
     *) kernel_version='' ;;
     esac
     kernel_version=${kernel_version%% *}
-    [ -n "$kernel_version" ] || {
-        _ui_error '无法读取内核版本信息'
-        return 1
-    }
-    printf '%s %s\n' "${CLASHCTL_KERNEL:-mihomo}" "$kernel_version"
+    [ -n "$kernel_version" ] || return 1
+    printf '%s\n' "$kernel_version"
 }

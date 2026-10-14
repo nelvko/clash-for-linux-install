@@ -57,6 +57,68 @@ service_main_pid() {
     printf '%s\n' "$pid"
 }
 
+_service_uptime_process_ticks() {
+    local stat rest
+    local -a fields=()
+    { IFS= read -r stat <"/proc/$1/stat"; } 2>/dev/null || return 1
+    rest=${stat##*) }
+    [ "$rest" != "$stat" ] || return 1
+    read -r -a fields <<<"$rest"
+    [ "${#fields[@]}" -ge 20 ] || return 1
+    case ${fields[0]} in
+    Z | X | x) return 1 ;;
+    [a-zA-Z]) ;;
+    *) return 1 ;;
+    esac
+    case ${fields[19]} in '' | *[!0-9]*) return 1 ;; esac
+    printf '%s\n' "${fields[19]}"
+}
+
+_service_uptime_clock() {
+    local uptime _idle ticks
+    { read -r uptime _idle </proc/uptime; } 2>/dev/null || return 1
+    ticks=$(getconf CLK_TCK 2>/dev/null) || return 1
+    printf '%s %s\n' "$uptime" "$ticks"
+}
+
+# PID 必须先由 service_main_pid 校验；这里只读查询持续时间，并在输出前重查进程身份。
+service_uptime() {
+    local pid=${1:-} start current clock uptime ticks extra whole fraction scale elapsed
+    case "$pid" in '' | *[!0-9]*) return 1 ;; esac
+    [ "$pid" -gt 1 ] 2>/dev/null || return 1
+    start=$(_service_uptime_process_ticks "$pid") || return 1
+    clock=$(_service_uptime_clock) || return 1
+    case "$clock" in *$'\n'*) return 1 ;; esac
+    read -r uptime ticks extra <<<"$clock"
+    [ -z "$extra" ] || return 1
+    case "$uptime" in
+    *.*) whole=${uptime%%.*}; fraction=${uptime#*.} ;;
+    *) whole=$uptime; fraction=0 ;;
+    esac
+    case "$start:$ticks:$whole:$fraction" in
+    *[!0-9:]* | :* | *::*) return 1 ;;
+    esac
+    [ -n "$fraction" ] && [ -n "$whole" ] && [ -n "$ticks" ] || return 1
+    # 限制位数，保证后续整数及小数交叉乘法不会溢出 Bash 的有符号整数。
+    [ "${#start}" -le 18 ] && [ "${#whole}" -le 15 ] &&
+        [ "${#ticks}" -le 9 ] && [ "${#fraction}" -le 9 ] || return 1
+    ticks=$((10#$ticks))
+    [ "$ticks" -gt 0 ] || return 1
+    whole=$((10#$whole))
+    scale=$((10 ** ${#fraction}))
+    fraction=$((10#$fraction))
+    current=$((10#$start))
+    elapsed=$((whole - current / ticks))
+    # 分开比较秒与余数，避免浮点舍入把恰好 1 秒显示为 0 秒。
+    if [ "$((fraction * ticks))" -lt "$(((current % ticks) * scale))" ]; then
+        elapsed=$((elapsed - 1))
+    fi
+    [ "$elapsed" -ge 0 ] || return 1
+    current=$(_service_uptime_process_ticks "$pid") || return 1
+    [ "$current" = "$start" ] || return 1
+    printf '%s\n' "$elapsed"
+}
+
 _service_privileged_marker_exists() {
     local record
     _is_root && return 1
@@ -100,6 +162,7 @@ detect_service_manager() {
         service_log_path="${CLASH_DATA_DIR}/${CLASHCTL_KERNEL}.log"
         service_pid_path="${CLASH_DATA_DIR}/${CLASHCTL_KERNEL}.pid"
     }
+    return 0
 }
 
 _service_nohup_start_locked() {    local pid expected_argv
@@ -283,6 +346,131 @@ service_is_active() {
         _service_owned_pids >/dev/null 2>&1 || _service_privileged_marker_exists
         ;;
     esac
+}
+
+# 只读查询输出归一化状态；检测失败不输出状态，避免把查询错误误报为停止。
+# 不复用 service_is_active，避免把管理器故障、权限错误误报为停止。
+service_state() {
+    detect_service_manager || return 1
+    local output rc=0 state
+    case "$service_manager" in
+    systemd)
+        output=$(systemctl is-active "$CLASHCTL_KERNEL" 2>/dev/null) || rc=$?
+        case "$rc:$output" in
+        0:active | 0:reloading | 0:refreshing) state=running ;;
+        3:inactive) state=stopped ;;
+        3:failed) state=failed ;;
+        3:activating) state=starting ;;
+        3:deactivating) state=stopping ;;
+        *) return 1 ;;
+        esac
+        ;;
+    sysvinit)
+        service "$CLASHCTL_KERNEL" status >/dev/null 2>&1 || rc=$?
+        # LSB status：1 为进程已死但 PID 文件残留，2 为锁文件残留，3 为未运行。
+        case "$rc" in
+        0) state=running ;;
+        1 | 2 | 3) state=stopped ;;
+        *) return 1 ;;
+        esac
+        ;;
+    openrc)
+        rc-service "$CLASHCTL_KERNEL" status >/dev/null 2>&1 || rc=$?
+        # openrc-run 的原生状态码还包括过渡、闲置与进程崩溃。
+        case "$rc" in
+        0) state=running ;;
+        3) state=stopped ;;
+        4) state=stopping ;;
+        8) state=starting ;;
+        16) state=stopped ;;
+        32) state=failed ;;
+        *) return 1 ;;
+        esac
+        ;;
+    runit)
+        output=$(sv status "$CLASHCTL_KERNEL" 2>/dev/null) || return 1
+        case "$output" in
+        run:*) state=running ;;
+        down:*) state=stopped ;;
+        *) return 1 ;;
+        esac
+        ;;
+    nohup)
+        _service_nohup_state
+        return
+        ;;
+    *) return 1 ;;
+    esac
+    printf '%s\n' "$state"
+}
+
+_service_state_path_absent() {
+    local path=$1 parent
+    [ ! -e "$path" ] && [ ! -L "$path" ] || return 1
+    parent=$(dirname -- "$path") || return 1
+    while [ ! -d "$parent" ]; do
+        [ "$parent" != / ] && [ "$parent" != . ] || return 1
+        parent=$(dirname -- "$parent") || return 1
+    done
+    # 不把无法遍历父目录造成的不可见误认为记录不存在。
+    [ -x "$parent" ]
+}
+
+_service_record_state() {
+    local record=$1 current expected_argv stat rest
+    if _service_state_path_absent "$record"; then
+        printf 'stopped\n'
+        return 0
+    fi
+    _service_process_record_load "$record" || return 1
+    expected_argv=$(_service_process_values_argv_hex \
+        "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME") || return 1
+    [ "$_SERVICE_RECORD_ARGV" = "$expected_argv" ] || return 1
+    if _service_process_record_matches_loaded; then
+        printf 'running\n'
+        return 0
+    fi
+    # 身份不匹配可以确认记录已过期；读取 /proc 失败则不能据此认定进程已停止。
+    [ -r /proc/self/stat ] || return 1
+    if _service_state_path_absent "/proc/$_SERVICE_RECORD_PID"; then
+        printf 'stopped\n'
+        return 0
+    fi
+    current=$(_service_process_starttime "$_SERVICE_RECORD_PID") || return 1
+    if [ "$current" = "$_SERVICE_RECORD_STARTTIME" ]; then
+        { IFS= read -r stat <"/proc/$_SERVICE_RECORD_PID/stat"; } 2>/dev/null || return 1
+        rest=${stat##*) }
+        [ "$rest" != "$stat" ] || return 1
+        case ${rest%% *} in
+        Z | X) printf 'stopped\n'; return 0 ;;
+        esac
+        current=$(_service_process_argv_hex "$_SERVICE_RECORD_PID") || return 1
+        if [ "$current" = "$_SERVICE_RECORD_ARGV" ]; then
+            current=$(_service_process_exe_id "$_SERVICE_RECORD_PID") || return 1
+            [ "$current" != "$_SERVICE_RECORD_EXE_ID" ] || return 1
+        fi
+    fi
+    printf 'stopped\n'
+}
+
+_service_nohup_state() {
+    local state='' local_rc=0 record
+    state=$(_service_record_state "$service_pid_path") || local_rc=$?
+    [ "$state" != running ] || { printf 'running\n'; return 0; }
+    if ! _is_root; then
+        record=$(_service_privileged_record_path /run/clashctl "$(id -u)" "$CLASHCTL_KERNEL") || return 1
+        if ! _service_state_path_absent /run/clashctl; then
+            _service_privileged_runtime_is_secure /run/clashctl || return 1
+            if ! _service_state_path_absent "$record"; then
+                _service_privileged_record_is_secure "$record" || return 1
+                # 非 root 无法读取 0600 的特权记录，沿用安全标记作为运行依据；不调用 sudo。
+                printf 'running\n'
+                return 0
+            fi
+        fi
+    fi
+    [ "$local_rc" -eq 0 ] || return 1
+    printf 'stopped\n'
 }
 
 _service_runit_enable_link() {
