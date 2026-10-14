@@ -68,7 +68,7 @@ curl -fsSL "${GH_PROXY}https://raw.githubusercontent.com/nelvko/clash-for-linux-
 ```
 
 - `GH_PROXY`：[GitHub 下载加速代理](https://gh-proxy.org/)，失效时可更换[其他可用地址](https://ghproxy.link/)。
-- 没有订阅？[click me](https://次元.net/auth/register?code=oUbI)
+- 没有订阅？[click me](https://get.sushi3.cloud/#/home?code=aHno9F9G)
 
 ## 🚀 快速上手
 
