@@ -8,7 +8,7 @@ Usage:
 
 Commands:
   on                    启用当前终端代理，自动启动内核
-  off                   关闭当前终端代理，保留内核运行
+  off                   关闭当前终端代理，默认保留内核运行
   start                 仅启动内核
   stop                  仅停止内核
   status                内核状态

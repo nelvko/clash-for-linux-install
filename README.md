@@ -44,7 +44,7 @@
       </a>
     </td>
     <td valign="middle">
-      <b><a href="https://api.muteki.site/register?aff=nelvko&promo=nelvko">MaruCode</a></b> 是一家偶尔做做慈善的小破站 API，自营号池，主要提供 Codex、Claude Code、GPT Image 等主流模型，支持 WebSocket 协议，明码标价（Codex 0.25x, CC 1.5x），透明汇率（1:1） <a href="https://images-2.muteki.site">生图工作台🖼️</a>
+      <b><a href="https://api.muteki.site/register?aff=nelvko&promo=nelvko">MaruCode</a></b> 是一家偶尔做做慈善的小破站 API，自营号池，主要提供 Codex、Claude Code、GPT Image 等主流模型，支持 WebSocket 协议，明码标价（Codex 0.25x, CC 1.5x），透明汇率（1:1）<a href="https://images-2.muteki.site">生图工作台🖼️</a>
     </td>
   </tr>
 </table>
@@ -99,7 +99,7 @@ Usage:
 
 Commands:
   on                    启用当前终端代理，自动启动内核
-  off                   关闭当前终端代理，保留内核运行
+  off                   关闭当前终端代理，默认保留内核运行
   start                 仅启动内核
   stop                  仅停止内核
   status                内核状态

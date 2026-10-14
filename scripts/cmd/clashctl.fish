@@ -39,21 +39,19 @@ function clashon --description 'enable terminal proxy, starting the kernel if ne
     source $state
 end
 
-function clashoff --description 'disable terminal proxy without stopping the kernel'
+function clashoff --description 'disable terminal proxy, optionally stopping the kernel'
     if set -q argv[1]
-        __clashctl_run clashoff $argv
-        return $status
+        if test (count $argv) -ne 1; or test "$argv[1]" != --stop
+            __clashctl_run clashoff $argv
+            return $status
+        end
     end
 
+    # 有效的 off 请求始终清理当前终端，即使 --stop 未能停止内核。
+    rm -f -- (__clashctl_state_path)
+    set -e http_proxy https_proxy HTTP_PROXY HTTPS_PROXY \
+        all_proxy ALL_PROXY no_proxy NO_PROXY
     __clashctl_run clashoff $argv
-    set -l rc $status
-
-    if test $rc -eq 0
-        rm -f -- (__clashctl_state_path)
-        set -e http_proxy https_proxy HTTP_PROXY HTTPS_PROXY \
-            all_proxy ALL_PROXY no_proxy NO_PROXY
-    end
-    return $rc
 end
 
 function clashctl
