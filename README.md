@@ -20,7 +20,34 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/nelvko/clash-for-linux-install" /></a>
   <img alt="Language: Shell" src="https://img.shields.io/github/languages/top/nelvko/clash-for-linux-install" />
   <a href="https://github.com/nelvko/clash-for-linux-install/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/nelvko/clash-for-linux-install" /></a>
-  <a href="https://deepwiki.com/nelvko/clash-for-linux-install"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki" /></a>
+  <a href="https://deepwiki.com/nelvko/clash-for-linux-install"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
+</p>
+
+<table>
+  <tr>
+    <td width="180" align="center" valign="middle">
+      <a href="https://get.sushi3.cloud/#/home?code=aHno9F9G">
+        <img width="80" alt="寿司云" src="https://github.com/user-attachments/assets/ef609476-caf8-49bf-981d-651b2875a3a0" />
+      </a>
+    </td>
+    <td valign="middle">
+      <b><a href="https://get.sushi3.cloud/#/home?code=aHno9F9G">寿司云</a></b> 是 AI 用途优先的 VPN，着重优化 GPT、Claude、Gemini 等海外 AI 的使用体验，提供家宽节点和中国三网优化线路。<a href="https://get.sushi3.cloud/#/home?code=aHno9F9G">注册免费体验 1 天</a>。
+    </td>
+  </tr>
+  <tr>
+    <td width="180" align="center" valign="middle">
+      <a href="https://api.muteki.site/register?aff=nelvko&promo=nelvko">
+        <img width="180" alt="MaruCode" src="https://github.com/user-attachments/assets/48680ff3-ffbb-492b-82ec-5e85e9502e62" />
+      </a>
+    </td>
+    <td valign="middle">
+      <b><a href="https://api.muteki.site/register?aff=nelvko&promo=nelvko">MaruCode</a></b> 是一家偶尔做做慈善的小破站 API，自营号池，主要提供 Codex、Claude Code、GPT Image 等主流模型，支持 WebSocket 协议，明码标价（Codex 0.25x, CC 1.5x），透明汇率（1:1） <a href="https://images-2.muteki.site">生图工作台🖼️</a>
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/471f3acb-faca-4610-a02e-5294e003301e" alt="preview" width="800" />
 </p>
 
 ## ✨ 特性
@@ -117,21 +144,6 @@ bash "$CLASHCTL_HOME/uninstall.sh"
 
 - [Wiki](https://github.com/nelvko/clash-for-linux-install/wiki)
 - [常见问题](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)
-
-## 💖 赞助
-
-<table>
-  <tr>
-    <td width="180" align="center" valign="middle">
-      <a href="https://api.muteki.site/register?aff=nelvko&promo=nelvko">
-        <img src="https://cdn.nodeimage.com/i/hc6anADTcLP0P2CTOoqUMkKcHER4KeYY.webp" alt="MaruCode" width="60">
-      </a>
-    </td>
-    <td valign="middle">
-      <b><a href="https://api.muteki.site/register?aff=nelvko&promo=nelvko">MaruCode</a></b> 是一家偶尔做做慈善的小破站 API，自营号池，主要提供 Codex、Claude Code、GPT Image 等主流模型，支持 Websocket 协议，明码标价(Codex 0.25x, CC 1.5x)，透明汇率(1:1) <a href="https://api.muteki.site/register?aff=nelvko&promo=nelvko"></a><a href="https://images-2.muteki.site">生图工作台🖼️</a>
-    </td>
-  </tr>
-</table>
 
 ## ⭐ Star History
 
