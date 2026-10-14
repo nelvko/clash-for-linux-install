@@ -9,9 +9,9 @@ body:
       label: 前置确认
       description: 大部分使用问题可以在下述选项中得到解决，在提交问题前，请先进行自助排查。
       options:
-        - label: 我已查阅 [常见问题](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)，但仍未找到解决方案
+        - label: 我已查阅 [常见问题](https://github.com/nelvko/clashctl/wiki/FAQ)，但仍未找到解决方案
           required: true
-        - label: 我已使用关键字查询相关 [Issues](https://github.com/nelvko/clash-for-linux-install/issues?q=is%3Aissue)，但仍未找到解决方案
+        - label: 我已使用关键字查询相关 [Issues](https://github.com/nelvko/clashctl/issues?q=is%3Aissue)，但仍未找到解决方案
           required: true
 
   - type: input

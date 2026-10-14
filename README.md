@@ -2,25 +2,28 @@
   clashctl
 </h1>
 
-<p align="center">Linux 上的 Mihomo / Clash 安装与管理工具</p>
+<p align="center">
+  Linux 上的 Mihomo / Clash 安装与管理工具<br />
+  <sub>（原 <code>clash-for-linux-install</code>）</sub>
+</p>
 
 <p align="center">
-  <a href="https://www.star-history.com/nelvko/clash-for-linux-install">
+  <a href="https://www.star-history.com/nelvko/clashctl">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=nelvko/clash-for-linux-install&type=rank&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=nelvko/clash-for-linux-install&type=rank" />
-      <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=nelvko/clash-for-linux-install&type=rank" />
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=nelvko/clashctl&type=rank&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=nelvko/clashctl&type=rank" />
+      <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=nelvko/clashctl&type=rank" />
     </picture>
   </a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/nelvko/clash-for-linux-install/actions/workflows/shell-tests.yml"><img alt="Shell tests" src="https://github.com/nelvko/clash-for-linux-install/actions/workflows/shell-tests.yml/badge.svg" /></a>
+  <a href="https://github.com/nelvko/clashctl/actions/workflows/shell-tests.yml"><img alt="Shell tests" src="https://github.com/nelvko/clashctl/actions/workflows/shell-tests.yml/badge.svg" /></a>
   <img alt="Platform: Linux" src="https://img.shields.io/badge/platform-Linux-blue?logo=linux&amp;logoColor=white" />
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/nelvko/clash-for-linux-install" /></a>
-  <img alt="Language: Shell" src="https://img.shields.io/github/languages/top/nelvko/clash-for-linux-install" />
-  <a href="https://github.com/nelvko/clash-for-linux-install/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/nelvko/clash-for-linux-install" /></a>
-  <a href="https://deepwiki.com/nelvko/clash-for-linux-install"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/nelvko/clashctl" /></a>
+  <img alt="Language: Shell" src="https://img.shields.io/github/languages/top/nelvko/clashctl" />
+  <a href="https://github.com/nelvko/clashctl/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/nelvko/clashctl" /></a>
+  <a href="https://deepwiki.com/nelvko/clashctl"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </p>
 
 <table>
@@ -63,7 +66,7 @@
 
 ```bash
 GH_PROXY=https://gh-proxy.org/
-curl -fsSL "${GH_PROXY}https://raw.githubusercontent.com/nelvko/clash-for-linux-install/HEAD/install.sh" | \
+curl -fsSL "${GH_PROXY}https://raw.githubusercontent.com/nelvko/clashctl/HEAD/install.sh" | \
   bash -s -- --gh-proxy "$GH_PROXY"
 ```
 
@@ -116,7 +119,7 @@ Global Options:
   -v, --version         显示版本信息
 ```
 
-使用示例与进阶配置，详见 [Wiki](https://github.com/nelvko/clash-for-linux-install/wiki)。
+使用示例与进阶配置，详见 [Wiki](https://github.com/nelvko/clashctl/wiki)。
 
 ## 🔄 更新
 
@@ -142,16 +145,16 @@ bash "$CLASHCTL_HOME/uninstall.sh"
 
 ## 📖 文档
 
-- [Wiki](https://github.com/nelvko/clash-for-linux-install/wiki)
-- [常见问题](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)
+- [Wiki](https://github.com/nelvko/clashctl/wiki)
+- [常见问题](https://github.com/nelvko/clashctl/wiki/FAQ)
 
 ## ⭐ Star History
 
-<a href="https://www.star-history.com/?repos=nelvko%2Fclash-for-linux-install&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=nelvko%2Fclashctl&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=nelvko/clash-for-linux-install&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=nelvko/clash-for-linux-install&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=nelvko/clash-for-linux-install&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=nelvko/clashctl&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=nelvko/clashctl&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=nelvko/clashctl&type=date&legend=top-left" />
  </picture>
 </a>
 

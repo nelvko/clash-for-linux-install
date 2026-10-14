@@ -134,7 +134,7 @@ cat >"$WORK_DIR/bin/git" <<'STUB'
 args=()
 for arg in "$@"; do
     case $arg in
-    *github.com/nelvko/clash-for-linux-install.git) arg=$FIXTURE ;;
+    *github.com/nelvko/clashctl.git) arg=$FIXTURE ;;
     esac
     args+=("$arg")
 done
@@ -1151,7 +1151,7 @@ PATH="$no_git_bin" CLASHCTL_HOME="$archive_home" CLASHCTL_UPDATE_BRANCH=legacy G
 [ ! -e "$archive_home/.git" ] || fail 'fallback created a Git repository'
 [ "$(tail -n 1 "$archive_home/.clashctl-install")" = archive ] || fail 'archive type was not recorded'
 [ -s "$archive_home/.clashctl-files" ] || fail 'archive file manifest missing'
-grep -Fq 'https://proxy.example/https://github.com/nelvko/clash-for-linux-install/archive/refs/heads/master.tar.gz' "$DOWNLOAD_LOG" || fail 'source archive ignored proxy or branch'
+grep -Fq 'https://proxy.example/https://github.com/nelvko/clashctl/archive/refs/heads/master.tar.gz' "$DOWNLOAD_LOG" || fail 'source archive ignored proxy or branch'
 # wget 只负责拉取源码，此处初始化桩不依赖 curl。
 mv "$no_git_bin/curl" "$WORK_DIR/saved-curl"
 PATH="$no_git_bin" CLASHCTL_HOME="$WORK_DIR/wget-home" GH_PROXY='' \

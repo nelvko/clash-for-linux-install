@@ -47,7 +47,7 @@ _update_scripts() (
         fi
         dirty=$(git -C "$CLASHCTL_HOME" status --porcelain --untracked-files=no) || return 1
         [ -z "$dirty" ] || { _ui_error '安装目录存在本地代码修改，请提交或暂存后重试'; return 1; }
-        url=$(gh_proxy_url 'https://github.com/nelvko/clash-for-linux-install.git')
+        url=$(gh_proxy_url 'https://github.com/nelvko/clashctl.git')
         git -C "$CLASHCTL_HOME" -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 \
             fetch --depth 1 -- "$url" "$branch" || return 1
         target=$(git -C "$CLASHCTL_HOME" rev-parse FETCH_HEAD) || return 1

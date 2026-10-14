@@ -55,7 +55,7 @@ if [ -n "${CHECKOUT_FAILURE:-}" ] && [ "${1:-}" = -C ]; then
 fi
 args=()
 for arg in "$@"; do
-    case "$arg" in *github.com/nelvko/clash-for-linux-install.git) arg=$SOURCE_REPO ;; esac
+    case "$arg" in *github.com/nelvko/clashctl.git) arg=$SOURCE_REPO ;; esac
     args+=("$arg")
 done
 exec "$REAL_GIT" "${args[@]}"

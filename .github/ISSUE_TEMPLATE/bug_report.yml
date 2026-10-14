@@ -9,13 +9,13 @@ body:
       label: 前置确认
       description: 在提交之前，请勾选以下选项以确认您已完成必要的自助排查
       options:
-        - label: 我确认这是项目 **Bug**， 而非操作不当或使用不清楚。否则请使用其他 Issue 模板或移步[讨论区](https://github.com/nelvko/clash-for-linux-install/discussions)
+        - label: 我确认这是项目 **Bug**， 而非操作不当或使用不清楚。否则请使用其他 Issue 模板或移步[讨论区](https://github.com/nelvko/clashctl/discussions)
           required: true
-        - label: 我已查阅 [常见问题](https://github.com/nelvko/clash-for-linux-install/wiki/FAQ)，但仍未找到解决方案
+        - label: 我已查阅 [常见问题](https://github.com/nelvko/clashctl/wiki/FAQ)，但仍未找到解决方案
           required: true
-        - label: 我已使用关键字查询相关 [Issues](https://github.com/nelvko/clash-for-linux-install/issues?q=is%3Aissue)，但仍未找到解决方案
+        - label: 我已使用关键字查询相关 [Issues](https://github.com/nelvko/clashctl/issues?q=is%3Aissue)，但仍未找到解决方案
           required: true
-        - label: 我已确认本地与远程仓库最新提交的哈希一致。 (`git rev-parse --short HEAD`)
+        - label: 我已运行 `clashctl update` 并确认问题仍可复现；若安装或更新失败，已在下方提供报错信息。
           required: true
 
   - type: input
@@ -26,12 +26,14 @@ body:
     validations:
       required: true
 
-  - type: input
-    id: commit_id
+  - type: textarea
+    id: version
     attributes:
-      label: Commit ID
+      label: 版本信息
       description: |
-        请提供当前 Commit 哈希：`git rev-parse --short HEAD`
+        请粘贴 `clashctl version` 的完整输出，包含脚本和内核版本信息。
+        若安装尚未完成或命令不可用，请填写安装方式与相关报错。
+      render: shell
     validations:
       required: true
 

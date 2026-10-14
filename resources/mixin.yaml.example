@@ -14,7 +14,7 @@ authentication:
 # override 整体替换：按 name 匹配并替换整个项目，适用于 proxies、proxy-groups
 # inject   节点注入：向指定 proxy-group 的 proxies 列表注入节点，仅适用于 proxy-groups
 
-# 示例：https://github.com/nelvko/clash-for-linux-install/discussions/562
+# 示例：https://github.com/nelvko/clashctl/discussions/562
 rules:
   prepend:
     - DOMAIN,api64.ipify.org,DIRECT # 用于 clashui 获取真实公网 IP
@@ -45,6 +45,6 @@ tun:
     - any:53
     - tcp://any:53
   strict-route: true
-  exclude-src-port: # 排除源端口，避免无法访问容器内服务 https://github.com/nelvko/clash-for-linux-install/issues/100#issuecomment-2995667368
+  exclude-src-port: # 排除源端口，避免无法访问容器内服务 https://github.com/nelvko/clashctl/issues/100#issuecomment-2995667368
     # - 80
 
