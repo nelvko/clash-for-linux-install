@@ -258,6 +258,26 @@ _status_urlencode() {
     printf '%s' "$encoded"
 }
 
+_status_has_combined_chars() {
+    local value=$1 index codepoint
+    for ((index = 0; index < ${#value}; index++)); do
+        printf -v codepoint '%d' "'${value:index:1}"
+        # 按码点比较，避免 locale 排序规则让 Unicode 范围误匹配普通字母。
+        if ((codepoint >= 0x0300 && codepoint <= 0x036f)) ||
+            ((codepoint >= 0x1ab0 && codepoint <= 0x1aff)) ||
+            ((codepoint >= 0x1dc0 && codepoint <= 0x1dff)) ||
+            ((codepoint == 0x200d)) ||
+            ((codepoint >= 0x20d0 && codepoint <= 0x20ff)) ||
+            ((codepoint >= 0xfe00 && codepoint <= 0xfe0f)) ||
+            ((codepoint >= 0xfe20 && codepoint <= 0xfe2f)) ||
+            ((codepoint >= 0x1f1e6 && codepoint <= 0x1f1ff)) ||
+            ((codepoint >= 0x1f3fb && codepoint <= 0x1f3ff)); then
+            return 0
+        fi
+    done
+    return 1
+}
+
 _status_render() {
     local state_label=$1 state_color=$2 subscription_label=$3 terminal_label=$4 http_address=$5 socks_address=$6
     local kernel_label=$7 uptime_label=$8 tun_label=$9 dashboard_url=${10}
@@ -296,8 +316,7 @@ _status_render() {
         [ "$((width + 4))" -gt "$columns" ] || panel=1
     fi
     # 组合字符和 emoji 序列的显示宽度取决于终端，使用纯文本避免边框错位。
-    local combined_chars=$'\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u200d\u20d0-\u20ff\ufe00-\ufe0f\ufe20-\ufe2f\U0001f1e6-\U0001f1ff\U0001f3fb-\U0001f3ff'
-    [[ $subscription_label != *[$combined_chars]* ]] || panel=0
+    if [ "$panel" -eq 1 ] && _status_has_combined_chars "$subscription_label"; then panel=0; fi
     if [ "$panel" -eq 0 ]; then
         for ((index = 0; index < ${#labels[@]}; index++)); do
             label=${labels[index]}

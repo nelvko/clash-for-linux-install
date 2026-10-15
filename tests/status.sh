@@ -527,17 +527,38 @@ for shell in ('bash', 'zsh', 'fish'):
         assert not err, err
 profiles.write_text(saved_profiles)
 
+# Unicode 范围匹配不能受 locale 排序规则影响；普通名称在各 UTF-8 locale 下保持面板。
+utf8_locales = []
+for locale_name in subprocess.check_output(['locale', '-a'], env=env_base, text=True).splitlines():
+    encoding = subprocess.check_output(['locale', 'charmap'],
+                                       env=dict(env_base, LC_ALL=locale_name), text=True).strip()
+    if encoding.upper().replace('-', '') == 'UTF8':
+        utf8_locales.append(locale_name)
+assert utf8_locales, 'a UTF-8 locale is required'
+for locale_name in utf8_locales:
+    for name in ('MarukoMihomo', '中文订阅'):
+        profiles.write_text(json.dumps({'use': name}))
+        for shell in ('bash', 'zsh', 'fish'):
+            for args in ((), ('--verbose',)):
+                out, err, _ = run(shell, args=args, tty=True, extra={'LC_ALL': locale_name})
+                contains(out, '╭', '╰')
+                field(out, '已选订阅', name)
+                assert not err, err
+                if args:
+                    field(out, 'PID', '24680')
+
 # 组合字符及 emoji 序列在真实终端保留原名，并回退纯文本以免边框错位。
-for name in ('订阅 👩‍💻', 'Cafe\u0301', '订阅 🇨🇳', '订阅 👍🏽'):
-    profiles.write_text(json.dumps({'use': name}))
-    for shell in ('bash', 'zsh', 'fish'):
-        for args in ((), ('--verbose',)):
-            out, err, _ = run(shell, args=args, tty=True)
-            plain(out)
-            field(out, '已选订阅', name)
-            assert not err, err
-            if args:
-                field(out, 'PID', '24680')
+for locale_name in utf8_locales:
+    for name in ('订阅 👩‍💻', 'Cafe\u0301', '订阅 🇨🇳', '订阅 👍🏽'):
+        profiles.write_text(json.dumps({'use': name}))
+        for shell in ('bash', 'zsh', 'fish'):
+            for args in ((), ('--verbose',)):
+                out, err, _ = run(shell, args=args, tty=True, extra={'LC_ALL': locale_name})
+                plain(out)
+                field(out, '已选订阅', name)
+                assert not err, err
+                if args:
+                    field(out, 'PID', '24680')
 profiles.write_text(saved_profiles)
 
 configure(**{'mixed-port': 7890, 'allow-lan': True, 'bind-address': 'long-' + 'x' * 100 + '.example'})
