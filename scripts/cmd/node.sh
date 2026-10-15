@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# shellcheck disable=SC1091  # 独立 source（测试）时补载依赖；经 clashctl.sh 加载时已存在。
+declare -F _clashctl_run_in_bash >/dev/null 2>&1 || . "${BASH_SOURCE[0]%/*}/../lib/shell.sh"
+
 # ── 术语约定（内部命名）───────────────────────────────────────
 #   group   策略组：含 .all 成员列表的项（Selector/URLTest…）；用户可见称“策略组”
 #   proxy   节点：无 .all 的叶子代理，可单独测速；用户可见称“节点”
@@ -15,16 +18,9 @@ clashnode() {
         ;;
     esac
 
-    # node 使用 Bash 数组和关联数组；与 start/update 一样交给 Bash 执行。
-    if [ -n "${ZSH_VERSION:-}" ]; then
-        command -v bash >/dev/null 2>&1 || {
-            _ui_error '未找到 Bash，请安装后重试'
-            return 127
-        }
-        CLASHCTL_HOME="$CLASHCTL_HOME" bash -c '
-            unset ZSH_VERSION
-            . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" && clashnode "$@"
-        ' -- "$@"
+    # node 使用 Bash 数组和关联数组；交给 Bash 子进程执行。
+    if ! _clashctl_in_bash; then
+        _clashctl_run_in_bash clashnode "$@"
         return
     fi
 

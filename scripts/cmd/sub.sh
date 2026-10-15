@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# shellcheck disable=SC1091  # 独立 source（测试）时补载依赖；经 clashctl.sh 加载时已存在。
+declare -F _clashctl_run_in_bash >/dev/null 2>&1 || . "${BASH_SOURCE[0]%/*}/../lib/shell.sh"
+
 # ── 术语约定 ──────────────────────────────────────────────────
 #   name    订阅名称：用户可见/输入的唯一键，允许中文/emoji/空格
 #   path    该订阅在磁盘上的配置文件路径（权威来源，文件名已安全化）
@@ -15,16 +18,9 @@ clashsub() {
         ;;
     esac
 
-    # 订阅命令使用 Bash 数组及文件描述符语法，避免在 Zsh 中直接执行。
-    if [ -n "${ZSH_VERSION:-}" ]; then
-        command -v bash >/dev/null 2>&1 || {
-            _ui_error '未找到 Bash，请安装后重试'
-            return 127
-        }
-        CLASHCTL_HOME="$CLASHCTL_HOME" bash -c '
-            unset ZSH_VERSION
-            . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" && clashsub "$@"
-        ' -- "$@"
+    # 订阅命令使用 Bash 数组及文件描述符语法；交给 Bash 子进程执行。
+    if ! _clashctl_in_bash; then
+        _clashctl_run_in_bash clashsub "$@"
         return
     fi
 

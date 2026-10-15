@@ -582,10 +582,8 @@ _write_fish_rc() {
 
 # UI 和订阅转换器沿用按需下载。
 _ci_provision() (
-    if [ -n "${ZSH_VERSION:-}" ]; then
-        CLASHCTL_HOME="$CLASHCTL_HOME" bash -c '
-            . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" && _ci_provision "$1"
-        ' -- "$1"
+    if ! _clashctl_in_bash; then
+        _clashctl_run_in_bash _ci_provision "$@"
         return
     fi
     export CLASHCTL_SRC="$CLASHCTL_HOME"

@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 
+# shellcheck disable=SC1091  # 独立 source（测试）时补载依赖；经 clashctl.sh 加载时已存在。
+declare -F _clashctl_run_in_bash >/dev/null 2>&1 || . "${BASH_SOURCE[0]%/*}/../lib/shell.sh"
+
 clashui() {
+    if ! _clashctl_in_bash; then
+        _clashctl_run_in_bash clashui
+        return
+    fi
     [ -f "$CLASH_RESOURCES_DIR/dist/index.html" ] || _ci_provision ui || return 1
     _detect_ext_addr
     service_is_active >&/dev/null || service_start >/dev/null
