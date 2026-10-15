@@ -11,7 +11,7 @@ clashstatus() {
     *) _ui_fail '用法: clashctl status [--verbose | --help]'; return 1 ;;
     esac
 
-    # 服务探测、数组和显示宽度计算统一交给 Bash，保留当前终端环境。
+    # 服务探测和格式化统一交给 Bash，保留当前终端环境。
     if ! _clashctl_in_bash; then
         _clashctl_run_in_bash clashstatus "$@"
         return
@@ -27,7 +27,7 @@ clashstatus() {
     fi
     case $kernel_state in
     running) state_label='运行中'; state_color=32; rc=0 ;;
-    stopped) state_label='未运行'; state_color=33; rc=1 ;;
+    stopped) state_label='未运行'; state_color=90; rc=1 ;;
     starting) state_label='启动中'; state_color=33; rc=1 ;;
     stopping) state_label='停止中'; state_color=33; rc=1 ;;
     failed) state_label='异常停止'; state_color=31; rc=1 ;;
@@ -63,12 +63,12 @@ clashstatus() {
     subscription_label=$(_status_subscription_label)
     dashboard_url=$(_status_dashboard_url) || dashboard_url=''
     _status_proxy_addresses
-    _status_render "$state_label" "$state_color" "$subscription_label" "$terminal_label" "$http_address" "$socks_address" \
-        "$kernel_label" "$uptime_label" "$tun_label" "$dashboard_url"
-
+    local verbose_pid=''
     if [ "${1:-}" = --verbose ]; then
-        _status_verbose_details "$pid"
+        verbose_pid=$pid
     fi
+    _status_render "$state_label" "$state_color" "$subscription_label" "$terminal_label" "$http_address" "$socks_address" \
+        "$kernel_label" "$uptime_label" "$tun_label" "$dashboard_url" "$verbose_pid"
     return "$rc"
 }
 
@@ -156,13 +156,6 @@ _status_subscription_label() {
         subscription=${subscription//[[:cntrl:]]/ }
     fi
     printf '%s\n' "$subscription"
-}
-
-_status_verbose_details() {
-    local pid=$1 log_location=${service_log_path:-无法读取}
-    [ "${service_manager:-}" != systemd ] || log_location="journalctl -u ${CLASHCTL_KERNEL:-mihomo}"
-    printf '\nPID：%s\n主配置：%s\n运行配置：%s\n日志：%s\n' \
-        "$pid" "$CLASH_CONFIG_BASE" "$CLASH_CONFIG_RUNTIME" "$log_location"
 }
 
 # 仅从运行配置生成可复制的连接地址，不调整端口或修改配置。
@@ -258,46 +251,22 @@ _status_urlencode() {
     printf '%s' "$encoded"
 }
 
-_status_has_combined_chars() {
-    local value=$1 index codepoint
-    for ((index = 0; index < ${#value}; index++)); do
-        printf -v codepoint '%d' "'${value:index:1}"
-        # 按码点比较，避免 locale 排序规则让 Unicode 范围误匹配普通字母。
-        if ((codepoint >= 0x0300 && codepoint <= 0x036f)) ||
-            ((codepoint >= 0x1ab0 && codepoint <= 0x1aff)) ||
-            ((codepoint >= 0x1dc0 && codepoint <= 0x1dff)) ||
-            ((codepoint == 0x200d)) ||
-            ((codepoint >= 0x20d0 && codepoint <= 0x20ff)) ||
-            ((codepoint >= 0xfe00 && codepoint <= 0xfe0f)) ||
-            ((codepoint >= 0xfe20 && codepoint <= 0xfe2f)) ||
-            ((codepoint >= 0x1f1e6 && codepoint <= 0x1f1ff)) ||
-            ((codepoint >= 0x1f3fb && codepoint <= 0x1f3ff)); then
-            return 0
-        fi
-    done
-    return 1
-}
-
 _status_render() {
     local state_label=$1 state_color=$2 subscription_label=$3 terminal_label=$4 http_address=$5 socks_address=$6
-    local kernel_label=$7 uptime_label=$8 tun_label=$9 dashboard_url=${10}
-    local -a labels=('内核' '管理方式' '状态' '运行时长' '已选订阅' 'TUN' '' '终端代理' '' '代理地址（运行配置）' 'HTTP(S)' 'SOCKS5')
-    local -a values=("$kernel_label" "${service_manager:-未知}" "$state_label" "$uptime_label" "$subscription_label" "$tun_label" '' "$terminal_label" '' '' "$http_address" "$socks_address")
+    local kernel_label=$7 uptime_label=$8 tun_label=$9 dashboard_url=${10} verbose_pid=${11:-}
+    local -a labels=('内核' '管理方式' '状态' '运行时长' '已选订阅' '' '终端代理' 'TUN' '' '代理地址' 'HTTP(S)' 'SOCKS5')
+    local -a values=("$kernel_label" "${service_manager:-未知}" "$state_label" "$uptime_label" "$subscription_label" '' "$terminal_label" "$tun_label" '' '' "$http_address" "$socks_address")
     if [ -n "$dashboard_url" ]; then
         labels+=('Web 面板')
         values+=("$dashboard_url")
     fi
-    local -a lines=()
-    local index label value line width=38 line_width columns=${COLUMNS:-} size panel=0 color padding utf8=0
-    for ((index = 0; index < ${#labels[@]}; index++)); do
-        label=${labels[index]}
-        value=${values[index]}
-        line=$label
-        [ -z "$value" ] || line="$(_pad "$label" 8)  $value"
-        lines+=("$line")
-        line_width=$(_dispwidth "$line")
-        [ "$line_width" -le "$width" ] || width=$line_width
-    done
+    if [ -n "$verbose_pid" ]; then
+        local log_location=${service_log_path:-无法读取}
+        [ "${service_manager:-}" != systemd ] || log_location="journalctl -u ${CLASHCTL_KERNEL:-mihomo}"
+        labels+=('' 'PID' '主配置' '运行配置' '日志')
+        values+=('' "$verbose_pid" "$CLASH_CONFIG_BASE" "$CLASH_CONFIG_RUNTIME" "$log_location")
+    fi
+    local index label value columns=${COLUMNS:-} size styled=0 color utf8=0
     case ${LC_ALL:-${LC_CTYPE:-${LANG:-}}} in *UTF-8* | *UTF8* | *utf-8* | *utf8*) utf8=1 ;; esac
     if [ -t 1 ] && [ "${TERM:-dumb}" != dumb ] && [ "$utf8" -eq 1 ]; then
         case $columns in
@@ -309,15 +278,13 @@ _status_render() {
             columns=${size##* }
             ;;
         esac
-        # 异常尺寸使用保守默认值；长地址或窄终端退回纯文本，不截断地址。
+        # 窄终端使用纯文本；长值由终端自然折行，不截断地址。
         case $columns in '' | *[!0-9]*) columns=80 ;; esac
         [ "${#columns}" -le 5 ] || columns=80
         [ "$columns" -gt 0 ] || columns=80
-        [ "$((width + 4))" -gt "$columns" ] || panel=1
+        [ "$columns" -lt 40 ] || styled=1
     fi
-    # 组合字符和 emoji 序列的显示宽度取决于终端，使用纯文本避免边框错位。
-    if [ "$panel" -eq 1 ] && _status_has_combined_chars "$subscription_label"; then panel=0; fi
-    if [ "$panel" -eq 0 ]; then
+    if [ "$styled" -eq 0 ]; then
         for ((index = 0; index < ${#labels[@]}; index++)); do
             label=${labels[index]}
             value=${values[index]}
@@ -330,39 +297,44 @@ _status_render() {
         return 0
     fi
 
-    printf '\n╭─ clashctl '
-    _status_border "$((width - 9))"
-    printf '╮\n'
-    for ((index = 0; index < ${#lines[@]}; index++)); do
-        line=${lines[index]}
-        line_width=$(_dispwidth "$line")
-        padding=$((width - line_width))
+    if _ui_color_enabled 1; then
+        printf '\n\033[1mclashctl\033[0m\n\n'
+    else
+        printf '\nclashctl\n\n'
+    fi
+    for ((index = 0; index < ${#labels[@]}; index++)); do
+        label=${labels[index]}
+        value=${values[index]}
+        if [ -z "$label" ]; then
+            printf '\n'
+            continue
+        fi
+        if [ -z "$value" ]; then
+            printf '  %s\n' "$label"
+            continue
+        fi
+        printf '  %s  ' "$(_pad "$label" 8)"
         color=''
-        case ${labels[index]} in
+        case $label in
         状态) color=$state_color ;;
         终端代理)
-            if [ "$terminal_label" = 已启用 ]; then color=32; else color=33; fi
+            if [ "$terminal_label" = 已启用 ]; then color=32; else color=90; fi
             ;;
         TUN)
-            if [[ $tun_label == 已启用* ]]; then color=32; else color=33; fi
+            case $tun_label in
+            已启用*) color=32 ;;
+            关闭) color=90 ;;
+            *) color=33 ;;
+            esac
             ;;
         esac
-        printf '│ '
         if [ -n "$color" ] && _ui_color_enabled 1; then
-            printf '\033[%sm%s\033[0m' "$color" "$line"
+            printf '\033[%sm%s\033[0m\n' "$color" "$value"
         else
-            printf '%s' "$line"
+            printf '%s\n' "$value"
         fi
-        printf '%*s │\n' "$padding" ''
     done
-    printf '╰'
-    _status_border "$((width + 2))"
-    printf '╯\n\n'
-}
-
-_status_border() {
-    local count=$1 index
-    for ((index = 0; index < count; index++)); do printf '─'; done
+    printf '\n'
 }
 
 status_help() {
@@ -377,8 +349,8 @@ Options:
       --verbose  显示 PID、配置路径和日志位置
   -h, --help     显示帮助信息
 
-终端中显示状态面板，管道或窄终端中使用纯文本。
-面板包含内核版本、运行时长和实际 TUN 状态；已安装 Web 面板时显示地址。
+交互终端使用标题和分组显示，管道或窄终端中使用纯文本。
+包含内核版本、运行时长和实际 TUN 状态；已安装 Web 面板时显示地址。
 代理地址来自运行配置，包含已配置的认证信息，可直接复制使用。
 查询不会启动内核或修改配置。
 退出码：0 内核运行中；1 内核未运行或正在启停；2 状态检测失败。

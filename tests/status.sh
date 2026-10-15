@@ -191,11 +191,37 @@ case ${STATUS_PROXY_CASE:-none} in
     bypass) no_proxy=localhost; export no_proxy ;;
     empty) http_proxy=''; export http_proxy ;;
 esac
+if [ -n "${STATUS_UNEXPORTED_PROXY:-}" ]; then
+    typeset +x "$STATUS_UNEXPORTED_PROXY"
+fi
+if [ -n "${STATUS_COLUMNS:-}" ]; then
+    COLUMNS=$STATUS_COLUMNS
+fi
+if [ -n "${ZSH_VERSION:-}" ]; then
+    before_parameters=$(typeset -p http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY COLUMNS PATH 2>/dev/null)
+    before_environment=$(env | LC_ALL=C sort)
+    before_options=$(setopt)
+    if [ -n "${STATUS_UNEXPORTED_PROXY:-}" ]; then
+        case ${parameters[$STATUS_UNEXPORTED_PROXY]} in *export*) exit 95 ;; esac
+    fi
+    if [ -n "${STATUS_COLUMNS:-}" ]; then
+        case ${parameters[COLUMNS]} in *export*) exit 96 ;; esac
+    fi
+fi
 before_proxy="${http_proxy-unset}|${HTTP_PROXY-unset}|${https_proxy-unset}|${HTTPS_PROXY-unset}|${all_proxy-unset}|${ALL_PROXY-unset}|${no_proxy-unset}"
-clashctl status "$@"
+case ${STATUS_ENTRY:-dispatch} in
+direct) clashstatus "$@" ;;
+dispatch) clashctl status "$@" ;;
+esac
 probe_rc=$?
 after_proxy="${http_proxy-unset}|${HTTP_PROXY-unset}|${https_proxy-unset}|${HTTPS_PROXY-unset}|${all_proxy-unset}|${ALL_PROXY-unset}|${no_proxy-unset}"
 [ "$before_proxy" = "$after_proxy" ] || exit 92
+if [ -n "${ZSH_VERSION:-}" ]; then
+    after_parameters=$(typeset -p http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY COLUMNS PATH 2>/dev/null)
+    [ "$before_parameters" = "$after_parameters" ] || exit 93
+    [ "$before_environment" = "$(env | LC_ALL=C sort)" ] || exit 94
+    [ "$before_options" = "$(setopt)" ] || exit 97
+fi
 exit "$probe_rc"
 '''
 fish_probe = r'''
@@ -279,6 +305,8 @@ def run(shell='bash', args=(), expected=0, extra=None, tty=False, width=100):
     assert 'MUTATION' not in calls, (label, calls)
     assert 'native' not in calls, (label, 'queried native service status', calls)
     assert 'native status details' not in stdout + stderr and '原生状态' not in stdout + stderr, (label, stdout, stderr)
+    no_frame(stdout)
+    assert '代理地址（运行配置）' not in stdout, (label, 'old address heading', stdout)
     if not args:
         assert 'PID' not in stdout, (label, 'PID in default output', stdout)
     for secret in ('terminal-user', 'terminal-pass', 'ignored-user', 'ignored-pass', 'fixture-secret',
@@ -296,9 +324,52 @@ def contains(output, *words):
 def field(output, label, value):
     assert any(label in line and value in line for line in output.splitlines()), (label, value, output)
 
+ansi = re.compile(r'\x1b\[[0-9;]*m')
+
+def no_frame(output):
+    assert not any('\u2500' <= character <= '\u257f' for character in output), ('frame in output', output)
+
+def display_width(text):
+    return sum(0 if unicodedata.combining(c) else 2 if unicodedata.east_asian_width(c) in ('W', 'F') else 1
+               for c in ansi.sub('', text))
+
 def plain(output):
     assert '\x1b[' not in output, ('ANSI in plain output', output)
-    assert '╭' not in output and '╰' not in output, ('panel in plain output', output)
+    no_frame(output)
+    assert 'clashctl' not in [line.strip() for line in output.splitlines()], ('title in plain output', output)
+    assert '内核：' in output and '代理地址' in output, output
+
+def interactive(output, verbose=False, color=True):
+    no_frame(output)
+    lines = ansi.sub('', output).splitlines()
+    assert lines.count('clashctl') == 1, ('missing standalone title', output)
+    assert '  代理地址' in lines, ('missing address group', output)
+    if color:
+        assert '\x1b[1mclashctl\x1b[0m' in output, ('title has no bold style', output)
+    else:
+        assert '\x1b[' not in output, output
+    labels = ['内核', '管理方式', '状态', '运行时长', '已选订阅', '终端代理', 'TUN', 'HTTP(S)', 'SOCKS5']
+    if any(line.lstrip().startswith('Web 面板') for line in lines):
+        labels.append('Web 面板')
+    if verbose:
+        labels.extend(['PID', '主配置', '运行配置', '日志'])
+    positions = {}
+    for label in labels:
+        matches = [(index, re.fullmatch(r'  ' + re.escape(label) + r' +(?P<value>\S.*)', line))
+                   for index, line in enumerate(lines)]
+        matches = [(index, match) for index, match in matches if match]
+        assert len(matches) == 1, ('missing aligned field', label, output)
+        index, match = matches[0]
+        assert display_width(lines[index][:match.start('value')]) == 12, ('misaligned value', label, output)
+        positions[label] = index
+    first, last = sorted([positions['TUN'], positions['终端代理']])
+    assert last == first + 1 and lines[first - 1] == lines[last + 1] == '', ('proxy group', output)
+    if verbose:
+        assert lines[positions['PID'] - 1] == '', ('verbose group', output)
+
+def colored_value(output, label, value, color):
+    pattern = r'  ' + re.escape(label) + r' +\x1b\[' + str(color) + 'm' + re.escape(value) + r'\x1b\[0m'
+    assert any(re.fullmatch(pattern, line) for line in output.splitlines()), ('value color', label, value, color, output)
 
 configure(**{'mixed-port': 7890, 'allow-lan': False,
              'authentication': ['runtime-user:runtime-pass', 'ignored-user:ignored-pass']})
@@ -352,6 +423,7 @@ for shell in ('bash', 'zsh', 'fish'):
             out, err, calls = run(shell, args=args, expected=expected,
                                   extra={'STATUS_STATE': state, 'STATUS_NATIVE_RC': '19'})
             assert not err, (shell, state, args, err)
+            plain(out)
             field(out, '已选订阅', '订阅 A')
             assert '当前订阅' not in out, out
             if args:
@@ -371,6 +443,8 @@ for shell in ('bash', 'zsh', 'fish'):
         out, _, _ = run(shell, tty=tty, width=220)
         contains(out, f'http://{userinfo}127.0.0.1:7890', f'socks5h://{userinfo}127.0.0.1:7890')
         assert username not in out and password not in out, out
+        if tty:
+            interactive(out)
 
 # 专用端口优先；缺少一类监听端口时不捏造默认端口。
 for shell in ('bash', 'zsh', 'fish'):
@@ -400,22 +474,46 @@ for shell in ('bash', 'zsh', 'fish'):
 
 # 真正将 stdout 接到 PTY，验证 Zsh/Fish 桥接保留终端能力、宽度和颜色策略。
 configure(**{'mixed-port': 7890, 'allow-lan': False})
-ansi = re.compile(r'\x1b\[[0-9;]*m')
-def display_width(text):
-    return sum(0 if unicodedata.combining(c) else 2 if unicodedata.east_asian_width(c) in ('W', 'F') else 1
-               for c in ansi.sub('', text))
-
 for shell in ('bash', 'zsh', 'fish'):
     out, err, _ = run(shell, tty=True)
     assert not err, (shell, err)
-    contains(out, '╭', '╰', 'clashctl', 'http://127.0.0.1:7890')
-    lines = [line for line in ansi.sub('', out).splitlines() if line]
-    assert len({display_width(line) for line in lines}) == 1, ('misaligned panel', shell, out)
-    assert all(display_width(line) <= 100 for line in lines), out
+    interactive(out)
+    contains(out, 'http://127.0.0.1:7890')
+    colored_value(out, '状态', '运行中', 32)
+    colored_value(out, '终端代理', '未启用', 90)
+    colored_value(out, 'TUN', '关闭', 90)
+    uncolored_layout = ansi.sub('', out)
     out, _, _ = run(shell, tty=True, extra={'NO_COLOR': '', 'CLASHCTL_COLOR': 'always'})
-    assert '\x1b[' not in out and '╭' in out, out
-    out, _, _ = run(shell, tty=True, width=28)
-    plain(out)
+    interactive(out, color=False)
+    assert out == uncolored_layout, ('NO_COLOR changed layout', shell, out)
+    for width in (28, 39):
+        out, _, _ = run(shell, tty=True, width=width)
+        plain(out)
+    out, _, _ = run(shell, tty=True, width=40)
+    interactive(out)
+    out, _, _ = run(shell, args=('--verbose',), tty=True)
+    interactive(out, verbose=True)
+    field(out, 'PID', '24680')
+    uncolored_layout = ansi.sub('', out)
+    out, _, _ = run(shell, args=('--verbose',), tty=True, extra={'NO_COLOR': '', 'CLASHCTL_COLOR': 'always'})
+    interactive(out, verbose=True, color=False)
+    assert out == uncolored_layout, ('NO_COLOR changed verbose layout', shell, out)
+    for state, label, color in [('stopped', '未运行', 90), ('starting', '启动中', 33),
+                                ('stopping', '停止中', 33), ('failed', '异常停止', 31),
+                                ('unknown', '检测失败', 31), ('error', '检测失败', 31)]:
+        out, _, _ = run(shell, tty=True, expected=2 if state in ('unknown', 'error') else 1,
+                        extra={'STATUS_STATE': state})
+        interactive(out)
+        colored_value(out, '状态', label, color)
+    out, _, _ = run(shell, tty=True, extra={'STATUS_PROXY_CASE': 'lower'})
+    interactive(out)
+    colored_value(out, '终端代理', '已启用', 32)
+    out, _, _ = run(shell, tty=True, extra={'STATUS_TUN_API': 'enabled', 'STATUS_TUN_LINK': 'up'})
+    interactive(out)
+    colored_value(out, 'TUN', '已启用（ct-test）', 32)
+    out, _, _ = run(shell, tty=True, extra={'STATUS_TUN_API': 'unavailable'})
+    interactive(out)
+    colored_value(out, 'TUN', '无法检测', 33)
     out, _, _ = run(shell, tty=True, extra={'TERM': 'dumb'})
     plain(out)
     out, _, _ = run(shell, tty=True, extra={'LC_ALL': 'C'})
@@ -424,6 +522,31 @@ for shell in ('bash', 'zsh', 'fish'):
     plain(out)
     out, _, _ = run(shell, extra={'STATUS_MANAGER': 'systemd'})
     field(out, '管理方式', 'systemd')
+
+# Zsh 的分发与直接入口均传递当前未导出的代理变量和显式列数，且不改变父环境。
+for entry in ('dispatch', 'direct'):
+    for proxy_case, variable in [('lower', 'http_proxy'), ('http-upper', 'HTTP_PROXY'),
+                                  ('https-lower', 'https_proxy'), ('upper', 'HTTPS_PROXY'),
+                                  ('socks', 'all_proxy'), ('socks-upper', 'ALL_PROXY')]:
+        out, err, _ = run('zsh', extra={'STATUS_ENTRY': entry, 'STATUS_PROXY_CASE': proxy_case,
+                                       'STATUS_UNEXPORTED_PROXY': variable})
+        plain(out)
+        field(out, '终端代理', '已启用')
+        assert not err, err
+    for columns in (39, 40):
+        args = ('--verbose',) if columns == 40 else ()
+        for state, expected in [('running', 0), ('stopped', 1), ('unknown', 2)]:
+            out, err, _ = run('zsh', args=args, tty=True, width=100, expected=expected,
+                              extra={'STATUS_ENTRY': entry, 'STATUS_COLUMNS': str(columns),
+                                     'STATUS_PROXY_CASE': 'lower', 'STATUS_UNEXPORTED_PROXY': 'http_proxy',
+                                     'STATUS_STATE': state})
+            if columns == 39:
+                plain(out)
+            else:
+                interactive(out, verbose=True)
+                field(out, 'PID', '24680' if state == 'running' else '—')
+            field(out, '终端代理', '已启用')
+            assert not err, err
 
 # 版本和运行时长只提供信息，不改变按内核运行状态决定的退出码。
 configure(**{'mixed-port': 7890})
@@ -494,6 +617,7 @@ for shell in ('bash', 'zsh', 'fish'):
             out, _, _ = run(shell)
             field(out, 'Web 面板', address)
         out, _, _ = run(shell, tty=True, extra={'STATUS_STATE': 'stopped'}, expected=1)
+        interactive(out)
         field(out, 'Web 面板', 'http://[2001:db8::20]:9092/ui')
         for controller in ('', '127.0.0.1:0', '127.0.0.1:65536', 'not-a-controller'):
             configure(**{'mixed-port': 7890, 'external-controller': controller, 'external-ui': 'dist'})
@@ -527,7 +651,7 @@ for shell in ('bash', 'zsh', 'fish'):
         assert not err, err
 profiles.write_text(saved_profiles)
 
-# Unicode 范围匹配不能受 locale 排序规则影响；普通名称在各 UTF-8 locale 下保持面板。
+# 普通名称、组合字符和 emoji 在各 UTF-8 locale 下保持相同的交互布局。
 utf8_locales = []
 for locale_name in subprocess.check_output(['locale', '-a'], env=env_base, text=True).splitlines():
     encoding = subprocess.check_output(['locale', 'charmap'],
@@ -536,25 +660,12 @@ for locale_name in subprocess.check_output(['locale', '-a'], env=env_base, text=
         utf8_locales.append(locale_name)
 assert utf8_locales, 'a UTF-8 locale is required'
 for locale_name in utf8_locales:
-    for name in ('MarukoMihomo', '中文订阅'):
+    for name in ('MarukoMihomo', '中文订阅', '订阅 👩‍💻', 'Cafe\u0301', '订阅 🇨🇳', '订阅 👍🏽'):
         profiles.write_text(json.dumps({'use': name}))
         for shell in ('bash', 'zsh', 'fish'):
             for args in ((), ('--verbose',)):
                 out, err, _ = run(shell, args=args, tty=True, extra={'LC_ALL': locale_name})
-                contains(out, '╭', '╰')
-                field(out, '已选订阅', name)
-                assert not err, err
-                if args:
-                    field(out, 'PID', '24680')
-
-# 组合字符及 emoji 序列在真实终端保留原名，并回退纯文本以免边框错位。
-for locale_name in utf8_locales:
-    for name in ('订阅 👩‍💻', 'Cafe\u0301', '订阅 🇨🇳', '订阅 👍🏽'):
-        profiles.write_text(json.dumps({'use': name}))
-        for shell in ('bash', 'zsh', 'fish'):
-            for args in ((), ('--verbose',)):
-                out, err, _ = run(shell, args=args, tty=True, extra={'LC_ALL': locale_name})
-                plain(out)
+                interactive(out, verbose=bool(args))
                 field(out, '已选订阅', name)
                 assert not err, err
                 if args:
@@ -562,8 +673,9 @@ for locale_name in utf8_locales:
 profiles.write_text(saved_profiles)
 
 configure(**{'mixed-port': 7890, 'allow-lan': True, 'bind-address': 'long-' + 'x' * 100 + '.example'})
-out, _, _ = run(tty=True, width=80)
-plain(out)
-contains(out, 'long-' + 'x' * 100 + '.example:7890')
+for shell in ('bash', 'zsh', 'fish'):
+    out, _, _ = run(shell, tty=True, width=80)
+    interactive(out)
+    contains(out, 'long-' + 'x' * 100 + '.example:7890')
 print(f'status: ok ({count} checks)')
 PY
