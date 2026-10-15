@@ -26,12 +26,30 @@ clashupdate() {
 
 _update_scripts() (
     set -o pipefail
+    local branch=${CLASHCTL_UPDATE_BRANCH:-master} url target dirty method work='' stage rc install_source
+    trap '
+        rc=$?
+        trap - EXIT
+        trap "" INT TERM HUP
+        [ -z "$work" ] || [ -f "$work/keep" ] || rm -rf -- "$work"
+        operation_lock_release || true
+        exit "$rc"
+    ' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
     operation_lock_acquire || return 1
-    local branch=${CLASHCTL_UPDATE_BRANCH:-master} url target dirty method work stage
     [ -f "$CLASHCTL_HOME/.env" ] || { _ui_error '未找到安装配置'; return 1; }
     # 复用安装入口中的源码下载与检查，不执行初始化。
     # shellcheck source=/dev/null  # 只加载函数，安装入口有执行保护。
-    . "$CLASHCTL_HOME/install.sh" || return 1
+    install_source=${CLASHCTL_INSTALL_LOCK_LIB:-}
+    if [ -n "$install_source" ]; then
+        install_source=${install_source%/scripts/lib/operation-lock.sh}
+    else
+        install_source=$CLASHCTL_HOME
+    fi
+    # shellcheck source=/dev/null
+    . "$install_source/install.sh" || return 1
     method=$(_install_method "$(cd -- "$CLASHCTL_HOME" && pwd -P)") || {
         _ui_error '缺少匹配的安装标记，已停止更新'
         return 1
@@ -39,7 +57,6 @@ _update_scripts() (
     work=$(mktemp -d "${CLASHCTL_HOME}.update.XXXXXX") || return 1
     stage="$work/source"
     mkdir "$stage" || return 1
-    trap '[ -f "$work/keep" ] || rm -rf -- "$work"' EXIT
     _ui_step "下载更新：$branch"
     if [ "$method" = git ]; then
         if ! command -v git >/dev/null 2>&1 || [ ! -d "$CLASHCTL_HOME/.git" ] || [ -L "$CLASHCTL_HOME/.git" ]; then
@@ -90,7 +107,8 @@ _update_git_checkout() (
     printf '%s\n%s\n' "$previous" "$previous_ref" >"$work/git-previous" || return 1
     trap '
         rc=$?
-        trap - EXIT INT TERM
+        trap - EXIT
+        trap "" INT TERM HUP
         if [ "$started" = true ] && [ "$complete" = false ]; then
             # checkout 可能只写了新文件，尚未更新索引；reset 不一定会清理它们。
             for file in "${added_files[@]}"; do
@@ -112,10 +130,12 @@ _update_git_checkout() (
             fi
             [ "$rc" -ne 0 ] || rc=1
         fi
+        operation_lock_release || true
         exit "$rc"
     ' EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
+    trap 'exit 129' HUP
     started=true
     git -C "$CLASHCTL_HOME" checkout --detach -q "$target" || return 1
     complete=true
@@ -133,7 +153,7 @@ _update_path_safe() {
 
 _update_archive() (
     set -o pipefail
-    local stage=$1 work=$2 hash file started=false complete=false failed=false
+    local stage=$1 work=$2 hash file started=false complete=false failed=false rc
     local manifest="$CLASHCTL_HOME/.clashctl-files"
     local -a old_files=() new_files=()
     local -A old_set=() new_set=()
@@ -168,6 +188,9 @@ _update_archive() (
     tar -cf "$work/previous.tar" -C "$CLASHCTL_HOME" -- "${old_files[@]}" .clashctl-files || return 1
     # 更新失败只恢复程序文件；订阅、组件和运行数据始终不参与替换。
     trap '
+        rc=$?
+        trap - EXIT
+        trap "" INT TERM HUP
         if [ "$started" = true ] && [ "$complete" = false ]; then
             for file in "${new_files[@]}"; do
                 [ "${old_set[$file]:-}" = 1 ] || rm -f -- "$CLASHCTL_HOME/$file" || failed=true
@@ -179,10 +202,14 @@ _update_archive() (
             else
                 _ui_error "更新未完成，原程序文件已恢复"
             fi
+            [ "$rc" -ne 0 ] || rc=1
         fi
+        operation_lock_release || true
+        exit "$rc"
     ' EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
+    trap 'exit 129' HUP
     started=true
     tar -cf - -C "$stage" -- "${new_files[@]}" .clashctl-files |
         tar -xf - -C "$CLASHCTL_HOME" || return 1

@@ -587,6 +587,10 @@ _ci_provision() (
         return
     fi
     export CLASHCTL_SRC="$CLASHCTL_HOME"
+    trap 'rc=$?; trap - EXIT; trap "" INT TERM HUP; operation_lock_release || true; exit "$rc"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
     operation_lock_acquire || return 1
     . "$CLASHCTL_SRC/scripts/preflight.sh" || return 1
     prepare_zip "$1"

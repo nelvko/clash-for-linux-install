@@ -225,8 +225,9 @@ _start_convert() {
     check_url="http://localhost:${BIN_SUBCONVERTER_PORT}/version"
     BIN_SUBCONVERTER_PID=$(
         (
-            if typeset -f operation_lock_close_fd >/dev/null 2>&1; then
-                operation_lock_close_fd || exit 1
+            trap - INT TERM HUP
+            if typeset -f operation_lock_release >/dev/null 2>&1; then
+                operation_lock_release || exit 1
             fi
             exec "$BIN_SUBCONVERTER"
         ) </dev/null >"$BIN_SUBCONVERTER_LOG" 2>&1 9>&- &

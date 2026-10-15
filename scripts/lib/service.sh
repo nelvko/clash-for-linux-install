@@ -7,7 +7,7 @@ if ! declare -F _service_process_record_pid >/dev/null 2>&1; then
     unset _service_process_lib_dir
 fi
 
-if ! declare -F operation_lock_close_fd >/dev/null 2>&1; then
+if ! declare -F operation_lock_release >/dev/null 2>&1; then
     _service_operation_lock_lib_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
     # shellcheck source=scripts/lib/operation-lock.sh
     . "${_service_operation_lock_lib_dir}/operation-lock.sh"
@@ -19,12 +19,13 @@ service_log_path=
 service_pid_path=
 
 _service_run_without_operation_lock() {
-    if [ -z "${CLASHCTL_OPERATION_LOCK_FD:-}" ]; then
+    if [ -z "${CLASHCTL_OPERATION_LOCK_DIR:-}" ]; then
         "$@"
         return
     fi
     (
-        operation_lock_close_fd || exit 1
+        trap - INT TERM HUP
+        operation_lock_release || exit 1
         "$@"
     )
 }
@@ -174,7 +175,8 @@ _service_nohup_start_locked() {    local pid expected_argv
     fi
     command rm -f -- "$service_pid_path" || return 1
     (
-        operation_lock_close_fd || exit 1
+        trap - INT TERM HUP
+        operation_lock_release || exit 1
         exec nohup "$BIN_KERNEL" -d "$CLASH_RESOURCES_DIR" -f "$CLASH_CONFIG_RUNTIME"
     ) </dev/null >"$service_log_path" 2>&1 9>&- &
     pid=$!

@@ -17,7 +17,19 @@ export REAL_GIT
 REAL_GIT=$(command -v git)
 export FIXTURE="$WORK_DIR/source" CI=1 CLASHCTL_HOME="$WORK_DIR/installed"
 mkdir -p "$FIXTURE/scripts/lib" "$FIXTURE/scripts/cmd" "$FIXTURE/resources" "$WORK_DIR/bin"
+export TEST_CRONTAB="$WORK_DIR/crontab"
+: >"$TEST_CRONTAB"
+cat >"$WORK_DIR/bin/crontab" <<'CRONTAB'
+#!/usr/bin/env bash
+case ${1:-} in
+-l) cat "$TEST_CRONTAB" ;;
+-r) : >"$TEST_CRONTAB" ;;
+*) cp "$1" "$TEST_CRONTAB" ;;
+esac
+CRONTAB
+chmod +x "$WORK_DIR/bin/crontab"
 cp "$REPO_DIR/scripts/lib/operation-lock.sh" "$FIXTURE/scripts/lib/"
+cp "$REPO_DIR/scripts/lib/install-maintenance.sh" "$FIXTURE/scripts/lib/"
 cp "$REPO_DIR/scripts/lib/service-process.sh" "$FIXTURE/scripts/lib/"
 cp "$REPO_DIR/scripts/lib/common.sh" "$FIXTURE/scripts/lib/"
 cp "$REPO_DIR/scripts/lib/shell.sh" "$FIXTURE/scripts/lib/"
@@ -31,6 +43,7 @@ cat >"$FIXTURE/scripts/preflight.sh" <<'STUB'
 [ ! -f "$CLASHCTL_HOME/.env" ] || . "$CLASHCTL_HOME/.env"
 . "$CLASHCTL_SRC/scripts/lib/common.sh"
 . "$CLASHCTL_SRC/scripts/lib/service-process.sh"
+. "$CLASHCTL_SRC/scripts/lib/operation-lock.sh"
 CLASH_DATA_DIR="$CLASHCTL_HOME/data"
 CLASH_PROFILES_DIR="$CLASH_DATA_DIR/profiles"
 CLASH_RESOURCES_DIR="$CLASHCTL_HOME/resources"
@@ -40,7 +53,6 @@ BIN_YQ=fixture_yq
 fixture_yq() { printf existing-secret; }
 bin_kernel_path() { printf '%s/bin/%s/%s' "$CLASHCTL_HOME" "$CLASHCTL_KERNEL" "$CLASHCTL_KERNEL"; }
 gh_proxy_url() { [ -z "${GH_PROXY:-}" ] && printf '%s\n' "$1" || printf '%s/%s\n' "${GH_PROXY%/}" "$1"; }
-operation_lock_acquire() { :; }
 valid_required() { :; }
 detect_service_manager() { service_manager=${TEST_SERVICE_MANAGER:-nohup}; }
 detect_rc() {
@@ -147,6 +159,7 @@ export PATH="$WORK_DIR/bin:$PATH"
 (
     . "$REPO_DIR/scripts/lib/operation-lock.sh"
     operation_lock_acquire || fail 'could not hold installation lock'
+    trap operation_lock_release EXIT
     locked_home="$WORK_DIR/locked-new"
     if CLASHCTL_HOME="$locked_home" bash "$REPO_DIR/install.sh" >"$WORK_DIR/locked-new.out" 2>&1; then
         fail 'new installation ignored held lock'
@@ -412,6 +425,7 @@ done
 (
     . "$REPO_DIR/scripts/lib/operation-lock.sh"
     operation_lock_acquire || fail 'could not hold retry lock'
+    trap operation_lock_release EXIT
     if CLASHCTL_HOME="$retry_home" bash "$retry_home/install.sh" >"$WORK_DIR/locked-retry.out" 2>&1; then
         fail 'existing installation ignored held lock'
     fi
@@ -554,6 +568,57 @@ grep -qx 'fixture_version=local-refresh' "$local_home/scripts/cmd/clashctl.sh" |
 [ "$(<"$local_home/data/config.yaml")" = 'saved local data' ] || fail 'local archive update changed data'
 [ -z "$(find "$WORK_DIR" -maxdepth 1 -type d -name 'local-home.update.*' -print -quit)" ] ||
     fail 'successful local update retained temporary source'
+# 上一版 current 布局自动切换时，始终使用新源码中的锁。
+old_protocol_home="$WORK_DIR/old-protocol-home"
+cp -a "$local_home" "$old_protocol_home"
+printf '%s\narchive\n' "$old_protocol_home" >"$old_protocol_home/.clashctl-install"
+for old_file in install.sh scripts/cmd/update.sh scripts/lib/operation-lock.sh; do
+    "$REAL_GIT" -C "$REPO_DIR" show "HEAD:$old_file" >"$old_protocol_home/$old_file"
+    case $old_file in
+    scripts/lib/operation-lock.sh) printf '\nflock() { exit 91; }\n' >>"$old_protocol_home/$old_file" ;;
+    *) printf '\nreturn 91 # 新安装器不可 source 安装目录里的旧安装器或更新器。\n' >>"$old_protocol_home/$old_file" ;;
+    esac
+    old_protocol_hash=$(sha256sum "$old_protocol_home/$old_file")
+    old_protocol_hash=${old_protocol_hash%% *}
+    sed -i "s|^[0-9a-f]*  ./$old_file$|$old_protocol_hash  ./$old_file|" "$old_protocol_home/.clashctl-files"
+done
+# 更新失败也必须沿用新安装器的退出清理，恢复旧文件并释放目录锁。
+if PATH="$local_failure_bin:$PATH" REAL_TAR="$real_tar" \
+    LOCAL_UPDATE_PROGRAM="$old_protocol_home/scripts/cmd/clashctl.sh" FAIL_LOCAL_RESTORE=0 \
+    CLASHCTL_HOME="$old_protocol_home" bash "$local_source/install.sh" --local >"$WORK_DIR/old-protocol-failed.out" 2>&1; then
+    fail 'old current partial update reported success'
+fi
+grep -q '原程序文件已恢复' "$WORK_DIR/old-protocol-failed.out" ||
+    { cat "$WORK_DIR/old-protocol-failed.out"; fail 'old current update did not use the new rollback handler'; }
+bash -c '. "$1"; operation_lock_acquire && trap operation_lock_release EXIT' _ "$REPO_DIR/scripts/lib/operation-lock.sh" ||
+    fail 'old current failed update retained the new operation lock'
+CLASHCTL_HOME="$old_protocol_home" bash "$local_source/install.sh" --local \
+    >"$WORK_DIR/old-protocol-updated.out" 2>&1 ||
+    { cat "$WORK_DIR/old-protocol-updated.out"; fail 'old current protocol did not migrate using the new lock'; }
+grep -q '^_directory_lock_acquire()' "$old_protocol_home/scripts/lib/operation-lock.sh" ||
+    fail 'old current protocol library was not replaced'
+# 管道更新没有伴随库，必须先准备新源码，不能调用安装目录里的旧锁函数。
+old_protocol_git="$WORK_DIR/old-protocol-git"
+cp -a "$CLASHCTL_HOME" "$old_protocol_git"
+printf '%s\ngit\n' "$old_protocol_git" >"$old_protocol_git/.clashctl-install"
+for old_file in install.sh scripts/cmd/update.sh scripts/lib/operation-lock.sh; do
+    "$REAL_GIT" -C "$REPO_DIR" show "HEAD:$old_file" >"$old_protocol_git/$old_file"
+    case $old_file in
+    scripts/lib/operation-lock.sh) printf '\nflock() { exit 91; }\n' >>"$old_protocol_git/$old_file" ;;
+    *) printf '\nreturn 91 # 管道入口不可 source 旧安装器或更新器。\n' >>"$old_protocol_git/$old_file" ;;
+    esac
+done
+"$REAL_GIT" -C "$old_protocol_git" config user.email test@example.invalid
+"$REAL_GIT" -C "$old_protocol_git" config user.name test
+"$REAL_GIT" -C "$old_protocol_git" add install.sh scripts/cmd/update.sh scripts/lib/operation-lock.sh
+"$REAL_GIT" -C "$old_protocol_git" commit -qm old-lock-protocol
+CLASHCTL_HOME="$old_protocol_git" bash -c 'cat "$1" | bash -s --' _ "$REPO_DIR/install.sh" \
+    >"$WORK_DIR/old-protocol-pipe.out" 2>&1 ||
+    { cat "$WORK_DIR/old-protocol-pipe.out"; fail 'piped update reused the old installed lock implementation'; }
+grep -q '^_directory_lock_acquire()' "$old_protocol_git/scripts/lib/operation-lock.sh" ||
+    fail 'piped update did not replace the old protocol library'
+[ -z "$(find "$WORK_DIR" -maxdepth 1 -type d -name 'old-protocol-git.download.*' -print -quit)" ] ||
+    fail 'piped update retained bootstrap source'
 bash "$local_home/uninstall.sh" --yes >"$WORK_DIR/local-uninstall.out" 2>&1 || fail 'local installation could not be uninstalled'
 [ -f "$local_source/install.sh" ] || fail 'uninstall removed local source'
 
@@ -576,6 +641,7 @@ chmod 0600 "$legacy_v2/.clashctl-installation"
 (
     . "$REPO_DIR/scripts/lib/operation-lock.sh"
     operation_lock_acquire || fail 'could not hold migration lock'
+    trap operation_lock_release EXIT
     tar -cf "$WORK_DIR/legacy-before-lock.tar" -C "$legacy_v2" .
     if CLASHCTL_HOME="$legacy_v2" bash "$local_source/install.sh" --local >"$WORK_DIR/locked-legacy.out" 2>&1; then
         fail 'legacy migration ignored held lock'
@@ -791,23 +857,11 @@ cmp -s "$interrupt_user/.config/fish/conf.d/clashctl.fish" "$WORK_DIR/interrupt-
     fail 'TERM during shell integration did not restore Fish configuration'
 [ -f "$interrupt_v1/resources/config.yaml" ] && [ ! -e "$interrupt_v1/.clashctl-install" ] ||
     fail 'TERM during shell integration did not restore old installation'
-# 旧版订阅写操作持锁更新文件时，新安装须等它提交后再复制。
-(
-    flock -x 9
-    : >"$WORK_DIR/profile-lock-held"
-    sleep 0.3
-    printf 'legacy v1 profile after update\n' >"$legacy_v1/resources/profiles/first.yaml"
-) 9>>"$legacy_v1/resources/profiles.lock" &
-profile_writer=$!
-for ((i=0; i<100; i++)); do
-    [ ! -e "$WORK_DIR/profile-lock-held" ] || break
-    sleep 0.01
-done
-[ -e "$WORK_DIR/profile-lock-held" ] || fail 'legacy profile writer did not acquire its lock'
+# 迁移保留用户最后一次完成的订阅写入。
+printf 'legacy v1 profile after update\n' >"$legacy_v1/resources/profiles/first.yaml"
 HOME="$legacy_user" bash -c '. "$HOME/.bashrc"; bash "$1" --local' _ \
     "$local_source/install.sh" >"$WORK_DIR/v1-success.out" 2>&1 ||
     { cat "$WORK_DIR/v1-success.out"; fail 'legacy v1 migration failed'; }
-wait "$profile_writer" || fail 'legacy profile writer failed'
 legacy_v1_backup=$(find "$recovery_root/backups" -maxdepth 1 -name 'legacy-v1-home.*' -print -quit)
 grep -q '原路径升级' "$WORK_DIR/v1-success.out" || fail 'in-place migration did not explain its path choice'
 ! grep -q '旧版目录:' "$WORK_DIR/v1-success.out" || fail 'in-place migration duplicated the installation path'
@@ -820,7 +874,7 @@ awk '
 ' "$WORK_DIR/v1-success.out" || fail 'migration backup was not shown between completion and guidance'
 [ "$(<"$legacy_v1/data/config.yaml")" = 'legacy v1 config' ] || fail 'legacy v1 config was not migrated'
 [ "$(<"$legacy_v1/data/profiles/first.yaml")" = 'legacy v1 profile after update' ] ||
-    fail 'legacy v1 profile was copied before the old writer completed'
+    fail 'migration did not preserve the latest profile'
 [ "$(<"$legacy_v1/data/download-options")" = 'clash|master|https://legacy.proxy.test' ] ||
     fail 'quoted/exported old kernel or proxy was not migrated'
 for file in resources/cache.db resources/dist/index.html resources/proxies/provider resources/rules/provider; do
@@ -1090,7 +1144,7 @@ with open(home + "/data/download-options") as saved:
 PTY
 
 . "$REPO_DIR/scripts/cmd/update.sh"
-operation_lock_acquire() { :; }
+. "$REPO_DIR/scripts/lib/operation-lock.sh"
 gh_proxy_url() { printf '%s\n' "$1"; }
 _ui_step() { :; }
 _ui_error() { printf '%s\n' "$*" >&2; }
@@ -1122,12 +1176,13 @@ if clashupdate >"$WORK_DIR/marker-empty.out" 2>&1; then fail 'empty installation
 grep -q '安装标记为空' "$WORK_DIR/marker-empty.out" || fail 'empty marker had no diagnosis'
 grep -qF "$CLASHCTL_HOME/.clashctl-install" "$WORK_DIR/marker-empty.out" || fail 'empty marker diagnosis did not name the file'
 printf '%s\ngit\n' "$CLASHCTL_HOME" >"$CLASHCTL_HOME/.clashctl-install"
-# 无 Git 的真实 PATH：下载器只复制本地 tar 包，其余使用系统工具。
+# 无 Git 和 flock 的真实 PATH：下载器只复制本地 tar 包，其余使用系统工具。
 no_git_bin="$WORK_DIR/no-git-bin"
 mkdir "$no_git_bin"
-for tool in install bash cat dirname readlink mkdir mktemp rm mv tar gzip unzip sha256sum find sort xargs chmod cp head stat sleep touch grep sed awk id flock; do
+for tool in install bash cat dirname readlink mkdir mktemp rm rmdir mv tar gzip unzip sha256sum find sort xargs chmod cp head stat sleep touch grep sed awk id; do
     ln -s "$(command -v "$tool")" "$no_git_bin/$tool"
 done
+PATH="$no_git_bin" bash -c '! command -v flock >/dev/null 2>&1' || fail 'archive fixture unexpectedly provides flock'
 export SOURCE_ARCHIVE="$WORK_DIR/source.tar.gz" DOWNLOAD_LOG="$WORK_DIR/download.log"
 cat >"$no_git_bin/curl" <<'DOWNLOAD'
 #!/usr/bin/env bash

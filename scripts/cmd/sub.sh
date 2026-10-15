@@ -140,20 +140,36 @@ _logging_sub() {
 # 串行化所有订阅写操作（含 cron 自动更新）：交互与下载在锁外完成，
 # 仅把“改元数据 + 落盘”的临界区放进锁内。加锁实现内部禁止再调用本函数
 # （临界区之间改用 _xxx_locked 内层函数组合），以免自我死锁。
-# 无 flock 时降级为直接执行（尽力而为）。
-_with_profiles_lock() {
-    command -v flock >/dev/null 2>&1 || {
-        "$@"
-        return
-    }
-    (
-        flock -w 60 9 || {
+# 使用原子 mkdir 取得锁；独立子 shell 负责退出时清理，不改变调用方的 trap。
+# .d 后缀避开旧版本可能保留的 profiles.lock 普通文件。
+_with_profiles_lock() (
+    if ! declare -F _directory_lock_acquire >/dev/null 2>&1; then
+        local lock_lib_dir
+        lock_lib_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../lib" && pwd -P) || return 1
+        # shellcheck source=scripts/lib/operation-lock.sh
+        . "$lock_lib_dir/operation-lock.sh" || return 1
+    fi
+
+    local lock_dir="${CLASH_PROFILES_LOCK}.d" lock_pid='' lock_token='' rc=0
+    # 先设置清理：取锁过程收到信号时，由共享实现先完成所有者记录再退出。
+    trap 'trap "" HUP INT TERM; _directory_lock_release "$lock_dir" "${lock_pid:-${_DIRECTORY_LOCK_PID:-}}" "${lock_token:-${_DIRECTORY_LOCK_TOKEN:-}}"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
+    _directory_lock_acquire "$lock_dir" 60 || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        if [ "$rc" -eq 1 ]; then
             _errorcat "另一订阅操作正在进行（可能是定时更新），请稍后再试"
-            exit 1
-        }
-        "$@"
-    ) 9>>"$CLASH_PROFILES_LOCK"
-}
+        else
+            _errorcat "无法安全创建订阅操作锁，本次未修改订阅"
+        fi
+        _directory_lock_report "$lock_dir"
+        return 1
+    fi
+    lock_pid=$_DIRECTORY_LOCK_PID
+    lock_token=$_DIRECTORY_LOCK_TOKEN
+    "$@"
+)
 
 # 下载并校验订阅到独立的临时工作文件（mktemp，避免固定路径的并发互踩）。
 #   用法：_sub_download <url> <strategy(auto|raw|convert)>
