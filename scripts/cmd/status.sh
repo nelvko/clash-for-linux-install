@@ -19,7 +19,7 @@ clashstatus() {
 
     local kernel_state state_label state_color rc pid='—' terminal_label
     local http_address socks_address kernel_label uptime_label='—' tun_label dashboard_url=''
-    local version elapsed
+    local version elapsed subscription_label
     if detect_service_manager; then
         kernel_state=$(service_state 2>/dev/null) || kernel_state=unknown
     else
@@ -60,15 +60,14 @@ clashstatus() {
         ;;
     esac
     tun_label=$(_status_tun_label "$kernel_state" "$pid")
+    subscription_label=$(_status_subscription_label)
     dashboard_url=$(_status_dashboard_url) || dashboard_url=''
     _status_proxy_addresses
-    _status_render "$state_label" "$state_color" "$pid" "$terminal_label" "$http_address" "$socks_address" \
+    _status_render "$state_label" "$state_color" "$subscription_label" "$terminal_label" "$http_address" "$socks_address" \
         "$kernel_label" "$uptime_label" "$tun_label" "$dashboard_url"
 
     if [ "${1:-}" = --verbose ]; then
-        _status_verbose_paths
-        printf '\n原生状态：\n'
-        SYSTEMD_PAGER=cat SYSTEMD_COLORS=0 service_status || true
+        _status_verbose_details "$pid"
     fi
     return "$rc"
 }
@@ -149,16 +148,21 @@ _status_dashboard_url() {
     printf 'http://%s:%s/ui\n' "$host" "$port"
 }
 
-_status_verbose_paths() {
-    local subscription='未选择' log_location=${service_log_path:-无法读取}
+_status_subscription_label() {
+    local subscription='未选择'
     if [ -e "$CLASH_PROFILES_META" ]; then
         subscription=$(_sub_current 2>/dev/null) || subscription='无法读取'
         [ -n "$subscription" ] || subscription='未选择'
         subscription=${subscription//[[:cntrl:]]/ }
     fi
+    printf '%s\n' "$subscription"
+}
+
+_status_verbose_details() {
+    local pid=$1 log_location=${service_log_path:-无法读取}
     [ "${service_manager:-}" != systemd ] || log_location="journalctl -u ${CLASHCTL_KERNEL:-mihomo}"
-    printf '\n当前订阅：%s\n主配置：%s\n运行配置：%s\n日志：%s\n' \
-        "$subscription" "$CLASH_CONFIG_BASE" "$CLASH_CONFIG_RUNTIME" "$log_location"
+    printf '\nPID：%s\n主配置：%s\n运行配置：%s\n日志：%s\n' \
+        "$pid" "$CLASH_CONFIG_BASE" "$CLASH_CONFIG_RUNTIME" "$log_location"
 }
 
 # 仅从运行配置生成可复制的连接地址，不调整端口或修改配置。
@@ -255,10 +259,10 @@ _status_urlencode() {
 }
 
 _status_render() {
-    local state_label=$1 state_color=$2 pid=$3 terminal_label=$4 http_address=$5 socks_address=$6
+    local state_label=$1 state_color=$2 subscription_label=$3 terminal_label=$4 http_address=$5 socks_address=$6
     local kernel_label=$7 uptime_label=$8 tun_label=$9 dashboard_url=${10}
-    local -a labels=('内核' '管理方式' '状态' 'PID' '运行时长' 'TUN' '' '终端代理' '' '代理地址（运行配置）' 'HTTP(S)' 'SOCKS5')
-    local -a values=("$kernel_label" "${service_manager:-未知}" "$state_label" "$pid" "$uptime_label" "$tun_label" '' "$terminal_label" '' '' "$http_address" "$socks_address")
+    local -a labels=('内核' '管理方式' '状态' '运行时长' '已选订阅' 'TUN' '' '终端代理' '' '代理地址（运行配置）' 'HTTP(S)' 'SOCKS5')
+    local -a values=("$kernel_label" "${service_manager:-未知}" "$state_label" "$uptime_label" "$subscription_label" "$tun_label" '' "$terminal_label" '' '' "$http_address" "$socks_address")
     if [ -n "$dashboard_url" ]; then
         labels+=('Web 面板')
         values+=("$dashboard_url")
@@ -291,6 +295,9 @@ _status_render() {
         [ "$columns" -gt 0 ] || columns=80
         [ "$((width + 4))" -gt "$columns" ] || panel=1
     fi
+    # 组合字符和 emoji 序列的显示宽度取决于终端，使用纯文本避免边框错位。
+    local combined_chars=$'\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u200d\u20d0-\u20ff\ufe00-\ufe0f\ufe20-\ufe2f\U0001f1e6-\U0001f1ff\U0001f3fb-\U0001f3ff'
+    [[ $subscription_label != *[$combined_chars]* ]] || panel=0
     if [ "$panel" -eq 0 ]; then
         for ((index = 0; index < ${#labels[@]}; index++)); do
             label=${labels[index]}
@@ -348,7 +355,7 @@ Usage:
   clashctl status [OPTIONS]
 
 Options:
-      --verbose  显示当前订阅、配置和日志路径，并追加原生状态
+      --verbose  显示 PID、配置路径和日志位置
   -h, --help     显示帮助信息
 
 终端中显示状态面板，管道或窄终端中使用纯文本。

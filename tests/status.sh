@@ -20,7 +20,7 @@ detect_service_manager() {
 service_state() {
     printf 'state\n' >>"$CLASHCTL_HOME/calls"
     case ${STATUS_STATE:-running} in
-    running | stopped) printf '%s\n' "${STATUS_STATE:-running}" ;;
+    running | stopped | unknown) printf '%s\n' "${STATUS_STATE:-running}" ;;
     starting | stopping | failed) printf '%s\n' "$STATUS_STATE" ;;
     error) printf 'private native error\n' >&2; return 7 ;;
     *) return 8 ;;
@@ -277,6 +277,10 @@ def run(shell='bash', args=(), expected=0, extra=None, tty=False, width=100):
     assert rc == expected, (label, 'exit', rc, expected, stdout, stderr)
     assert before == after, (label, 'query changed runtime data')
     assert 'MUTATION' not in calls, (label, calls)
+    assert 'native' not in calls, (label, 'queried native service status', calls)
+    assert 'native status details' not in stdout + stderr and '原生状态' not in stdout + stderr, (label, stdout, stderr)
+    if not args:
+        assert 'PID' not in stdout, (label, 'PID in default output', stdout)
     for secret in ('terminal-user', 'terminal-pass', 'ignored-user', 'ignored-pass', 'fixture-secret',
                    'private-subscription-token', 'private version error', 'private unrecognized version'):
         assert secret not in stdout + stderr, (label, 'non-runtime value exposed', stdout, stderr)
@@ -303,14 +307,14 @@ for shell in ('bash', 'zsh', 'fish'):
     assert not err, (shell, err)
     plain(out)
     for label, value in [('内核', 'mihomo v1.19.32'), ('管理方式', 'nohup'), ('状态', '运行中'),
-                         ('PID', '24680'), ('运行时长', '1d 01h 01m 01s'),
+                         ('已选订阅', '订阅 A'), ('运行时长', '1d 01h 01m 01s'),
                          ('TUN', '关闭'), ('终端代理', '未启用')]:
         field(out, label, value)
     contains(out, 'http://runtime-user:runtime-pass@127.0.0.1:7890',
              'socks5h://runtime-user:runtime-pass@127.0.0.1:7890')
     assert calls.count('state') == 1 and 'native' not in calls, calls
     assert calls.count('version') == 1 and calls.count('uptime') == 1, calls
-    assert 'Web 面板' not in out and '当前订阅' not in out, out
+    assert 'Web 面板' not in out and 'PID' not in out, out
     assert str(home / 'data') not in out, out
     for proxy_case in ('lower', 'upper', 'socks', 'http-upper', 'https-lower', 'socks-upper'):
         out, _, _ = run(shell, extra={'STATUS_PROXY_CASE': proxy_case})
@@ -343,14 +347,20 @@ for shell in ('bash', 'zsh', 'fish'):
                  ('--verbose', 'unexpected'), ('--help', '--help')):
         _, _, calls = run(shell, args=args, expected=1)
         assert not calls, (shell, args, calls)
-    for state, expected in (('running', 0), ('stopped', 1), ('error', 2)):
-        out, _, calls = run(shell, args=('--verbose',), expected=expected,
-                            extra={'STATUS_STATE': state, 'STATUS_NATIVE_RC': '19'})
-        contains(out, 'native status details')
-        for label, value in [('当前订阅', '订阅 A'), ('主配置', str(home / 'data/config.yaml')),
-                             ('运行配置', str(runtime)), ('日志', str(home / 'data/mihomo.log'))]:
-            field(out, label, value)
-        assert calls.count('native') == 1, calls
+    for state, expected in (('running', 0), ('stopped', 1), ('unknown', 2), ('error', 2)):
+        for args in ((), ('--verbose',)):
+            out, err, calls = run(shell, args=args, expected=expected,
+                                  extra={'STATUS_STATE': state, 'STATUS_NATIVE_RC': '19'})
+            assert not err, (shell, state, args, err)
+            field(out, '已选订阅', '订阅 A')
+            assert '当前订阅' not in out, out
+            if args:
+                for label, value in [('PID', '24680' if state == 'running' else '—'),
+                                     ('主配置', str(home / 'data/config.yaml')),
+                                     ('运行配置', str(runtime)), ('日志', str(home / 'data/mihomo.log'))]:
+                    field(out, label, value)
+            else:
+                assert str(home / 'data') not in out, out
 
 # URL 中完整展示首组运行配置认证，保留用户名/密码分隔符并编码保留字符。
 for shell in ('bash', 'zsh', 'fish'):
@@ -495,7 +505,7 @@ for shell in ('bash', 'zsh', 'fish'):
     finally:
         (ui_dir / 'index.html').unlink()
 
-# 详细模式的订阅字段只展示名称；元数据缺失和读取失败单独说明。
+# 已选订阅只展示选择记录的名称；元数据缺失和读取失败单独说明。
 configure(**{'mixed-port': 7890})
 profiles = home / 'data/profiles.yaml'
 saved_profiles = profiles.read_text()
@@ -503,15 +513,31 @@ for shell in ('bash', 'zsh', 'fish'):
     out, _, _ = run(shell, args=('--verbose',), extra={'STATUS_MANAGER': 'systemd'})
     field(out, '日志', 'journalctl -u mihomo')
     profiles.write_text('{"use": ""}')
-    out, _, _ = run(shell, args=('--verbose',))
-    field(out, '当前订阅', '未选择')
+    for args in ((), ('--verbose',)):
+        out, _, _ = run(shell, args=args)
+        field(out, '已选订阅', '未选择')
     profiles.unlink()
-    out, _, _ = run(shell, args=('--verbose',))
-    field(out, '当前订阅', '未选择')
+    for args in ((), ('--verbose',)):
+        out, _, _ = run(shell, args=args)
+        field(out, '已选订阅', '未选择')
     profiles.write_text('{invalid fixture-secret')
-    out, err, _ = run(shell, args=('--verbose',))
-    field(out, '当前订阅', '无法读取')
-    assert not err, err
+    for args in ((), ('--verbose',)):
+        out, err, _ = run(shell, args=args)
+        field(out, '已选订阅', '无法读取')
+        assert not err, err
+profiles.write_text(saved_profiles)
+
+# 组合字符及 emoji 序列在真实终端保留原名，并回退纯文本以免边框错位。
+for name in ('订阅 👩‍💻', 'Cafe\u0301', '订阅 🇨🇳', '订阅 👍🏽'):
+    profiles.write_text(json.dumps({'use': name}))
+    for shell in ('bash', 'zsh', 'fish'):
+        for args in ((), ('--verbose',)):
+            out, err, _ = run(shell, args=args, tty=True)
+            plain(out)
+            field(out, '已选订阅', name)
+            assert not err, err
+            if args:
+                field(out, 'PID', '24680')
 profiles.write_text(saved_profiles)
 
 configure(**{'mixed-port': 7890, 'allow-lan': True, 'bind-address': 'long-' + 'x' * 100 + '.example'})
