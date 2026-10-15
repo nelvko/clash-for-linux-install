@@ -182,5 +182,21 @@ for command in ["node", "sub"]:
     run(f"PATH=/nonexistent; clashctl {command} ls; result=$?; PATH=$original_path; (exit $result)\n",
         expected=127, contains="未找到 Bash，请安装后重试")
     run(f"clashctl {command} --help\n", contains=f"clashctl {command}")
+
+# 所有依赖 Bash 语义的子命令在非 Bash 解释器下都必须转发到 Bash 子进程；
+# PATH 中没有 bash 时统一报 127，而不是在当前解释器里误执行。
+for command in ["start", "stop", "status", "ui", "log", "mixin", "secret", "upgrade", "tun"]:
+    run(f"PATH=/nonexistent; clashctl {command}; result=$?; PATH=$original_path; (exit $result)\n",
+        expected=127, contains="未找到 Bash，请安装后重试")
+# 直接调用 clash* 函数（fish 包装器与用户习惯）同样要转发。
+for function in ["clashstart", "clashstop", "clashstatus", "clashui", "clashmixin",
+                 "clashsecret", "clashupgrade", "clashtun"]:
+    run(f"PATH=/nonexistent; {function}; result=$?; PATH=$original_path; (exit $result)\n",
+        expected=127, contains="未找到 Bash，请安装后重试")
+# 必须留在当前 Shell 的命令：off 只清理本 Shell 变量，PATH 清空也应成功。
+run("PATH=/nonexistent; clashctl off; result=$?; PATH=$original_path; (exit $result)\n",
+    contains="当前终端代理已关闭")
+run("clashctl help\n", contains="clashctl COMMAND")
+run("clashctl version\n", contains="clashctl")
 print(f"zsh-commands: {count} checks passed")
 PY

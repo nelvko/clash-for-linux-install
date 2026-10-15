@@ -20,6 +20,7 @@ mkdir -p "$FIXTURE/scripts/lib" "$FIXTURE/scripts/cmd" "$FIXTURE/resources" "$WO
 cp "$REPO_DIR/scripts/lib/operation-lock.sh" "$FIXTURE/scripts/lib/"
 cp "$REPO_DIR/scripts/lib/service-process.sh" "$FIXTURE/scripts/lib/"
 cp "$REPO_DIR/scripts/lib/common.sh" "$FIXTURE/scripts/lib/"
+cp "$REPO_DIR/scripts/lib/shell.sh" "$FIXTURE/scripts/lib/"
 cp "$REPO_DIR/scripts/cmd/update.sh" "$FIXTURE/scripts/cmd/"
 cp "$REPO_DIR/install.sh" "$FIXTURE/"
 cp "$REPO_DIR/uninstall.sh" "$FIXTURE/"

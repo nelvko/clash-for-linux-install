@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+# 解释器归一化：非 Bash（zsh 等）无法安全执行 lib/ 与 cmd/ 中的实现
+# （read -r -a、${!arr[@]}、${s:i:1}、$BASHPID、$BASH_SOURCE 均为 Bash 语法）。
+# 调用点有两处：
+#   1) scripts/cmd/clashctl.sh 的分发入口，覆盖 clashctl <sub>
+#   2) 各 clash* 入口函数，覆盖直接调用（clashnode / clashsub / clashui ...）
+_clashctl_in_bash() {
+    [ -n "${BASH_VERSION:-}" ]
+}
+
+# 在 Bash 子进程中执行 clash* 函数，并原样返回其退出码。
+# 子进程隔离：不改动当前 Shell 的变量 / PATH / setopt，交互式命令的 tty 与
+# 退出码照常传递。调用方约定：仅在 ! _clashctl_in_bash 时调用本函数。
+_clashctl_run_in_bash() {
+    local func=$1
+    shift
+    command -v bash >/dev/null 2>&1 || {
+        _ui_error '未找到 Bash，请安装后重试'
+        return 127
+    }
+    # _CLASHCTL_START_FROM_ON 是 on → start 的消息抑制标记，随子进程传递，
+    # 保证 clashctl on 在非 Bash 解释器下与 Bash 下行为一致。
+    CLASHCTL_HOME="$CLASHCTL_HOME" \
+        _CLASHCTL_START_FROM_ON="${_CLASHCTL_START_FROM_ON:-}" \
+        bash -c '
+        unset ZSH_VERSION
+        . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" && "$@"
+    ' -- "$func" "$@"
+}

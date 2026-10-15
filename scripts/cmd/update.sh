@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# shellcheck disable=SC1091  # 独立 source（测试）时补载依赖；经 clashctl.sh 加载时已存在。
+declare -F _clashctl_run_in_bash >/dev/null 2>&1 || . "${BASH_SOURCE[0]%/*}/../lib/shell.sh"
+
 clashupdate() {
     case ${1:-} in
     -h | --help)
@@ -8,13 +11,11 @@ clashupdate() {
     '') ;;
     *) _ui_error '用法: clashupdate'; return 1 ;;
     esac
-    # 文件更新使用 Bash 的数组和锁；Zsh 只负责加载更新后的命令。
-    if [ -n "${ZSH_VERSION:-}" ]; then
-        CLASHCTL_HOME="$CLASHCTL_HOME" bash -c '
-            . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" && _update_scripts
-        '
-    else
+    # 文件更新使用 Bash 的数组和锁；非 Bash 解释器只负责加载更新后的命令。
+    if _clashctl_in_bash; then
         _update_scripts
+    else
+        _clashctl_run_in_bash _update_scripts
     fi || return 1
     . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" || {
         _ui_error 'clashctl 已更新，但当前 Shell 加载失败，请重开终端'
