@@ -46,8 +46,6 @@ STUB
 chmod +x "$WORK_DIR/bin/curl"
 cat >"$WORK_DIR/probe.sh" <<'PROBE'
 . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" || exit 1
-_detect_ext_addr() { EXT_IP=127.0.0.1; EXT_PORT=9090; }
-service_is_active() { touch "$CLASHCTL_HOME/service-queried"; }
 clashctl ui || exit 1
 clashctl ui || exit 1
 [ -f "$CLASH_RESOURCES_DIR/dist/index.html" ] || exit 1
@@ -67,8 +65,14 @@ PROBE
 for shell in bash zsh; do
     home_dir="$WORK_DIR/$shell"
     mkdir -p "$home_dir/bin" "$home_dir/resources" "$home_dir/data"
-    ln -s "$REPO_DIR/scripts" "$home_dir/scripts"
-    printf 'CLASHCTL_KERNEL=mihomo\nGH_PROXY=\n' >"$home_dir/.env"
+    # Zsh 转发到 Bash 时会重新加载脚本，模拟函数也必须随之加载。
+    cp -a "$REPO_DIR/scripts" "$home_dir/scripts"
+    cat >"$home_dir/scripts/cmd/zz-fixture.sh" <<'STUB'
+_detect_ext_addr() { EXT_IP=127.0.0.1; EXT_PORT=9090; }
+service_is_active() { touch "$CLASHCTL_HOME/service-queried"; }
+STUB
+    # 模拟失效时应明确失败，不能借用宿主机上已运行的 systemd 服务。
+    printf 'CLASHCTL_KERNEL=mihomo\nINIT_TYPE=nohup\nGH_PROXY=\n' >"$home_dir/.env"
     printf '#!/bin/sh\nprintf 25500\n' >"$home_dir/bin/yq"
     chmod +x "$home_dir/bin/yq"
     : >"$COMPONENT_DOWNLOADS"
