@@ -297,11 +297,17 @@ _status_render() {
         return 0
     fi
 
+    local rule_width=48
+    [ "$rule_width" -lt "$columns" ] || rule_width=$((columns - 1))
+    printf '\n── '
     if _ui_color_enabled 1; then
-        printf '\n\033[1mclashctl\033[0m\n\n'
+        printf '\033[1mclashctl\033[0m'
     else
-        printf '\nclashctl\n\n'
+        printf 'clashctl'
     fi
+    printf ' '
+    _status_rule "$((rule_width - 12))"
+    printf '\n\n'
     for ((index = 0; index < ${#labels[@]}; index++)); do
         label=${labels[index]}
         value=${values[index]}
@@ -335,6 +341,13 @@ _status_render() {
         fi
     done
     printf '\n'
+    _status_rule "$rule_width"
+    printf '\n'
+}
+
+_status_rule() {
+    local count=$1 index
+    for ((index = 0; index < count; index++)); do printf '─'; done
 }
 
 status_help() {

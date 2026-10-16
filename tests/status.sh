@@ -327,7 +327,7 @@ def field(output, label, value):
 ansi = re.compile(r'\x1b\[[0-9;]*m')
 
 def no_frame(output):
-    assert not any('\u2500' <= character <= '\u257f' for character in output), ('frame in output', output)
+    assert not any('\u2500' <= character <= '\u257f' and character != '─' for character in output), ('frame in output', output)
 
 def display_width(text):
     return sum(0 if unicodedata.combining(c) else 2 if unicodedata.east_asian_width(c) in ('W', 'F') else 1
@@ -336,13 +336,19 @@ def display_width(text):
 def plain(output):
     assert '\x1b[' not in output, ('ANSI in plain output', output)
     no_frame(output)
+    assert '─' not in output, ('horizontal rule in plain output', output)
     assert 'clashctl' not in [line.strip() for line in output.splitlines()], ('title in plain output', output)
     assert '内核：' in output and '代理地址' in output, output
 
-def interactive(output, verbose=False, color=True):
+def interactive(output, verbose=False, color=True, columns=100):
     no_frame(output)
     lines = ansi.sub('', output).splitlines()
-    assert lines.count('clashctl') == 1, ('missing standalone title', output)
+    content = [line for line in lines if line]
+    rule_width = min(48, columns - 1)
+    assert re.fullmatch(r'── clashctl ─+', content[0]), ('missing ruled title', output)
+    assert display_width(content[0]) == rule_width, ('title rule width', columns, output)
+    assert content[-1] == '─' * rule_width, ('footer rule width', columns, output)
+    assert [line for line in lines if '─' in line] == [content[0], content[-1]], ('unexpected rules', output)
     assert '  代理地址' in lines, ('missing address group', output)
     if color:
         assert '\x1b[1mclashctl\x1b[0m' in output, ('title has no bold style', output)
@@ -490,7 +496,7 @@ for shell in ('bash', 'zsh', 'fish'):
         out, _, _ = run(shell, tty=True, width=width)
         plain(out)
     out, _, _ = run(shell, tty=True, width=40)
-    interactive(out)
+    interactive(out, columns=40)
     out, _, _ = run(shell, args=('--verbose',), tty=True)
     interactive(out, verbose=True)
     field(out, 'PID', '24680')
@@ -543,7 +549,7 @@ for entry in ('dispatch', 'direct'):
             if columns == 39:
                 plain(out)
             else:
-                interactive(out, verbose=True)
+                interactive(out, verbose=True, columns=columns)
                 field(out, 'PID', '24680' if state == 'running' else '—')
             field(out, '终端代理', '已启用')
             assert not err, err
@@ -675,7 +681,7 @@ profiles.write_text(saved_profiles)
 configure(**{'mixed-port': 7890, 'allow-lan': True, 'bind-address': 'long-' + 'x' * 100 + '.example'})
 for shell in ('bash', 'zsh', 'fish'):
     out, _, _ = run(shell, tty=True, width=80)
-    interactive(out)
+    interactive(out, columns=80)
     contains(out, 'long-' + 'x' * 100 + '.example:7890')
 print(f'status: ok ({count} checks)')
 PY
