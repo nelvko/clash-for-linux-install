@@ -342,7 +342,7 @@ _status_render() {
     done
     printf '\n'
     _status_rule "$rule_width"
-    printf '\n'
+    printf '\n\n'
 }
 
 _status_rule() {
