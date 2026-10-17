@@ -196,14 +196,7 @@ _sub_download() {
     err_log="${work}.err"
 
     case $strategy in
-    convert)
-        {
-            _download_convert_config "$work" "$url" &&
-                _normalize_sub_config "$work" &&
-                _valid_config "$work" &&
-                _valid_sub_nodes "$work"
-        } 2>"$err_log"
-        ;;
+    convert) _convert_sub_config "$work" "$url" 2>"$err_log" ;;
     raw) _download_config "$work" "$url" false 2>"$err_log" ;;
     *) _download_config "$work" "$url" true 2>"$err_log" ;;
     esac

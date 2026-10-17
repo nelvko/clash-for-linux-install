@@ -13,6 +13,8 @@ mkdir -p "$CLASH_RESOURCES_DIR"
 
 # shellcheck source=../scripts/cmd/sub.sh
 . "$REPO_DIR/scripts/cmd/sub.sh"
+# shellcheck source=../scripts/lib/convert.sh
+. "$REPO_DIR/scripts/lib/convert.sh"
 
 _download_convert_config() { cp "$WORK_DIR/input" "$1"; }
 _normalize_sub_config() { [ -s "$1" ]; }
