@@ -1,19 +1,5 @@
 #!/usr/bin/env bash
 
-if ! declare -F _service_process_record_pid >/dev/null 2>&1; then
-    _service_process_lib_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
-    # shellcheck source=scripts/lib/service-process.sh
-    . "${_service_process_lib_dir}/service-process.sh"
-    unset _service_process_lib_dir
-fi
-
-if ! declare -F operation_lock_release >/dev/null 2>&1; then
-    _service_operation_lock_lib_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
-    # shellcheck source=scripts/lib/operation-lock.sh
-    . "${_service_operation_lock_lib_dir}/operation-lock.sh"
-    unset _service_operation_lock_lib_dir
-fi
-
 service_manager=
 service_log_path=
 service_pid_path=

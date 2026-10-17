@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 
-# shellcheck disable=SC1091  # 独立 source（测试）时补载依赖；经 clashctl.sh 加载时已存在。
-declare -F _clashctl_run_in_bash >/dev/null 2>&1 || . "${BASH_SOURCE[0]%/*}/../lib/shell.sh"
-
 # ── 术语约定 ──────────────────────────────────────────────────
 #   name    订阅名称：用户可见/输入的唯一键，允许中文/emoji/空格
 #   path    该订阅在磁盘上的配置文件路径（权威来源，文件名已安全化）
@@ -142,13 +139,6 @@ _logging_sub() {
 # 使用原子 mkdir 取得锁；独立子 shell 负责退出时清理，不改变调用方的 trap。
 # .d 后缀避开旧版本可能保留的 profiles.lock 普通文件。
 _with_profiles_lock() (
-    if ! declare -F _directory_lock_acquire >/dev/null 2>&1; then
-        local lock_lib_dir
-        lock_lib_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../lib" && pwd -P) || return 1
-        # shellcheck source=scripts/lib/operation-lock.sh
-        . "$lock_lib_dir/operation-lock.sh" || return 1
-    fi
-
     local lock_dir="${CLASH_PROFILES_LOCK}.d" lock_pid='' lock_token='' rc=0
     # 先设置清理：取锁过程收到信号时，由共享实现先完成所有者记录再退出。
     trap 'trap "" HUP INT TERM; _directory_lock_release "$lock_dir" "${lock_pid:-${_DIRECTORY_LOCK_PID:-}}" "${lock_token:-${_DIRECTORY_LOCK_TOKEN:-}}"' EXIT

@@ -50,17 +50,20 @@ clashctl ui || exit 1
 clashctl ui || exit 1
 [ -f "$CLASH_RESOURCES_DIR/dist/index.html" ] || exit 1
 [ "$(grep -c '^ui$' "$COMPONENT_DOWNLOADS")" = 1 ] || exit 1
-_start_convert || exit 1
-_start_convert || exit 1
-[ -x "$BIN_SUBCONVERTER" ] && [ -f "$BIN_SUBCONVERTER_CONFIG" ] || exit 1
-[ "$(grep -c '^subconverter$' "$COMPONENT_DOWNLOADS")" = 1 ] || exit 1
+# 订阅转换只经 clashsub 等 Bash 入口到达，zsh 下只覆盖 clashctl ui。
+if [ -n "${BASH_VERSION:-}" ]; then
+    _start_convert || exit 1
+    _start_convert || exit 1
+    [ -x "$BIN_SUBCONVERTER" ] && [ -f "$BIN_SUBCONVERTER_CONFIG" ] || exit 1
+    [ "$(grep -c '^subconverter$' "$COMPONENT_DOWNLOADS")" = 1 ] || exit 1
+fi
 # 下载失败应阻止后续使用，保留原来的错误返回值。
 rm -rf "$CLASH_RESOURCES_DIR/dist" "$BIN_SUBCONVERTER_DIR" "$CLASHCTL_HOME/archives"
 rm "$CLASHCTL_HOME/service-queried"
 export FAIL_DOWNLOAD=1
 if clashctl ui; then exit 1; fi
 [ ! -e "$CLASHCTL_HOME/service-queried" ] || exit 1
-if _start_convert; then exit 1; fi
+if [ -n "${BASH_VERSION:-}" ] && _start_convert; then exit 1; fi
 PROBE
 for shell in bash zsh; do
     home_dir="$WORK_DIR/$shell"

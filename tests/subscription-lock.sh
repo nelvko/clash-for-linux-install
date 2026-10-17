@@ -19,17 +19,11 @@ cleanup() {
 trap cleanup EXIT
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
-# 单独加载订阅命令时仍应能按需加载锁实现，旧锁文件也不应阻塞新锁目录。
 CLASH_PROFILES_LOCK="$WORK_DIR/profiles.lock"
-: >"$CLASH_PROFILES_LOCK"
-CLASH_PROFILES_LOCK="$CLASH_PROFILES_LOCK" bash -c '
-    set -euo pipefail
-    . "$1"
-    _with_profiles_lock test -d "${CLASH_PROFILES_LOCK}.d"
-' _ "$REPO_DIR/scripts/cmd/sub.sh" || fail 'standalone subscription command could not load lock helper'
-[ ! -e "${CLASH_PROFILES_LOCK}.d" ] || fail 'standalone subscription command retained lock'
-[ -f "$CLASH_PROFILES_LOCK" ] || fail 'new lock changed legacy lock file'
-
+# shellcheck source=../scripts/lib/operation-lock.sh
+. "$REPO_DIR/scripts/lib/operation-lock.sh"
+# shellcheck source=../scripts/lib/service-process.sh
+. "$REPO_DIR/scripts/lib/service-process.sh"
 # shellcheck source=../scripts/cmd/sub.sh
 . "$REPO_DIR/scripts/cmd/sub.sh"
 # shellcheck source=../scripts/lib/convert.sh

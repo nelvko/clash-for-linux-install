@@ -25,6 +25,8 @@ mkdir -p -- "$CLASHCTL_HOME/data" "$CLASHCTL_HOME/resources"
 . "$REPO_DIR/scripts/lib/config.sh"
 # shellcheck source=../scripts/lib/convert.sh
 . "$REPO_DIR/scripts/lib/convert.sh"
+# shellcheck source=../scripts/lib/shell.sh
+. "$REPO_DIR/scripts/lib/shell.sh"
 # shellcheck source=../scripts/cmd/start.sh
 . "$REPO_DIR/scripts/cmd/start.sh"
 # shellcheck source=../scripts/cmd/on.sh

@@ -556,10 +556,6 @@ _write_fish_rc() {
 
 # UI 和订阅转换器沿用按需下载。
 _ci_provision() (
-    if ! _clashctl_in_bash; then
-        _clashctl_run_in_bash _ci_provision "$@"
-        return
-    fi
     export CLASHCTL_SRC="$CLASHCTL_HOME"
     trap 'rc=$?; trap - EXIT; trap "" INT TERM HUP; operation_lock_release || true; exit "$rc"' EXIT
     trap 'exit 130' INT

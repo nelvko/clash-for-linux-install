@@ -22,6 +22,10 @@ cleanup() {
 trap cleanup EXIT
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
+# shellcheck source=../scripts/lib/operation-lock.sh
+. "$REPO_DIR/scripts/lib/operation-lock.sh"
+# shellcheck source=../scripts/lib/service-process.sh
+. "$REPO_DIR/scripts/lib/service-process.sh"
 # shellcheck source=../scripts/lib/service.sh
 . "$REPO_DIR/scripts/lib/service.sh"
 export CLASHCTL_KERNEL=mihomo

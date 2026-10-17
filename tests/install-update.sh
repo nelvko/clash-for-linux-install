@@ -1291,6 +1291,7 @@ with open(home + "/data/download-options") as saved:
     assert saved.read().startswith("clash|master|")
 PTY
 
+. "$REPO_DIR/scripts/lib/shell.sh"
 . "$REPO_DIR/scripts/cmd/update.sh"
 . "$REPO_DIR/scripts/lib/operation-lock.sh"
 gh_proxy_url() { printf '%s\n' "$1"; }
@@ -1373,6 +1374,7 @@ if PATH="$no_git_bin" FAIL_DOWNLOAD=1 CLASHCTL_HOME="$WORK_DIR/archive-failed" b
 
 archive_update() (
     export CLASHCTL_HOME="$archive_home" PATH="$no_git_bin"
+    . "$REPO_DIR/scripts/lib/shell.sh"
     . "$archive_home/scripts/cmd/update.sh"
     clashupdate >"$WORK_DIR/archive-update.out" 2>&1 || return
     printf '%s\n' "$fixture_version" >"$WORK_DIR/archive-version"

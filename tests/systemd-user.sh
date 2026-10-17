@@ -16,6 +16,8 @@ export INIT_TYPE=systemd-user
 mkdir -p -- "$HOME" "$CLASHCTL_HOME/data"
 . "$REPO_DIR/scripts/lib/common.sh"
 . "$REPO_DIR/scripts/lib/config.sh"
+. "$REPO_DIR/scripts/lib/operation-lock.sh"
+. "$REPO_DIR/scripts/lib/service-process.sh"
 . "$REPO_DIR/scripts/lib/service.sh"
 
 CALLS="$WORK_DIR/calls"

@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 
-# shellcheck disable=SC1091  # 独立 source（测试）时补载依赖；经 clashctl.sh 加载时已存在。
-declare -F _clashctl_run_in_bash >/dev/null 2>&1 || . "${BASH_SOURCE[0]%/*}/../lib/shell.sh"
-
 # ── 术语约定（内部命名）───────────────────────────────────────
 #   group   策略组：含 .all 成员列表的项（Selector/URLTest…）；用户可见称“策略组”
 #   proxy   节点：无 .all 的叶子代理，可单独测速；用户可见称“节点”

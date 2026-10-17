@@ -6,6 +6,8 @@ trap 'rm -rf -- "$WORK_DIR"' EXIT
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 export CLASHCTL_HOME="$WORK_DIR/home" CLASHCTL_SRC="$REPO_DIR" CLASHCTL_KERNEL=mihomo INIT_TYPE=systemd
 . "$REPO_DIR/scripts/lib/common.sh"
+. "$REPO_DIR/scripts/lib/operation-lock.sh"
+. "$REPO_DIR/scripts/lib/service-process.sh"
 . "$REPO_DIR/scripts/lib/service.sh"
 # 所有服务操作都限制在临时目录，不调用宿主 init。
 _service_target() { printf '%s/unit.service\n' "$WORK_DIR"; }

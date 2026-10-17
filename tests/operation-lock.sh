@@ -392,6 +392,8 @@ test_nohup_daemon_does_not_retain_lock() {
         'kill -STOP "$BASHPID"' >"$fake_kernel"
     chmod 0700 -- "$fake_kernel"
 
+    # shellcheck source=../scripts/lib/service-process.sh
+    . "$REPO_DIR/scripts/lib/service-process.sh"
     # shellcheck source=../scripts/lib/service.sh
     . "$REPO_DIR/scripts/lib/service.sh"
     BIN_KERNEL=$fake_kernel
@@ -457,6 +459,7 @@ test_sysv_background_child_cannot_release_parent_lock() {
 
 test_update_holds_lifecycle_lock_for_dispatch() {
     local dispatch_file="$WORK_DIR/update-dispatched"
+    . "$REPO_DIR/scripts/lib/shell.sh"
     . "$REPO_DIR/scripts/cmd/update.sh"
     _ui_error() { :; }
     local CLASHCTL_HOME="$WORK_DIR/update-home"

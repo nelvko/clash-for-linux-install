@@ -35,6 +35,8 @@ CLASHCTL_HOME="$WORK_DIR/owned"
 . "$REPO_DIR/scripts/lib/common.sh"
 # shellcheck source=../scripts/lib/service-process.sh
 . "$REPO_DIR/scripts/lib/service-process.sh"
+# shellcheck source=../scripts/lib/operation-lock.sh
+. "$REPO_DIR/scripts/lib/operation-lock.sh"
 # shellcheck source=../scripts/lib/service.sh
 . "$REPO_DIR/scripts/lib/service.sh"
 
