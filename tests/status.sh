@@ -8,7 +8,7 @@ for tool in bash zsh fish python3; do
     command -v "$tool" >/dev/null || { printf '%s is required\n' "$tool" >&2; exit 1; }
 done
 export CLASHCTL_HOME="$WORK_DIR/home"
-mkdir -p "$CLASHCTL_HOME/"{scripts,bin/mihomo,data} "$WORK_DIR/user"
+mkdir -p "$CLASHCTL_HOME/"{scripts,bin,data} "$WORK_DIR/user"
 cp -r "$REPO_DIR/scripts/"{lib,cmd} "$CLASHCTL_HOME/scripts/"
 printf 'CLASHCTL_KERNEL=mihomo\nINIT_TYPE=nohup\n' >"$CLASHCTL_HOME/.env"
 
@@ -79,7 +79,7 @@ _ci_provision() { printf 'MUTATION\n' >>"$CLASHCTL_HOME/calls"; return 91; }
 curl() { printf 'MUTATION\n' >>"$CLASHCTL_HOME/calls"; return 91; }
 EOF
 
-cat >"$CLASHCTL_HOME/bin/mihomo/mihomo" <<'EOF'
+cat >"$CLASHCTL_HOME/bin/mihomo" <<'EOF'
 #!/usr/bin/env bash
 if [ "$#" -ne 1 ] || [ "$1" != -v ]; then
     printf 'MUTATION\n' >>"$CLASHCTL_HOME/calls"
@@ -93,7 +93,7 @@ invalid) printf 'private unrecognized version\n' ;;
 error) printf 'private version error\n' >&2; exit 23 ;;
 esac
 EOF
-chmod +x "$CLASHCTL_HOME/bin/mihomo/mihomo"
+chmod +x "$CLASHCTL_HOME/bin/mihomo"
 
 # JSON 是合法 YAML；这个小桩只替换 yq 的字段读取，避免 CI 下载依赖。
 cat >"$CLASHCTL_HOME/bin/yq" <<'PY'
@@ -573,7 +573,7 @@ for shell in ('bash', 'zsh', 'fish'):
         out, _, _ = run(shell, extra={'STATUS_UPTIME': seconds})
         field(out, '运行时长', label)
 
-kernel = home / 'bin/mihomo/mihomo'
+kernel = home / 'bin/mihomo'
 saved_kernel = kernel.with_name('saved-mihomo')
 kernel.rename(saved_kernel)
 try:

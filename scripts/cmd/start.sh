@@ -20,7 +20,7 @@ clashstart() {
         [ "${_CLASHCTL_START_FROM_ON:-}" = 1 ] || _ui_ok_out "$CLASHCTL_KERNEL 已运行"
         return 0
     fi
-    if [ ! -x "$BIN_KERNEL" ]; then
+    if [ ! -f "$BIN_KERNEL" ] || [ ! -x "$BIN_KERNEL" ]; then
         _ui_error "代理内核未安装（$CLASHCTL_KERNEL）"
         _ui_detail '修复' "CLASHCTL_HOME=$CLASHCTL_HOME bash $CLASHCTL_HOME/install.sh"
         return 1

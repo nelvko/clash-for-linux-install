@@ -66,7 +66,13 @@ fixture_yq() {
         printf existing-secret
     fi
 }
-bin_kernel_path() { printf '%s/bin/%s/%s' "$CLASHCTL_HOME" "$CLASHCTL_KERNEL" "$CLASHCTL_KERNEL"; }
+bin_kernel_path() {
+    if [ "$CLASHCTL_KERNEL" = mihomo ]; then
+        printf '%s/bin/mihomo' "$CLASHCTL_HOME"
+    else
+        printf '%s/bin/%s/%s' "$CLASHCTL_HOME" "$CLASHCTL_KERNEL" "$CLASHCTL_KERNEL"
+    fi
+}
 gh_proxy_url() { [ -z "${GH_PROXY:-}" ] && printf '%s\n' "$1" || printf '%s/%s\n' "${GH_PROXY%/}" "$1"; }
 valid_required() { :; }
 detect_service_manager() { service_manager=${TEST_SERVICE_MANAGER:-nohup}; }
@@ -236,6 +242,60 @@ positions = [output.index(command) for command in commands]
 assert positions == sorted(positions), 'optional subscription interrupted terminal activation steps'
 PY
 if grep -q 'find: warning:' "$WORK_DIR/install.out"; then fail 'source validation emitted a find warning'; fi
+
+# 首次安装前仅准备 archives，源码提交与失败重试都必须保留原安装包。
+prepared_home="$WORK_DIR/prepared-archives"
+mkdir -p "$prepared_home/archives"
+printf 'user-package\n' | gzip >"$prepared_home/archives/mihomo-linux-amd64-v1-v1.19.32.gz"
+prepared_sum=$(sha256sum "$prepared_home/archives/"*.gz)
+if FAIL_FETCH=1 CLASHCTL_HOME="$prepared_home" bash "$REPO_DIR/install.sh" \
+    >"$WORK_DIR/prepared-source-failed.out" 2>&1; then fail 'prepared source download failure was ignored'; fi
+[ "$(sha256sum "$prepared_home/archives/"*.gz)" = "$prepared_sum" ] || fail 'source failure changed prepared archives'
+[ ! -e "$prepared_home/install.sh" ] || fail 'source failure wrote installation files'
+if FAIL_PREPARE=1 CLASHCTL_HOME="$prepared_home" bash "$REPO_DIR/install.sh" \
+    >"$WORK_DIR/prepared-components-failed.out" 2>&1; then fail 'prepared component failure was ignored'; fi
+[ "$(sha256sum "$prepared_home/archives/"*.gz)" = "$prepared_sum" ] || fail 'component failure changed prepared archives'
+CLASHCTL_HOME="$prepared_home" bash "$prepared_home/install.sh" \
+    >"$WORK_DIR/prepared-retry.out" 2>&1 || { cat "$WORK_DIR/prepared-retry.out"; fail 'prepared installation retry failed'; }
+[ -f "$prepared_home/data/started" ] || fail 'prepared installation did not start'
+[ "$(sha256sum "$prepared_home/archives/"*.gz)" = "$prepared_sum" ] || fail 'prepared installation lost original archives'
+
+# 只放安装包的目录不能被误认为可卸载安装；未知内容和链接仍然拒绝。
+(
+    . "$REPO_DIR/install.sh"
+    for kind in unknown symlink-file symlink-dir writable; do
+        unsafe_home="$WORK_DIR/prepared-$kind"
+        mkdir -p "$unsafe_home/archives"
+        case $kind in
+        unknown) printf untouched >"$unsafe_home/unrelated" ;;
+        symlink-file) ln -s "$prepared_home/archives/"*.gz "$unsafe_home/archives/package.gz" ;;
+        symlink-dir) rmdir "$unsafe_home/archives"; ln -s "$prepared_home/archives" "$unsafe_home/archives" ;;
+        writable) chmod 0777 "$unsafe_home/archives" ;;
+        esac
+        if _install_prepared_archives_safe "$unsafe_home"; then fail "unsafe prepared directory accepted: $kind"; fi
+    done
+    raw_home="$WORK_DIR/prepared-identity"
+    mkdir -p "$raw_home/archives"
+    if _install_existing_kind "$raw_home" >/dev/null 2>&1; then fail 'prepared directory was treated as an installed instance'; fi
+    for failure in error signal; do
+        stage_dir="$WORK_DIR/prepared-rollback-$failure"
+        mkdir "$stage_dir"
+        printf a >"$stage_dir/a"
+        printf b >"$stage_dir/b"
+        mv() {
+            if [ "${3:-}" = "$stage_dir/b" ]; then
+                [ "$failure" != signal ] || kill -TERM "$BASHPID"
+                return 1
+            fi
+            command mv "$@"
+        }
+        if _install_commit_prepared_source "$stage_dir" "$raw_home"; then fail "prepared $failure commit succeeded"; fi
+        [ -f "$stage_dir/a" ] && [ -f "$stage_dir/b" ] || fail "prepared $failure rollback lost source files"
+        [ ! -e "$raw_home/a" ] && [ ! -e "$raw_home/b" ] || fail "prepared $failure rollback left partial files"
+        unset -f mv
+    done
+)
+
 # 未添加订阅也要启动内核并为受管服务启用默认自启。
 direct_managed_home="$WORK_DIR/direct-managed"
 TEST_SERVICE_MANAGER=systemd CLASHCTL_HOME="$direct_managed_home" bash "$REPO_DIR/install.sh" \

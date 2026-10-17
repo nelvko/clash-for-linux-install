@@ -44,7 +44,7 @@ clashstatus() {
         terminal_label='已启用'
     fi
     kernel_label=${CLASHCTL_KERNEL:-mihomo}
-    if [ ! -x "$BIN_KERNEL" ]; then
+    if [ ! -f "$BIN_KERNEL" ] || [ ! -x "$BIN_KERNEL" ]; then
         kernel_label+='（未安装）'
     elif version=$(_kernel_version 2>/dev/null); then
         kernel_label+=" $version"

@@ -19,7 +19,7 @@ clashversion() {
         printf 'clashctl（无 Git 版本信息）\n'
     fi
 
-    if [ ! -x "$BIN_KERNEL" ]; then
+    if [ ! -f "$BIN_KERNEL" ] || [ ! -x "$BIN_KERNEL" ]; then
         printf '%s：未安装\n' "${CLASHCTL_KERNEL:-mihomo}"
         return 0
     fi

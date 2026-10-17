@@ -73,12 +73,6 @@ curl -fsSL "${GH_PROXY}https://raw.githubusercontent.com/nelvko/clashctl/HEAD/in
 - `GH_PROXY`：[GitHub 下载加速代理](https://gh-proxy.org/)，失效时可更换[其他可用地址](https://ghproxy.link/)。
 - 没有订阅？[click me](https://get.sushi3.cloud/#/home?code=aHno9F9G)
 
-普通用户安装时可选 `systemd --user`（可用时推荐）或 `nohup`，也可用 `--service systemd-user` 或 `--service nohup` 指定。已有安装沿用原方式。
-
-用户服务默认登录后自启；开机常驻需手动开启 linger，TUN 仍需 `sudo` 授权。
-
-安装后内核默认启动，未添加订阅时仅直连，可稍后添加。
-
 ## 🚀 快速上手
 
 添加并启用订阅（可选）：

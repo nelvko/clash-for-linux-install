@@ -287,20 +287,20 @@ clashctl off --invalid; and exit 1
 test "$http_proxy" = http://before; or exit 1
 clashctl off --help; or exit 1
 test "$http_proxy" = http://before; or exit 1
-rm "$CLASHCTL_HOME/bin/mihomo/mihomo" "$CLASHCTL_HOME/base-ready"
+rm "$CLASHCTL_HOME/bin/mihomo" "$CLASHCTL_HOME/base-ready"
 clashctl off; or exit 1
 assert_proxy_cleared
 exit 0
 PROBE
 for shell in bash zsh fish; do
     home_dir="$WORK_DIR/$shell"
-    mkdir -p "$home_dir/bin/mihomo"
+    mkdir -p "$home_dir/bin"
     cp -a "$REPO_DIR/scripts" "$home_dir/"
     cp "$WORK_DIR/services.sh" "$home_dir/scripts/lib/zz-test.sh"
     printf 'CLASHCTL_KERNEL=mihomo\n' >"$home_dir/.env"
     printf '#!/bin/sh\nprintf "7890|||"\n' >"$home_dir/bin/yq"
-    printf '#!/bin/sh\nexit 0\n' >"$home_dir/bin/mihomo/mihomo"
-    chmod +x "$home_dir/bin/yq" "$home_dir/bin/mihomo/mihomo"
+    printf '#!/bin/sh\nexit 0\n' >"$home_dir/bin/mihomo"
+    chmod +x "$home_dir/bin/yq" "$home_dir/bin/mihomo"
     touch "$home_dir/base-ready"
     probe="$WORK_DIR/probe.sh"
     shell_args=()

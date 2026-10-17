@@ -36,6 +36,51 @@ _install_restore_operation_lock() {
     . "$CLASHCTL_INSTALL_LOCK_LIB"
 }
 
+# 尚未安装时，仅允许预先准备 archives，不放宽已安装目录的身份识别。
+_install_prepared_archives_safe() {
+    local home=$1 path owner mode unexpected
+    for path in "$home" "$home/archives"; do
+        if [ "$path" != "$home" ] && [ ! -e "$path" ] && [ ! -L "$path" ]; then continue; fi
+        [ -d "$path" ] && [ ! -L "$path" ] || return 1
+        owner=$(stat -c %u -- "$path") || return 1
+        mode=$(stat -c %a -- "$path") || return 1
+        [ "$owner" = "$(id -u)" ] && [ $((8#$mode & 0700)) -eq $((8#700)) ] &&
+            [ $((8#$mode & 0022)) -eq 0 ] || return 1
+    done
+    unexpected=$(find "$home" -mindepth 1 -maxdepth 1 ! -name archives -print -quit) || return 1
+    [ -z "$unexpected" ] || return 1
+    if [ -d "$home/archives" ]; then
+        unexpected=$(find "$home/archives" -mindepth 1 \
+            \( ! -type f -o ! -user "$(id -u)" -o -perm /022 \) -print -quit) || return 1
+        [ -z "$unexpected" ] || return 1
+    fi
+}
+
+# 仅向已核验的预置目录提交源码；archives 留在原位，提交失败时撤回新增条目。
+_install_commit_prepared_source() (
+    local source=$1 home=$2 path name committed=false rc
+    local -a moved=()
+    _install_prepared_archives_safe "$home" || return 1
+    trap 'rc=$?; trap - EXIT; if [ "$committed" = false ]; then
+        for name in "${moved[@]}"; do
+            if [ ! -e "$source/$name" ] && [ ! -L "$source/$name" ]; then
+                mv -T -- "$home/$name" "$source/$name" || printf "无法撤回安装文件：%s\n" "$home/$name" >&2
+            fi
+        done
+    fi; exit "$rc"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
+    for path in "$source"/* "$source"/.[!.]* "$source"/..?*; do
+        [ -e "$path" ] || [ -L "$path" ] || continue
+        name=${path##*/}
+        [ ! -e "$home/$name" ] && [ ! -L "$home/$name" ] || return 1
+        moved+=("$name")
+        mv -T -- "$path" "$home/$name" || return 1
+    done
+    committed=true
+)
+
 # 已有目录只凭安装身份和可信脚本布局进入自动更新/迁移分支。
 _install_existing_kind() {
     local home=$1 marker owner mode path unsafe
@@ -947,6 +992,7 @@ main() (
     local proxy=${GH_PROXY:-} proxy_set=${GH_PROXY+x} stage='' arg method
     local requested_timeout=${CLASHCTL_DOWNLOAD_TIMEOUT-} timeout_set=${CLASHCTL_DOWNLOAD_TIMEOUT+x}
     local local_source=false script_dir='' existing_kind='' legacy_home='' legacy_kernel='' backup=''
+    local prepared_archives=false
     local CLASHCTL_INSTALL_LOCK_LIB=''
     local legacy_recovery_required=false legacy_shell_backup=''
     local legacy_service_file='' legacy_service_target='' legacy_service_active=false legacy_service_enabled=false
@@ -1100,10 +1146,14 @@ HELP
         esac
     fi
     if [ -e "$install_home" ] || [ -L "$install_home" ]; then
-        existing_kind=$(_install_existing_kind "$install_home") || {
-            printf '无法确认现有目录属于 clashctl 安装：%s；未修改目录\n' "$install_home" >&2
-            return 1
-        }
+        if ! existing_kind=$(_install_existing_kind "$install_home"); then
+            if _install_prepared_archives_safe "$install_home"; then
+                existing_kind=prepared
+            else
+                printf '无法确认现有目录属于 clashctl 安装：%s；未修改目录\n' "$install_home" >&2
+                return 1
+            fi
+        fi
         if [ "$existing_kind" = current ]; then
             if [ -n "$script_dir" ] && [ -f "$script_dir/scripts/lib/operation-lock.sh" ] &&
                 grep -q '^_directory_lock_acquire()' "$script_dir/scripts/lib/operation-lock.sh"; then
@@ -1155,6 +1205,9 @@ HELP
                     _install_refresh_current "$install_home" "$method" "$local_source" "$script_dir" "$branch" "$proxy" || return 1
                 fi
             fi
+        elif [ "$existing_kind" = prepared ]; then
+            prepared_archives=true
+            existing_kind=''
         else
             legacy_home=$install_home
         fi
@@ -1237,7 +1290,12 @@ HELP
                 return 1
             }
         fi
-        if [ "$legacy_home" != "$install_home" ] &&
+        if [ "$prepared_archives" = true ]; then
+            _install_prepared_archives_safe "$install_home" || {
+                printf '预置安装包目录状态已变化，请重新运行安装器\n' >&2
+                return 1
+            }
+        elif [ "$legacy_home" != "$install_home" ] &&
             { [ -e "$install_home" ] || [ -L "$install_home" ]; }; then
             printf '安装目录在准备源码期间已被创建，未修改目录：%s\n' "$install_home" >&2
             return 1
@@ -1280,7 +1338,10 @@ HELP
                 return 1
             }
         fi
-        if ! mv -T -- "$stage" "$install_home"; then
+        if [ "$prepared_archives" = true ]; then
+            _install_commit_prepared_source "$stage" "$install_home" || return 1
+            rmdir -- "$stage" || return 1
+        elif ! mv -T -- "$stage" "$install_home"; then
             [ -z "$backup" ] || _install_legacy_rollback "$legacy_home" "$backup" "$install_home" "$legacy_kernel"
             return 1
         fi

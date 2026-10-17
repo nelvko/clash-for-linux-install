@@ -78,7 +78,7 @@ case "$CLASH_CONFIG_MIXIN" in
 "$CLASHCTL_HOME/data/"*) ;;
 *) fail "CLASH_CONFIG_MIXIN not under data/: $CLASH_CONFIG_MIXIN" ;;
 esac
-[ "$BIN_KERNEL" = "$CLASHCTL_HOME/bin/mihomo/mihomo" ] ||
+[ "$BIN_KERNEL" = "$CLASHCTL_HOME/bin/mihomo" ] ||
     fail "BIN_KERNEL layout unexpected: $BIN_KERNEL"
 
 # 6) 三种 Shell 都区分未知选项和子命令，并报告用户的原始输入。
@@ -138,14 +138,14 @@ for shell in bash zsh fish; do
 done
 
 # 用假内核确认只传入 -v，有本地修改时仍只显示提交号。
-mkdir -p "$HOME_DIR/bin/mihomo"
-cat >"$HOME_DIR/bin/mihomo/mihomo" <<'EOF'
+mkdir -p "$HOME_DIR/bin"
+cat >"$HOME_DIR/bin/mihomo" <<'EOF'
 #!/usr/bin/env bash
 [ "$#" -eq 1 ] && [ "$1" = -v ] || exit 91
 [ ! -e "$CLASHCTL_HOME/fail-version" ] || exit 23
 cat "$CLASHCTL_HOME/version-output"
 EOF
-chmod +x "$HOME_DIR/bin/mihomo/mihomo"
+chmod +x "$HOME_DIR/bin/mihomo"
 printf 'Mihomo Meta v1.19.32 linux amd64 with go1.26.8 Wed Sep 30 16:55:58 UTC 2026\nUse tags: with_gvisor\n' \
     >"$HOME_DIR/version-output"
 git -C "$HOME_DIR" init -q
@@ -167,7 +167,7 @@ done
 
 # 不丢失 nightly 提交标识，并兼容 Clash 与旧版 Clash Meta 的输出。
 mkdir -p "$HOME_DIR/bin/clash"
-cp "$HOME_DIR/bin/mihomo/mihomo" "$HOME_DIR/bin/clash/clash"
+cp "$HOME_DIR/bin/mihomo" "$HOME_DIR/bin/clash/clash"
 for flavor in nightly clash meta; do
     case $flavor in
     nightly) kernel=mihomo; banner='Mihomo Meta alpha-abcdef linux amd64 with go1.26.8'; expected='mihomo alpha-abcdef' ;;

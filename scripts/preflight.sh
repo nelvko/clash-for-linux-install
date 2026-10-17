@@ -20,7 +20,7 @@ DEFAULT_VERSION_UI=v3.20.0
 ZIP_BASE_DIR="${CLASHCTL_SRC}/archives"
 
 valid_required() {
-    local required_cmds=(curl tar unzip gzip shuf od)
+    local required_cmds=(curl tar unzip gzip shuf od timeout)
     local missing=()
 
     for cmd in "${required_cmds[@]}"; do
@@ -43,13 +43,22 @@ prepare_zip() {
     # 首次安装与按需补装共用；下载结果仅在本次调用内有效。
     _INSTALL_DOWNLOAD_FAILED_URL='' _INSTALL_DOWNLOAD_FAILED_TARGET=''
     local -a normalized=()
-    local item system_yq ZIP_KERNEL='' ZIP_YQ='' ZIP_SUBCONVERTER='' ZIP_UI=''
+    local item system_yq kernel_version ZIP_KERNEL='' ZIP_YQ='' ZIP_SUBCONVERTER='' ZIP_UI='' ZIP_KERNEL_LOCAL=0
     (($#)) || {
         _ui_error 'prepare_zip 需要显式组件列表'
         return 1
     }
     for item in "$@"; do
         [ "$item" != kernel ] || item=$CLASHCTL_KERNEL
+        [ "$item" != mihomo ] || _mihomo_install_path_available || return 1
+        if [ "$item" = mihomo ] && _managed_directory_is_safe "$BIN_BASE_DIR" &&
+            _managed_directory_is_safe "${BIN_KERNEL%/*}" &&
+            _component_file_is_safe "$BIN_KERNEL" 755 &&
+            kernel_version=$(_mihomo_binary_version "$BIN_KERNEL"); then
+            _ui_ok "使用已安装的 mihomo $kernel_version"
+            [ "${_INSTALL_VERBOSE:-}" != 1 ] || _ui_detail '文件' "$BIN_KERNEL"
+            continue
+        fi
         # 系统 yq 兼容且本地未下载时复用系统副本，跳过下载（bin/yq 存在则照常刷新）
         if [ "$item" = yq ] && [ ! -x "${BIN_BASE_DIR}/yq" ] &&
             system_yq=$(_get_system_yq); then
@@ -67,9 +76,74 @@ prepare_zip() {
     unzip_zip
 }
 
-# 最新版查询与下载同走 GH_PROXY 通道（有代理时代理优先，直连兜底）：
-# 加速前缀对 api.github.com 的支持不一（如 ghfast.top 403、gh-proxy.org 200），
-# 代理通道失败必须再试直连；直连本身 connect 超时快速失败，避免受限网络长磨。
+_mihomo_install_path_available() {
+    [ ! -d "$BIN_KERNEL" ] && return 0
+    _ui_error 'mihomo 程序路径被目录占用'
+    _ui_detail '路径' "$BIN_KERNEL"
+    _ui_detail '处理' '请备份并移走该目录，然后重新执行安装命令'
+    return 1
+}
+
+_mihomo_binary_version() {
+    local file=$1 banner version
+    [ -f "$file" ] && [ ! -L "$file" ] && [ -x "$file" ] || return 1
+    banner=$(timeout 3 "$file" -v 2>/dev/null) || return 1
+    banner=${banner%%$'\n'*}
+    case $banner in
+    'Mihomo Meta '* | 'Clash Meta '*) version=${banner#* Meta } ;;
+    'Mihomo '*) version=${banner#Mihomo } ;;
+    *) return 1 ;;
+    esac
+    version=${version%% *}
+    [ -n "$version" ] || return 1
+    printf '%s\n' "$version"
+}
+
+_mihomo_cpu_level() {
+    local flags level=v1
+    flags=$(grep -m1 '^flags' /proc/cpuinfo) || flags=''
+    if grep -qw sse4_2 <<<"$flags" && grep -qw popcnt <<<"$flags"; then
+        level=v2
+        if grep -qw avx2 <<<"$flags" && grep -qw fma <<<"$flags"; then
+            level=v3
+        fi
+    fi
+    printf '%s\n' "$level"
+}
+
+_find_mihomo_archive() {
+    local arch=$1 level=$2 file name variant rank
+    local -a candidates=()
+    for file in "$ZIP_BASE_DIR"/mihomo-linux-*.gz; do
+        if [ ! -f "$file" ] || [ -L "$file" ]; then continue; fi
+        name=${file##*/}
+        [[ $name =~ ^mihomo-linux-(amd64(-v([123]))?|386|arm64|armv7)-(v[0-9]+\.[0-9]+\.[0-9]+)\.gz$ ]] || continue
+        variant=${BASH_REMATCH[1]}
+        rank=${BASH_REMATCH[3]:-1}
+        case "$arch:$variant" in
+        x86_64:amd64 | x86_64:amd64-v[123])
+            [ "$rank" -le "${level#v}" ] || continue ;;
+        i?86:386 | x86:386 | aarch64:arm64 | armv*:armv7) ;;
+        *) continue ;;
+        esac
+        if ! _archive_is_valid "$file"; then
+            _ui_warn "本地安装包不完整或已损坏，已跳过：$name"
+            continue
+        fi
+        candidates+=("$file")
+    done
+    case ${#candidates[@]} in
+    0) return 1 ;;
+    1) printf '%s\n' "${candidates[0]}" ;;
+    *)
+        _ui_error '发现多个适用的 mihomo 安装包'
+        for file in "${candidates[@]}"; do _ui_detail '文件' "$file"; done
+        _ui_detail '建议' '请在 archives 中仅保留需要使用的一份安装包，然后重新执行安装命令'
+        return 2 ;;
+    esac
+}
+
+# 最新版查询与下载同走 GH_PROXY 通道；代理查询失败后回退直连。
 _fetch_latest_tag() {
     local repo=$1 url body tag
     local direct_url="https://api.github.com/repos/${repo}/releases/latest"
@@ -451,18 +525,32 @@ download_zip() {
         return 1
     }
     local url_clash url_mihomo url_yq url_subconverter
-    local arch flags level
+    local arch level=v1 mihomo_archive='' archive_rc=0
     arch=$(uname -m) || {
         _ui_error "无法检测系统架构"
         return 1
     }
+    [ "$arch" != x86_64 ] || level=$(_mihomo_cpu_level)
 
     CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=0
     local item
     for item in "$@"; do
         case $item in
         clash) ;;
-        mihomo) _resolve_version VERSION_MIHOMO MetaCubeX/mihomo || return 1 ;;
+        mihomo)
+            archive_rc=0
+            mihomo_archive=$(_find_mihomo_archive "$arch" "$level") || archive_rc=$?
+            case $archive_rc in
+            0)
+                VERSION_MIHOMO=${mihomo_archive##*-}
+                VERSION_MIHOMO=${VERSION_MIHOMO%.gz}
+                # shellcheck disable=SC2034  # 组件标签通过变量名间接读取来源。
+                VERSION_MIHOMO_SOURCE='本地安装包'
+                ;;
+            1) _resolve_version VERSION_MIHOMO MetaCubeX/mihomo || return 1 ;;
+            *) return 1 ;;
+            esac
+            ;;
         yq) _resolve_version VERSION_YQ mikefarah/yq || return 1 ;;
         subconverter) _resolve_version VERSION_SUBCONVERTER "$SUBCONVERTER_REPO" || return 1 ;;
         ui) _resolve_version VERSION_UI Zephyruso/zashboard || return 1 ;;
@@ -473,35 +561,33 @@ download_zip() {
         esac
     done
 
+    local mihomo_tag=${VERSION_MIHOMO:-} yq_tag=${VERSION_YQ:-}
+    local subconverter_tag=${VERSION_SUBCONVERTER:-} ui_tag=${VERSION_UI:-}
+    mihomo_tag=${mihomo_tag##*-}
     case "$arch" in
     x86_64)
-        flags=$(grep -m1 '^flags' /proc/cpuinfo)
-        level=v1
-        grep -qw sse4_2 <<<"$flags" && grep -qw popcnt <<<"$flags" && level=v2
-        grep -qw avx2 <<<"$flags" && grep -qw fma <<<"$flags" && level=v3
-
         url_clash=https://github.com/nelvko/clashctl/releases/download/clash/clash-linux-amd64-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-amd64-${level}-${VERSION_MIHOMO##*-}.gz
-        url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_amd64.tar.gz
-        url_subconverter=https://github.com/${SUBCONVERTER_REPO}/releases/download/${VERSION_SUBCONVERTER}/subconverter_linux64.tar.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${mihomo_tag}/mihomo-linux-amd64-${level}-${mihomo_tag}.gz
+        url_yq=https://github.com/mikefarah/yq/releases/download/${yq_tag}/yq_linux_amd64.tar.gz
+        url_subconverter=https://github.com/${SUBCONVERTER_REPO}/releases/download/${subconverter_tag}/subconverter_linux64.tar.gz
         ;;
     *86*)
         url_clash=https://github.com/nelvko/clashctl/releases/download/clash/clash-linux-386-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-386-${VERSION_MIHOMO}.gz
-        url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_386.tar.gz
-        url_subconverter=https://github.com/${SUBCONVERTER_REPO}/releases/download/${VERSION_SUBCONVERTER}/subconverter_linux32.tar.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${mihomo_tag}/mihomo-linux-386-${mihomo_tag}.gz
+        url_yq=https://github.com/mikefarah/yq/releases/download/${yq_tag}/yq_linux_386.tar.gz
+        url_subconverter=https://github.com/${SUBCONVERTER_REPO}/releases/download/${subconverter_tag}/subconverter_linux32.tar.gz
         ;;
     armv*)
         url_clash=https://github.com/nelvko/clashctl/releases/download/clash/clash-linux-armv5-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-armv7-${VERSION_MIHOMO}.gz
-        url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_arm.tar.gz
-        url_subconverter=https://github.com/${SUBCONVERTER_REPO}/releases/download/${VERSION_SUBCONVERTER}/subconverter_armv7.tar.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${mihomo_tag}/mihomo-linux-armv7-${mihomo_tag}.gz
+        url_yq=https://github.com/mikefarah/yq/releases/download/${yq_tag}/yq_linux_arm.tar.gz
+        url_subconverter=https://github.com/${SUBCONVERTER_REPO}/releases/download/${subconverter_tag}/subconverter_armv7.tar.gz
         ;;
     aarch64)
         url_clash=https://github.com/nelvko/clashctl/releases/download/clash/clash-linux-arm64-2023.08.17.gz
-        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${VERSION_MIHOMO##*-}/mihomo-linux-arm64-${VERSION_MIHOMO}.gz
-        url_yq=https://github.com/mikefarah/yq/releases/download/${VERSION_YQ}/yq_linux_arm64.tar.gz
-        url_subconverter=https://github.com/${SUBCONVERTER_REPO}/releases/download/${VERSION_SUBCONVERTER}/subconverter_aarch64.tar.gz
+        url_mihomo=https://github.com/MetaCubeX/mihomo/releases/download/${mihomo_tag}/mihomo-linux-arm64-${mihomo_tag}.gz
+        url_yq=https://github.com/mikefarah/yq/releases/download/${yq_tag}/yq_linux_arm64.tar.gz
+        url_subconverter=https://github.com/${SUBCONVERTER_REPO}/releases/download/${subconverter_tag}/subconverter_aarch64.tar.gz
         ;;
     *)
         _ui_error "不支持的系统架构：$arch"
@@ -511,7 +597,7 @@ download_zip() {
     esac
 
     # UI 为纯静态资源，与架构无关
-    local url_ui="https://github.com/Zephyruso/zashboard/releases/download/${VERSION_UI}/dist.zip"
+    local url_ui="https://github.com/Zephyruso/zashboard/releases/download/${ui_tag}/dist.zip"
     local url target label version_token version_source_var
 
     for item in "$@"; do
@@ -523,7 +609,14 @@ download_zip() {
             ;;
         mihomo)
             url=$url_mihomo
-            target="${ZIP_BASE_DIR}/$(basename -- "$url")"
+            ZIP_KERNEL_LOCAL=0
+            if [ -n "$mihomo_archive" ]; then
+                target=$mihomo_archive
+                url="https://github.com/MetaCubeX/mihomo/releases/download/$VERSION_MIHOMO/${target##*/}"
+                ZIP_KERNEL_LOCAL=1
+            else
+                target="${ZIP_BASE_DIR}/$(basename -- "$url")"
+            fi
             label="mihomo ${VERSION_MIHOMO}"
             ;;
         yq)
@@ -549,7 +642,10 @@ download_zip() {
         if [ "$item" != clash ] && typeset -f _install_ui_output >/dev/null 2>&1 &&
             [ "${_INSTALL_VERBOSE:-}" != 1 ]; then
             version_source_var="VERSION_${item^^}_SOURCE"
-            [ -z "${!version_source_var:-}" ] || label+="（${!version_source_var}）"
+            case ${!version_source_var:-} in
+            '' | 本地安装包) ;;
+            *) label+="（${!version_source_var}）" ;;
+            esac
         fi
         _download_archive "$label" "$url" "$target" || return 1
         case $item in
@@ -709,13 +805,14 @@ _component_cleanup() {
 }
 
 _install_component() (
-    local component=$1 archive=$2 target root label parent stage='' candidate
+    local component=$1 archive=$2 target root label parent stage='' candidate kernel_version
     local pending=false had_previous=false prepare_rc=0
     local -a verifier
     umask 077
     case "$component" in
     kernel)
         target=$BIN_KERNEL root=$BIN_BASE_DIR label=运行组件目录
+        [ "${CLASHCTL_KERNEL:-mihomo}" != mihomo ] || _mihomo_install_path_available || return 1
         verifier=(_component_file_is_safe 755)
         ;;
     yq)
@@ -752,6 +849,19 @@ _install_component() (
     kernel)
         candidate="$stage/kernel.ready"
         gzip -dc "$archive" >"$candidate" && chmod 0755 -- "$candidate" || prepare_rc=1
+        if [ "$prepare_rc" -eq 0 ] && [ "${ZIP_KERNEL_LOCAL:-0}" = 1 ]; then
+            if ! kernel_version=$(_mihomo_binary_version "$candidate"); then
+                _ui_error '本地安装包中的 mihomo 无法运行或无法识别'
+                _ui_detail '文件' "$archive"
+                return 1
+            fi
+            if [ "$kernel_version" != "$VERSION_MIHOMO" ]; then
+                _ui_error '安装包文件名与 mihomo 实际版本不一致'
+                _ui_detail '文件' "$archive"
+                _ui_detail '实际版本' "$kernel_version"
+                return 1
+            fi
+        fi
         ;;
     yq)
         candidate="$stage/yq.ready"

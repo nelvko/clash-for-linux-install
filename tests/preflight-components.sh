@@ -177,7 +177,7 @@ printf 'outside-unchanged\n' >"$bin_external/sentinel"
 ln -s "$bin_external" "$bin_home/bin"
 CLASHCTL_HOME=$bin_home
 BIN_BASE_DIR="$bin_home/bin"
-BIN_KERNEL="$BIN_BASE_DIR/mihomo/mihomo"
+BIN_KERNEL="$BIN_BASE_DIR/mihomo"
 BIN_YQ="$BIN_BASE_DIR/yq"
 BIN_SUBCONVERTER_DIR="$BIN_BASE_DIR/subconverter"
 BIN_SUBCONVERTER="$BIN_SUBCONVERTER_DIR/subconverter"
@@ -198,7 +198,7 @@ printf 'outside-unchanged\n' >"$resources_external/sentinel"
 ln -s "$resources_external" "$resources_home/resources"
 CLASHCTL_HOME=$resources_home
 BIN_BASE_DIR="$resources_home/bin"
-BIN_KERNEL="$BIN_BASE_DIR/mihomo/mihomo"
+BIN_KERNEL="$BIN_BASE_DIR/mihomo"
 BIN_YQ="$BIN_BASE_DIR/yq"
 BIN_SUBCONVERTER_DIR="$BIN_BASE_DIR/subconverter"
 BIN_SUBCONVERTER="$BIN_SUBCONVERTER_DIR/subconverter"
@@ -243,13 +243,13 @@ fi
 configure_home() {
     CLASHCTL_HOME="$WORK_DIR/$1/home"
     BIN_BASE_DIR="$CLASHCTL_HOME/bin"
-    BIN_KERNEL="$BIN_BASE_DIR/mihomo/mihomo"
+    BIN_KERNEL="$BIN_BASE_DIR/mihomo"
     BIN_YQ="$BIN_BASE_DIR/yq"
     BIN_SUBCONVERTER_DIR="$BIN_BASE_DIR/subconverter"
     BIN_SUBCONVERTER="$BIN_SUBCONVERTER_DIR/subconverter"
     BIN_SUBCONVERTER_CONFIG="$BIN_SUBCONVERTER_DIR/pref.yml"
     CLASH_RESOURCES_DIR="$CLASHCTL_HOME/resources"
-    mkdir -p -- "$BIN_BASE_DIR/mihomo" "$BIN_SUBCONVERTER_DIR" "$CLASH_RESOURCES_DIR/dist"
+    mkdir -p -- "$BIN_BASE_DIR" "$BIN_SUBCONVERTER_DIR" "$CLASH_RESOURCES_DIR/dist"
 }
 
 seed_existing_components() {
