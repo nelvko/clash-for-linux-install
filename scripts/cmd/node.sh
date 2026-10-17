@@ -76,22 +76,6 @@ _node_curl() {
         -X "$method" "${auth[@]}" "${base}${path}" "$@"
 }
 
-# 路径段 URL 编码（组/节点名常含空格、中文、emoji）；LC_ALL=C 按字节百分号编码
-_node_urlencode() {
-    local LC_ALL=C s=$1 out='' c i
-    for ((i = 0; i < ${#s}; i++)); do
-        c=${s:i:1}
-        case $c in
-        [a-zA-Z0-9._~-]) out+=$c ;;
-        *)
-            printf -v c '%%%02X' "'$c"
-            out+=$c
-            ;;
-        esac
-    done
-    printf '%s' "$out"
-}
-
 _node_require_arg() {
     local opt=$1 value=${2-}
     [ -n "$value" ] || {
@@ -168,21 +152,21 @@ _node_classify() {
 # 某组的成员节点列表（每行一个）
 _node_members() {
     local enc
-    enc=$(_node_urlencode "$1")
+    enc=$(_urlencode "$1")
     _node_curl GET "/proxies/$enc" | "$BIN_YQ" -p json '.all // [] | .[]' 2>/dev/null
 }
 
 # 一次拉取某组详情 JSON（供需同时读取 now 与 members 的场景本地复用，省一次 HTTP）
 _node_group_json() {
     local enc
-    enc=$(_node_urlencode "$1")
+    enc=$(_urlencode "$1")
     _node_curl GET "/proxies/$enc"
 }
 
 # 某组当前选中节点
 _node_now() {
     local enc
-    enc=$(_node_urlencode "$1")
+    enc=$(_urlencode "$1")
     _node_curl GET "/proxies/$enc" | "$BIN_YQ" -p json '.now // ""' 2>/dev/null
 }
 
@@ -193,7 +177,7 @@ _node_now() {
 # PUT /proxies/:group  body {"name":"<member>"}；204=成功 400=不可切换 404=组不存在
 _node_apply() {
     local group=$1 member=$2 enc body code
-    enc=$(_node_urlencode "$group")
+    enc=$(_urlencode "$group")
     body=$(NODE=$member "$BIN_YQ" -n -o=json '{"name": strenv(NODE)}') # 安全构造 JSON，免手动转义
     code=$(_node_curl PUT "/proxies/$enc" \
         -H 'Content-Type: application/json' --data-raw "$body" \
@@ -408,17 +392,6 @@ _node_list_members() {
 #            交互式选择
 ########################################
 
-_node_has_fzf() {
-    command -v fzf >&/dev/null && [ -t 0 ]
-}
-
-_node_hint_fzf() {
-    [ -t 0 ] || return 0
-    command -v fzf >&/dev/null && return 0
-
-    _ui_info '未检测到 fzf，已使用编号选择；安装 fzf 可启用搜索式选择界面。'
-}
-
 _node_fzf_preview_dir() {
     mktemp -d "${TMPDIR:-/tmp}/clashnode-preview.XXXXXX" 2>/dev/null
 }
@@ -467,7 +440,7 @@ _node_pick_group() {
         ((w > noww)) && noww=$w
     done
 
-    if _node_has_fzf; then
+    if _has_fzf; then
         local selected status preview_dir preview_args=()
         preview_dir=$(_node_fzf_preview_dir)
         if [ -n "$preview_dir" ]; then
@@ -523,7 +496,7 @@ _node_pick_group() {
         return 0
     fi
 
-    _node_hint_fzf
+    _hint_fzf
 
     # 与 ls 一致：[序号] 名字 → 当前节点 [type]，按显示宽度对齐
     local tok idxw=${#names[@]}
@@ -568,7 +541,7 @@ _node_pick_proxy() {
         ((w > namew)) && namew=$w
     done
 
-    if _node_has_fzf; then
+    if _has_fzf; then
         local selected status preview_dir preview_args=()
         preview_dir=$(_node_fzf_preview_dir)
         if [ -n "$preview_dir" ]; then
@@ -606,7 +579,7 @@ _node_pick_proxy() {
         return 0
     fi
 
-    _node_hint_fzf
+    _hint_fzf
 
     local tok idxw=${#names[@]}
     idxw=${#idxw}
@@ -666,7 +639,7 @@ _node_pick_member() {
         done
     fi
 
-    if _node_has_fzf; then
+    if _has_fzf; then
         local selected fzf_header='* 表示当前节点；Enter 切换，Esc 退出'
         [ "$with_delay" = true ] && {
             fzf_header='* 表示当前节点；Enter 切换，Esc 退出'
@@ -734,7 +707,7 @@ _node_pick_member() {
         return 0
     fi
 
-    _node_hint_fzf
+    _hint_fzf
 
     local marker tok idxw=${#members[@]}
     idxw=${#idxw} # 序号位数；[n] 整体左对齐补齐到 idxw+2，使括号紧凑且名字列对齐
@@ -780,20 +753,26 @@ _node_print_delays() {
     done | sort -n | {
         local disp color text
         while IFS=$'\t' read -r _ name disp; do
+            # 颜色为 24 位 RGB：#f92f60、#26de81、#fed330、#fd79a8。
             if [ "$disp" = timeout ]; then
-                color=#f92f60
+                color='249;47;96'
                 text=$(printf '  ✗ %-26s 超时' "$name")
             elif [ "$disp" -lt 200 ]; then
-                color=#26de81
+                color='38;222;129'
                 text=$(printf '  ● %-26s %sms' "$name" "$disp")
             elif [ "$disp" -lt 500 ]; then
-                color=#fed330
+                color='254;211;48'
                 text=$(printf '  ● %-26s %sms' "$name" "$disp")
             else
-                color=#fd79a8
+                color='253;121;168'
                 text=$(printf '  ● %-26s %sms' "$name" "$disp")
             fi
-            _color_log "$color" "$text"
+            # fd1 会随调用方重定向，因此按实际输出目标判定颜色。
+            if _ui_color_enabled 1; then
+                printf '\033[38;2;%sm%s\033[0m\n' "$color" "$text"
+            else
+                printf '%s\n' "$text"
+            fi
         done
     }
 }
@@ -864,7 +843,7 @@ _node_delay_primary() {
 
 _node_delay_one() {
     local name=$1 qs=$2 enc resp delay
-    enc=$(_node_urlencode "$name")
+    enc=$(_urlencode "$name")
     resp=$(_node_curl GET "/proxies/$enc/delay?$qs")
     delay=$("$BIN_YQ" -p json '.delay // ""' <<<"$resp" 2>/dev/null)
     printf '%s\t%s\n' "$name" "$delay"
@@ -875,7 +854,7 @@ _node_delay_member_rows() {
     shift 2
     local members=("$@") name
     local qs concurrency active=0
-    qs="timeout=${timeout}&url=$(_node_urlencode "$url")"
+    qs="timeout=${timeout}&url=$(_urlencode "$url")"
     concurrency=${CLASHCTL_NODE_DELAY_CONCURRENCY:-8}
     [[ "$concurrency" =~ ^[0-9]+$ ]] || concurrency=8
     ((concurrency < 1)) && concurrency=1
@@ -898,8 +877,8 @@ _node_delay_rows() {
     shift 3
     local members=("$@")
     local enc qs resp code body name delay
-    enc=$(_node_urlencode "$group")
-    qs="timeout=${timeout}&url=$(_node_urlencode "$url")"
+    enc=$(_urlencode "$group")
+    qs="timeout=${timeout}&url=$(_urlencode "$url")"
     resp=$(_node_curl GET "/group/$enc/delay?$qs" -w $'\n%{http_code}')
     code=${resp##*$'\n'}
     body=${resp%$'\n'*}
@@ -938,8 +917,8 @@ _node_delay_fallback() {
 _node_delay_group() {
     local group=$1 url=$2 timeout=$3
     local enc qs resp code body
-    enc=$(_node_urlencode "$group")
-    qs="timeout=${timeout}&url=$(_node_urlencode "$url")"
+    enc=$(_urlencode "$group")
+    qs="timeout=${timeout}&url=$(_urlencode "$url")"
 
     _ui_emit_fd 1 step "正在测速策略组 [$group]（可能需要数秒）..."
     resp=$(_node_curl GET "/group/$enc/delay?$qs" -w $'\n%{http_code}')

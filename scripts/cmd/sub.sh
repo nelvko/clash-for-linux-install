@@ -347,19 +347,6 @@ _sub_migrate() {
 #            交互式选择
 ########################################
 
-_sub_has_fzf() {
-    command -v fzf >&/dev/null && [ -t 0 ]
-}
-
-_sub_hint_fzf() {
-    [ "${_SUB_FZF_HINT_SHOWN:-false}" = true ] && return 0
-    [ -t 0 ] || return 0
-    command -v fzf >&/dev/null && return 0
-
-    _SUB_FZF_HINT_SHOWN=true
-    _ui_info '未检测到 fzf，已使用编号选择；安装 fzf 可启用搜索式选择界面。'
-}
-
 # 交互选择一个订阅：选中的 name 输出到 stdout，菜单打到 stderr。
 # fzf 可用则用 fzf（列表行内嵌流量/到期，链接在 preview），否则数字菜单回退。
 _sub_pick() {
@@ -388,7 +375,7 @@ _sub_pick() {
     col_header="$(_pad '名称' "$namew")  $(_pad '流量' "$trafw")  到期"
 
     local marker
-    if _sub_has_fzf; then
+    if _has_fzf; then
         local selected status preview_dir preview_args=()
         preview_dir=$(mktemp -d "${TMPDIR:-/tmp}/clashsub-preview.XXXXXX" 2>/dev/null)
         if [ -n "$preview_dir" ]; then
@@ -441,7 +428,7 @@ _sub_pick() {
         return 0
     fi
 
-    _sub_hint_fzf
+    _hint_fzf
 
     local tok idxw=${#_SUB_NAMES[@]}
     idxw=${#idxw} # 序号位数

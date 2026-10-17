@@ -92,29 +92,23 @@ _read_subscription_url() {
 }
 
 _is_port_used() {
-    local port=${1:-} sockets
+    local port=${1:-} sockets field
     [[ $port =~ ^[0-9]+$ ]] && [ "${#port}" -le 5 ] &&
         ((10#$port >= 1 && 10#$port <= 65535)) || return 1
     port=$((10#$port))
 
+    # 本地地址在 ss 输出的第 5 列、netstat 输出的第 4 列。
     if command -v ss >/dev/null 2>&1 &&
         sockets=$(ss -H -lntu "sport = :$port" 2>/dev/null); then
-        awk -v expected="$port" '
-            {
-                local_addr = $5
-                sub(/^.*:/, "", local_addr)
-                if (local_addr == expected) found = 1
-            }
-            END { exit(found ? 0 : 1) }
-        ' <<<"$sockets"
-        return
+        field=5
+    else
+        command -v netstat >/dev/null 2>&1 || return 1
+        sockets=$(netstat -lntu 2>/dev/null) || return 1
+        field=4
     fi
-
-    command -v netstat >/dev/null 2>&1 || return 1
-    sockets=$(netstat -lntu 2>/dev/null) || return 1
-    awk -v expected="$port" '
+    awk -v expected="$port" -v field="$field" '
         {
-            local_addr = $4
+            local_addr = $field
             sub(/^.*:/, "", local_addr)
             if (local_addr == expected) found = 1
         }
@@ -238,29 +232,11 @@ _install_ui_ok() { _install_ui_emit_fd 2 ok "$*"; }
 _install_ui_warn() { _install_ui_emit_fd 2 warn "$*"; }
 _install_ui_error() { _install_ui_emit_fd 2 error "$*"; }
 
-_ui_emit() {
-    _ui_emit_fd 2 "$@"
-}
-
-_ui_step() {
-    _ui_emit step "$*"
-}
-
-_ui_info() {
-    _ui_emit info "$*"
-}
-
-_ui_ok() {
-    _ui_emit ok "$*"
-}
-
-_ui_warn() {
-    _ui_emit warn "$*"
-}
-
-_ui_error() {
-    _ui_emit error "$*"
-}
+_ui_step() { _ui_emit_fd 2 step "$*"; }
+_ui_info() { _ui_emit_fd 2 info "$*"; }
+_ui_ok() { _ui_emit_fd 2 ok "$*"; }
+_ui_warn() { _ui_emit_fd 2 warn "$*"; }
+_ui_error() { _ui_emit_fd 2 error "$*"; }
 
 _ui_ok_out() {
     _ui_emit_fd 1 ok "$*"
@@ -284,27 +260,6 @@ _ui_detail() {
         printf '%s%s\n' "$indent" "$label" >&2
     fi
     return 0
-}
-
-_color_log() {
-    local color="$1"
-    local msg="$2"
-
-    # fd1 会随调用方重定向，因此仍按实际输出目标判定颜色。
-    _ui_color_enabled 1 || {
-        printf '%s\n' "$msg"
-        return
-    }
-
-    local hex="${color#\#}"
-    local r=$((16#${hex:0:2}))
-    local g=$((16#${hex:2:2}))
-    local b=$((16#${hex:4:2}))
-
-    local color_code="\033[38;2;${r};${g};${b}m"
-    local reset_code="\033[0m"
-
-    printf "%b%s%b\n" "$color_code" "$msg" "$reset_code"
 }
 
 _okcat() {
@@ -365,43 +320,55 @@ _pad() {
     printf '%s%*s' "$s" "$pad" ''
 }
 
+# URL 编码（组名、节点名、认证信息常含空格、中文、emoji）；LC_ALL=C 按字节百分号编码。
+_urlencode() {
+    local LC_ALL=C value=$1 encoded='' character code index
+    for ((index = 0; index < ${#value}; index++)); do
+        character=${value:index:1}
+        case $character in
+        [a-zA-Z0-9._~-]) encoded+=$character ;;
+        *)
+            printf -v code '%%%02X' "'$character"
+            encoded+=$code
+            ;;
+        esac
+    done
+    printf '%s' "$encoded"
+}
+
+_has_fzf() {
+    command -v fzf >&/dev/null && [ -t 0 ]
+}
+
+# 选择菜单都在命令替换里执行，提示无法跨调用去重。
+_hint_fzf() {
+    [ -t 0 ] || return 0
+    command -v fzf >&/dev/null && return 0
+    _ui_info '未检测到 fzf，已使用编号选择；安装 fzf 可启用搜索式选择界面。'
+}
+
 _set_env() {
     local key=$1
     local value=$2
     local env_path="${CLASHCTL_ENV_PATH:-${CLASHCTL_HOME}/.env}"
-    local quoted tmp line found=0
+    local quoted tmp line content='' found=0
 
     [[ $key =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
     printf -v quoted '%q' "$value"
-    tmp=$(mktemp "${env_path}.tmp.XXXXXX") || return 1
-    chmod 0600 "$tmp" || {
-        command rm -f -- "$tmp"
-        return 1
-    }
     if [ -f "$env_path" ]; then
         while IFS= read -r line || [ -n "$line" ]; do
             case $line in
-            "$key="*)
-                printf '%s=%s\n' "$key" "$quoted" >>"$tmp" || {
-                    command rm -f -- "$tmp"
-                    return 1
-                }
-                found=1
-                ;;
-            *)
-                printf '%s\n' "$line" >>"$tmp" || {
-                    command rm -f -- "$tmp"
-                    return 1
-                }
-                ;;
+            "$key="*) content+="$key=$quoted"$'\n' found=1 ;;
+            *) content+="$line"$'\n' ;;
             esac
-        done <"$env_path"
+        done <"$env_path" || return 1
     fi
-    if [ "$found" -eq 0 ]; then
-        printf '%s=%s\n' "$key" "$quoted" >>"$tmp" || {
-            command rm -f -- "$tmp"
-            return 1
-        }
+    [ "$found" -eq 1 ] || content+="$key=$quoted"$'\n'
+    # 整份内容一次写入临时文件，失败时只需回滚一次。
+    tmp=$(mktemp "${env_path}.tmp.XXXXXX") || return 1
+    if ! chmod 0600 "$tmp" || ! printf '%s' "$content" >"$tmp"; then
+        command rm -f -- "$tmp"
+        return 1
     fi
     /bin/mv -f -- "$tmp" "$env_path"
 }
@@ -450,37 +417,29 @@ _append_source_block() {
     ' "$rc" >/dev/null || return 2
     tmp=$(mktemp "${rc}.clashctl.XXXXXX") || return 1
     mode=$(stat -c %a -- "$rc" 2>/dev/null) || mode=0600
-    awk '
-        /^# >>> clashctl >>>$/ { managed=1; next }
-        /^# <<< clashctl <<<$/{ managed=0; next }
-        managed { next }
-        # 同时清除旧版（master 时代）遗留的裸引导行与历史导出
-        /^export CLASHCTL_HOME=/ { next }
-        /^\. \$CLASHCTL_HOME\/scripts\/cmd\/clashctl\.sh$/ { next }
-        /^\[ -s "\$CLASHCTL_HOME\/scripts\/cmd\/clashctl\.sh" \]/ { next }
-        { print }
-    ' "$rc" >"$tmp" || {
-        command rm -f -- "$tmp"
-        return 1
-    }
-    if [ -s "$tmp" ] && [ "$(tail -c 1 -- "$tmp" | wc -l)" -eq 0 ]; then
-        printf '\n' >>"$tmp" || {
-            command rm -f -- "$tmp"
-            return 1
-        }
-    fi
     printf -v quoted '%q' "$CLASHCTL_HOME"
-    {
-        printf '%s\n' '# >>> clashctl >>>'
-        printf 'export CLASHCTL_HOME=%s\n' "$quoted"
-        # shellcheck disable=SC2016 # 变量应在新 shell 加载 rc 时展开
-        printf '%s\n' '[ -s "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" ] && . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh"'
-        printf '%s\n' '# <<< clashctl <<<'
-    } >>"$tmp" || {
+    # 去掉旧块后补齐末尾换行再追加新块；任一步失败都清理临时文件。
+    # shellcheck disable=SC2016 # 变量应在新 shell 加载 rc 时展开
+    if ! {
+        awk '
+            /^# >>> clashctl >>>$/ { managed=1; next }
+            /^# <<< clashctl <<<$/{ managed=0; next }
+            managed { next }
+            # 同时清除旧版（master 时代）遗留的裸引导行与历史导出
+            /^export CLASHCTL_HOME=/ { next }
+            /^\. \$CLASHCTL_HOME\/scripts\/cmd\/clashctl\.sh$/ { next }
+            /^\[ -s "\$CLASHCTL_HOME\/scripts\/cmd\/clashctl\.sh" \]/ { next }
+            { print }
+        ' "$rc" >"$tmp" &&
+            { [ ! -s "$tmp" ] || [ "$(tail -c 1 -- "$tmp" | wc -l)" -ne 0 ] || printf '\n' >>"$tmp"; } &&
+            printf '%s\n' '# >>> clashctl >>>' "export CLASHCTL_HOME=$quoted" \
+                '[ -s "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" ] && . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh"' \
+                '# <<< clashctl <<<' >>"$tmp" &&
+            chmod "$mode" "$tmp" && /bin/mv -f -- "$tmp" "$rc"
+    }; then
         command rm -f -- "$tmp"
         return 1
-    }
-    chmod "$mode" "$tmp" && /bin/mv -f -- "$tmp" "$rc"
+    fi
 }
 
 # 只删除指向当前安装的完整托管块或相邻的旧版 export/source 两行。
@@ -541,10 +500,15 @@ _remove_source_block() {
     fi
 }
 
+# 输出 fish 单引号字符串字面量。
+_fish_quote() {
+    local value=${1//\\/\\\\}
+    value=${value//\'/\\\'}
+    printf "'%s'" "$value"
+}
+
 _fish_home_export() {
-    local quoted=${CLASHCTL_HOME//\\/\\\\}
-    quoted=${quoted//\'/\\\'}
-    printf "set -gx CLASHCTL_HOME '%s'\n" "$quoted"
+    printf 'set -gx CLASHCTL_HOME %s\n' "$(_fish_quote "$CLASHCTL_HOME")"
 }
 
 # 将 clashctl.fish 以内容快照方式写入 fish 配置；内容无变化时也视为成功。

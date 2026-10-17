@@ -71,8 +71,6 @@ _dump_proxy_env_fish() {
     for v in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY; do
         val=${!v}
         [ -z "$val" ] && continue
-        val=${val//\\/\\\\}
-        val=${val//\'/\\\'}
-        printf "set -gx %s '%s'\n" "$v" "$val"
+        printf 'set -gx %s %s\n' "$v" "$(_fish_quote "$val")"
     done
 }

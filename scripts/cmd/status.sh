@@ -186,8 +186,8 @@ _status_proxy_addresses() {
         auth=${auth%.}
         if [ -n "$auth" ]; then
             case $auth in
-            *:*) auth_prefix="$(_status_urlencode "${auth%%:*}"):$(_status_urlencode "${auth#*:}")@" ;;
-            *) auth_prefix="$(_status_urlencode "$auth")@" ;;
+            *:*) auth_prefix="$(_urlencode "${auth%%:*}"):$(_urlencode "${auth#*:}")@" ;;
+            *) auth_prefix="$(_urlencode "$auth")@" ;;
             esac
         fi
     fi
@@ -234,21 +234,6 @@ _status_proxy_port() {
     [[ $port =~ ^[0-9]+$ ]] && [ "${#port}" -le 5 ] || return 1
     ((10#$port > 0 && 10#$port <= 65535)) || return 1
     printf '%d\n' "$((10#$port))"
-}
-
-_status_urlencode() {
-    local LC_ALL=C value=$1 encoded='' character code index
-    for ((index = 0; index < ${#value}; index++)); do
-        character=${value:index:1}
-        case $character in
-        [a-zA-Z0-9._~-]) encoded+=$character ;;
-        *)
-            printf -v code '%%%02X' "'$character"
-            encoded+=$code
-            ;;
-        esac
-    done
-    printf '%s' "$encoded"
 }
 
 _status_render() {
