@@ -253,6 +253,8 @@ _status_render() {
     fi
     local index label value columns=${COLUMNS:-} size styled=0 color utf8=0
     case ${LC_ALL:-${LC_CTYPE:-${LANG:-}}} in *UTF-8* | *UTF8* | *utf-8* | *utf8*) utf8=1 ;; esac
+    # en_IN 等只有 UTF-8 编码的 locale 名称不带后缀，再按实际字符集判断一次。
+    [ "$utf8" -eq 1 ] || [ "$(locale charmap 2>/dev/null)" != UTF-8 ] || utf8=1
     if [ -t 1 ] && [ "${TERM:-dumb}" != dumb ] && [ "$utf8" -eq 1 ]; then
         case $columns in
         '' | *[!0-9]*)
