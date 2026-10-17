@@ -127,7 +127,6 @@ _update_git_checkout() (
             fi
             [ "$rc" -ne 0 ] || rc=1
         fi
-        operation_lock_release || true
         exit "$rc"
     ' EXIT
     trap 'exit 130' INT
@@ -201,7 +200,6 @@ _update_archive() (
             fi
             [ "$rc" -ne 0 ] || rc=1
         fi
-        operation_lock_release || true
         exit "$rc"
     ' EXIT
     trap 'exit 130' INT
