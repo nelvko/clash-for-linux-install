@@ -50,7 +50,13 @@ CLASH_RESOURCES_DIR="$CLASHCTL_HOME/resources"
 CLASH_CONFIG_BASE="$CLASH_DATA_DIR/config.yaml"
 CLASH_CONFIG_MIXIN="$CLASH_DATA_DIR/mixin.yaml"
 BIN_YQ=fixture_yq
-fixture_yq() { printf existing-secret; }
+fixture_yq() {
+    if [ "${1:-}" = '.mode // "rule"' ]; then
+        if [ -s "$CLASH_CONFIG_BASE" ]; then printf rule; else printf direct; fi
+    else
+        printf existing-secret
+    fi
+}
 bin_kernel_path() { printf '%s/bin/%s/%s' "$CLASHCTL_HOME" "$CLASHCTL_KERNEL" "$CLASHCTL_KERNEL"; }
 gh_proxy_url() { [ -z "${GH_PROXY:-}" ] && printf '%s\n' "$1" || printf '%s/%s\n' "${GH_PROXY%/}" "$1"; }
 valid_required() { :; }
@@ -82,9 +88,13 @@ install_service() { :; }
 service_start() { [ "${FAIL_START:-0}" = 0 ] && touch "$CLASH_DATA_DIR/started"; }
 service_stop_checked() { rm -f "$CLASH_DATA_DIR/started"; }
 service_is_active() { [ -f "$CLASH_DATA_DIR/started" ]; }
-service_enable() { [ "${FAIL_ENABLE:-0}" = 0 ] && touch "$CLASH_DATA_DIR/enabled"; }
+_service_enable() {
+    [ "${FAIL_ENABLE:-0}" = 0 ] || return 1
+    [ "$service_manager" = nohup ] || touch "$CLASH_DATA_DIR/enabled"
+}
 clashstart() { service_is_active && return 0; _merge_config && service_start && service_enable; }
 clashsub() {
+    [ "${FAIL_SUB:-0}" = 0 ] || return 1
     printf '%s' "$3" >"$CLASH_DATA_DIR/subscription"
     printf main-config >"$CLASH_CONFIG_BASE"
     _merge_config && service_start
@@ -128,6 +138,12 @@ _ui_detail() {
     fi
 }
 STUB
+# 使用真实的自启错误处理；后端操作由 fixture 接管，不访问宿主服务。
+(
+    # shellcheck source=../scripts/lib/service.sh
+    . "$REPO_DIR/scripts/lib/service.sh"
+    declare -f service_enable
+) >>"$FIXTURE/scripts/preflight.sh"
 # 与真实加载器一致：重载服务库后需要重新检测管理方式。
 printf 'service_manager=\nfixture_version=old\n' >"$FIXTURE/scripts/cmd/clashctl.sh"
 "$REAL_GIT" -C "$FIXTURE" init -q -b master
@@ -173,12 +189,12 @@ export PATH="$WORK_DIR/bin:$PATH"
 # 两个 env -u：未设时才走管道安装，保证下面断言的是"未提供即直连"。
 GIT_CALL_LOG="$WORK_DIR/quiet-git.log" env -u GH_PROXY -u CLASHCTL_UPDATE_BRANCH \
     bash -c 'cat "$1" | bash' _ "$REPO_DIR/install.sh" >"$WORK_DIR/install.out" 2>&1
-[ ! -f "$CLASHCTL_HOME/data/started" ] || fail 'empty install started service'
-[ ! -f "$CLASHCTL_HOME/data/enabled" ] || fail 'empty install enabled service'
-[ ! -e "$CLASHCTL_HOME/data/runtime.yaml" ] || fail 'empty install generated runtime'
-grep -q '尚未配置订阅' "$WORK_DIR/install.out" || fail 'empty install did not explain missing configuration'
-grep -Fq '运行方式: nohup（不设置开机自启）' "$WORK_DIR/install.out" || fail 'nohup install did not explain its startup mode'
-! grep -q '已设置开机自启' "$WORK_DIR/install.out" || fail 'nohup install claimed boot startup'
+[ -f "$CLASHCTL_HOME/data/started" ] || fail 'empty install did not start service'
+[ ! -f "$CLASHCTL_HOME/data/enabled" ] || fail 'nohup install enabled a service'
+[ ! -s "$CLASHCTL_HOME/data/config.yaml" ] || fail 'empty install created a fake subscription'
+grep -Fq 'mihomo 已启动（直连）' "$WORK_DIR/install.out" || fail 'empty install did not explain direct mode'
+grep -Fq 'nohup 后台运行' "$WORK_DIR/install.out" || fail 'nohup install did not explain its startup mode'
+! grep -q '开机自启' "$WORK_DIR/install.out" || fail 'nohup install claimed boot startup'
 grep -q 'clone .*--quiet' "$WORK_DIR/quiet-git.log" || fail 'default source download did not quiet Git progress'
 [ -f "$CLASHCTL_HOME/data/shell-ready" ] || fail 'pipeline did not install shell integration'
 [ -f "$CLASHCTL_HOME/.env" ] || fail 'pipeline did not write environment'
@@ -198,7 +214,39 @@ grep -Fq '在当前终端执行（bash）:' "$WORK_DIR/install.out" || fail 'mis
 grep -q '^ *source .*\.bashrc *#' "$WORK_DIR/install.out" || fail 'missing shell activation step'
 grep -Fq 'clashctl sub add --use "<URL>"' "$WORK_DIR/install.out" || fail 'missing subscription step'
 grep -q '^ *clashctl on *#' "$WORK_DIR/install.out" || fail 'missing proxy activation step'
+python3 - "$WORK_DIR/install.out" <<'PY'
+import pathlib, sys
+output = pathlib.Path(sys.argv[1]).read_text()
+commands = ['在当前终端执行', 'source ', 'clashctl on', 'clashctl ui', '按需添加订阅:', 'clashctl sub add --use']
+positions = [output.index(command) for command in commands]
+assert positions == sorted(positions), 'optional subscription interrupted terminal activation steps'
+PY
 if grep -q 'find: warning:' "$WORK_DIR/install.out"; then fail 'source validation emitted a find warning'; fi
+# 未添加订阅也要启动内核并为受管服务启用默认自启。
+direct_managed_home="$WORK_DIR/direct-managed"
+TEST_SERVICE_MANAGER=systemd CLASHCTL_HOME="$direct_managed_home" bash "$REPO_DIR/install.sh" \
+    >"$WORK_DIR/direct-managed.out" 2>&1 || fail 'managed direct install failed'
+[ -f "$direct_managed_home/data/started" ] || fail 'managed direct install did not start the kernel'
+[ -f "$direct_managed_home/data/enabled" ] || fail 'managed direct install did not enable autostart'
+grep -Fq '已注册 systemd 服务' "$WORK_DIR/direct-managed.out" || fail 'managed direct install omitted registration result'
+grep -Fq '已设置开机自启' "$WORK_DIR/direct-managed.out" || fail 'managed direct install omitted autostart result'
+# 无订阅的启动失败仍是安装失败，不能输出成功或设置自启。
+direct_failed_home="$WORK_DIR/direct-start-failed"
+if FAIL_START=1 TEST_SERVICE_MANAGER=systemd CLASHCTL_HOME="$direct_failed_home" bash "$REPO_DIR/install.sh" \
+    >"$WORK_DIR/direct-start-failed.out" 2>&1; then
+    fail 'direct install ignored kernel startup failure'
+fi
+[ -f "$direct_failed_home/.clashctl-incomplete" ] || fail 'direct startup failure lost incomplete marker'
+[ ! -e "$direct_failed_home/data/enabled" ] || fail 'failed direct startup enabled autostart'
+! grep -q '安装完成\|已设置开机自启' "$WORK_DIR/direct-start-failed.out" || fail 'failed direct startup claimed success'
+# 订阅失败后仍可直连使用；可复制的添加命令仅在末尾出现一次。
+sub_failed_home="$WORK_DIR/subscription-failed"
+FAIL_SUB=1 CLASHCTL_HOME="$sub_failed_home" bash "$REPO_DIR/install.sh" --sub file:///unavailable \
+    >"$WORK_DIR/subscription-failed.out" 2>&1 || fail 'subscription failure prevented direct installation'
+[ -f "$sub_failed_home/data/started" ] || fail 'subscription failure did not fall back to direct startup'
+grep -q '订阅添加失败，可稍后重试' "$WORK_DIR/subscription-failed.out" || fail 'subscription failure omitted retry hint'
+[ "$(grep -Fc 'clashctl sub add --use "<URL>"' "$WORK_DIR/subscription-failed.out")" -eq 1 ] ||
+    fail 'subscription retry command was duplicated'
 # 下载运行组件失败时仍可凭安装阶段标记清理，不能依靠 .env 缺失猜测。
 interrupted_home="$WORK_DIR/prepare-failed"
 if FAIL_PREPARE=1 FAIL_PREPARE_TIMEOUT=1 CLASHCTL_HOME="$interrupted_home" bash "$REPO_DIR/install.sh" \
@@ -279,8 +327,8 @@ for form in separate equals; do
         fail "install kernel option was not applied: $form"
     [ -f "$option_home/data/started" ] || fail "install subscription was not activated: $form"
     [ -f "$option_home/data/enabled" ] || fail "install subscription did not enable service: $form"
-    grep -q '已注册 systemd 服务' "$WORK_DIR/options-$form.out" || fail 'managed service registration result missing'
-    grep -q '已设置开机自启' "$WORK_DIR/options-$form.out" || fail 'managed service startup result missing'
+    grep -Fq '已注册 systemd 服务' "$WORK_DIR/options-$form.out" || fail 'managed service registration result missing'
+    grep -Fq '已设置开机自启' "$WORK_DIR/options-$form.out" || fail 'managed service startup result missing'
 done
 # 详细模式必须从安装入口传递到组件下载阶段。
 verbose_home="$WORK_DIR/verbose-install"
@@ -288,17 +336,24 @@ GIT_CALL_LOG="$WORK_DIR/verbose-git.log" CLASHCTL_HOME="$verbose_home" bash "$RE
     { cat "$WORK_DIR/verbose.out"; fail 'verbose installation failed'; }
 [ "$(cat "$verbose_home/data/download-verbose")" = 1 ] || fail 'verbose option did not reach component downloads'
 ! grep -q 'clone .*--quiet' "$WORK_DIR/verbose-git.log" || fail 'verbose source download hid Git progress'
-# 内核已启动但设置自启失败时，续装不能因“已运行”而跳过恢复自启。
-enable_failed_home="$WORK_DIR/enable-failed"
-if FAIL_ENABLE=1 CLASHCTL_HOME="$enable_failed_home" bash "$REPO_DIR/install.sh" \
-    --sub file:///enable-retry >"$WORK_DIR/enable-failed.out" 2>&1; then
-    fail 'service enable failure succeeded'
-fi
-[ -f "$enable_failed_home/data/started" ] && [ -f "$enable_failed_home/.clashctl-incomplete" ] || fail 'enable failure lost running/incomplete state'
-[ ! -e "$enable_failed_home/data/enabled" ] || fail 'failed enable set autostart'
-CLASHCTL_HOME="$enable_failed_home" bash "$enable_failed_home/install.sh" >"$WORK_DIR/enable-retry.out" 2>&1
-[ -f "$enable_failed_home/data/enabled" ] || fail 'retry did not enable already running service'
-[ ! -e "$enable_failed_home/.clashctl-incomplete" ] || fail 'enable retry retained incomplete state'
+# 订阅与无订阅路径都必须指出自启设置失败；续装需恢复已运行内核的自启。
+for subscription_state in subscribed direct; do
+    enable_failed_home="$WORK_DIR/enable-failed-$subscription_state"
+    enable_args=()
+    [ "$subscription_state" != subscribed ] || enable_args=(--sub file:///enable-retry)
+    if FAIL_ENABLE=1 TEST_SERVICE_MANAGER=systemd CLASHCTL_HOME="$enable_failed_home" bash "$REPO_DIR/install.sh" \
+        "${enable_args[@]}" >"$WORK_DIR/enable-failed-$subscription_state.out" 2>&1; then
+        fail 'service enable failure succeeded'
+    fi
+    grep -q '开机自启设置失败' "$WORK_DIR/enable-failed-$subscription_state.out" || fail 'enable failure omitted its failed operation'
+    ! grep -q '安装完成\|已设置开机自启' "$WORK_DIR/enable-failed-$subscription_state.out" || fail 'enable failure claimed installation or autostart success'
+    [ -f "$enable_failed_home/data/started" ] && [ -f "$enable_failed_home/.clashctl-incomplete" ] || fail 'enable failure lost running/incomplete state'
+    [ ! -e "$enable_failed_home/data/enabled" ] || fail 'failed enable set autostart'
+    TEST_SERVICE_MANAGER=systemd CLASHCTL_HOME="$enable_failed_home" bash "$enable_failed_home/install.sh" >"$WORK_DIR/enable-retry-$subscription_state.out" 2>&1
+    [ -f "$enable_failed_home/data/enabled" ] || fail 'retry did not enable already running service'
+    [ ! -e "$enable_failed_home/.clashctl-incomplete" ] || fail 'enable retry retained incomplete state'
+    grep -Fq 'mihomo 已在运行' "$WORK_DIR/enable-retry-$subscription_state.out" || fail 'enable retry did not preserve the running status'
+done
 # 无效参数应在下载源码、创建安装目录前报错。
 for bad_arg in --kernel --kernel= --kernel=unknown --sub --sub= mihomo clash; do
     invalid_option_home="$WORK_DIR/invalid-option"
@@ -1034,7 +1089,7 @@ grep -q '^CLASHCTL_UPDATE_BRANCH=iu$' "$WORK_DIR/iu/.env" || fail 'pipeline did 
 TEST_REPO="$REPO_DIR" TEST_WORK="$WORK_DIR" python3 - <<'PTY'
 import errno, os, pty, select, signal, time
 work = os.environ["TEST_WORK"]
-prompt = "订阅链接（回车跳过，稍后可添加）: ".encode()
+prompt = "订阅链接（回车跳过）: ".encode()
 
 def install_in_terminal(name, args=(), subscription=None):
     home = work + "/" + name
@@ -1093,7 +1148,7 @@ def install_in_terminal(name, args=(), subscription=None):
 home, output, sent = install_in_terminal("tty-install", subscription="file:///private-subscription")
 assert sent, "subscription prompt missing"
 assert os.path.isfile(home + "/data/started")
-assert os.path.isfile(home + "/data/enabled")
+assert not os.path.exists(home + "/data/enabled"), "nohup installation enabled a service"
 assert output.count(b"file:///private-subscription") == 1, "subscription input was not shown exactly once"
 assert "在当前终端执行（bash）:".encode() in output, "missing shell activation heading"
 assert b'clashctl sub add --use "<URL>"' not in output, "configured installation suggested adding a subscription"
@@ -1114,7 +1169,8 @@ for name, data, expected in [
     saved = test_home + "/data/subscription"
     if expected is None:
         assert not os.path.exists(saved), name + ": skipped input added a subscription"
-        assert not os.path.exists(test_home + "/data/started"), name + ": skipped input started kernel"
+        assert os.path.isfile(test_home + "/data/started"), name + ": skipped input did not start direct kernel"
+        assert os.path.getsize(test_home + "/data/config.yaml") == 0, name + ": skipped input created a fake subscription"
     else:
         with open(saved) as file:
             assert file.read() == expected, name + ": incorrect subscription URL"

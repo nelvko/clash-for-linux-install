@@ -113,12 +113,27 @@ _has_proxy_nodes() {
     ' "$1" >/dev/null 2>&1
 }
 
-# service.sh 启动服务前的门禁：主配置必须存在、有节点且通过内核校验。
+# 未选择订阅时允许直连启动；已选订阅缺失或损坏仍须报错。
 _require_base_config() {
   if [ ! -s "$CLASH_CONFIG_BASE" ]; then
-    _ui_error '尚未配置订阅，无法启动内核'
-    _ui_detail '添加并启用订阅' 'clashctl sub add --use "<URL>"'
-    return 1
+    local selected=''
+    if [ -e "$CLASH_PROFILES_META" ]; then
+      selected=$("$BIN_YQ" -e '
+        select(type == "!!map") |
+        select(.use == null or (.use | type) == "!!str") |
+        .use // ""
+      ' "$CLASH_PROFILES_META" 2>/dev/null) || {
+        _ui_error '订阅记录无效，无法启动内核'
+        _ui_detail '配置文件' "$CLASH_PROFILES_META"
+        return 1
+      }
+    fi
+    if [ -n "$selected" ]; then
+      _ui_error '已选订阅的主配置缺失或为空，无法启动内核'
+      _ui_detail '配置文件' "$CLASH_CONFIG_BASE"
+      return 1
+    fi
+    return 0
   fi
   if ! _has_proxy_nodes "$CLASH_CONFIG_BASE"; then
     _ui_error '主配置无效或缺少代理节点，无法启动内核'
@@ -136,7 +151,32 @@ _require_base_config() {
 }
 
 _merge_config() {
-  cat "$CLASH_CONFIG_RUNTIME" >"$CLASH_CONFIG_TEMP" 2>/dev/null
+  _require_base_config || return 1
+  local candidate rc=0
+  candidate=$(mktemp "${CLASH_CONFIG_RUNTIME}.XXXXXX") || return 1
+  if [ -s "$CLASH_CONFIG_BASE" ]; then
+    _build_runtime_config "$CLASH_CONFIG_BASE" >"$candidate" || rc=$?
+  else
+    # 仅作为合并输入，不写入订阅配置；Mixin 可覆盖默认直连模式。
+    _build_runtime_config <(printf 'mode: direct\n') >"$candidate" || rc=$?
+  fi
+  if [ "$rc" -ne 0 ]; then
+    command rm -f -- "$candidate"
+    _errorcat '配置合并失败：请检查主配置与 Mixin'
+    return 1
+  fi
+  if ! _valid_config "$candidate"; then
+    command rm -f -- "$candidate"
+    _errorcat '验证失败：请检查 Mixin 配置'
+    return 1
+  fi
+  if ! command mv -f -- "$candidate" "$CLASH_CONFIG_RUNTIME"; then
+    command rm -f -- "$candidate"
+    return 1
+  fi
+}
+
+_build_runtime_config() {
   # shellcheck disable=SC2016
   "$BIN_YQ" eval-all '
       ########################################
@@ -219,13 +259,7 @@ _merge_config() {
         ($inj | .[$g.name] // []) as $extra |
         .proxies = (.proxies + $extra | unique)
       )
-    ' "$CLASH_CONFIG_BASE" "$CLASH_CONFIG_MIXIN" >"$CLASH_CONFIG_RUNTIME"
-
-  _valid_config "$CLASH_CONFIG_RUNTIME" || {
-    cat "$CLASH_CONFIG_TEMP" >"$CLASH_CONFIG_RUNTIME"
-    _errorcat "验证失败：请检查 Mixin 配置"
-    return 1
-  }
+    ' "$1" "$CLASH_CONFIG_MIXIN"
 }
 tunstatus() {
   _tun_is_active && {
@@ -242,24 +276,24 @@ _merge_config_restart() {
   local was_tun_active=false
 
   tunstatus >&/dev/null && was_tun_active=true
-  # rc=1：合并/校验失败（runtime 已由 _merge_config 回滚为旧配置）
+  # rc=1：合并/校验失败，runtime 保持旧配置。
   _merge_config || return 1
 
   if [ "${was_tun_active}" = true ]; then
-    service_sudo_stop >/dev/null
+    service_sudo_stop >/dev/null || return 2
     service_is_active >&/dev/null && {
       _errorcat "请先关闭 Tun 模式"
       return 2
     }
   else
-    service_stop >&/dev/null
+    service_stop >&/dev/null || return 2
   fi
 
   sleep 0.1
 
   # rc=2：合并成功（runtime 已是新配置）但服务重启失败
   if _is_tun_enabled; then
-    service_sudo_start >/dev/null
+    service_sudo_start >/dev/null || return 2
     sleep 1
     tunstatus >&/dev/null || {
       _errorcat "Tun 模式重启失败，请检查代理内核日志"

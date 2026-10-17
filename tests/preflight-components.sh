@@ -442,8 +442,8 @@ CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=0
 _resolve_version VERSION_MIHOMO MetaCubeX/mihomo >>"$resolve_out" 2>&1
 _resolve_version VERSION_YQ mikefarah/yq >>"$resolve_out" 2>&1
 assert_eq "$DEFAULT_VERSION_MIHOMO" "$VERSION_MIHOMO" 'query failure falls back to built-in pin'
-assert_contains "$resolve_out" '内置钉版' 'fallback source is labeled'
-assert_eq 1 "$(grep -c '无法查询部分依赖' "$resolve_out")" \
+assert_contains "$resolve_out" '内置版本' 'fallback source is labeled'
+assert_eq 1 "$(grep -c '无法查询部分组件' "$resolve_out")" \
     'fallback warning fires exactly once per batch'
 unset LATEST_QUERY_RC
 

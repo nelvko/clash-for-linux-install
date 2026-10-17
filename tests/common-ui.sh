@@ -46,35 +46,46 @@ mkdir -p -- "$CLASHCTL_HOME"
 stdout_file="$WORK_DIR/stdout"
 stderr_file="$WORK_DIR/stderr"
 
-# 启动前配置门禁：缺失时给出可复制命令，无效时保留路径及校验错误。
+# 无订阅允许使用直连配置；已有订阅配置丢失、配置无效时仍须拒绝启动。
 (
     CLASH_CONFIG_BASE="$WORK_DIR/base.yaml"
+    CLASH_PROFILES_META="$WORK_DIR/profiles.yaml"
+    printf 'use:\nprofiles:\n' >"$CLASH_PROFILES_META"
+    BIN_YQ=gate_yq
+    gate_yq() {
+        [ "$BASE_META_VALID" = true ] || return 1
+        printf '%s\n' "$BASE_SELECTED"
+    }
     _has_proxy_nodes() { [ "$BASE_HAS_NODES" = true ]; }
     _valid_config() {
         if [ "$BASE_VALID" = true ]; then return 0; fi
         printf 'kernel: invalid proxy type\n' >&2
         return 1
     }
-    for state in missing empty no-nodes invalid valid; do
-        BASE_HAS_NODES=true BASE_VALID=true
+    for state in missing empty no-nodes invalid valid selected-missing selected-empty invalid-metadata; do
+        rm -f -- "$CLASH_CONFIG_BASE"
+        BASE_HAS_NODES=true BASE_VALID=true BASE_SELECTED='' BASE_META_VALID=true
         case $state in
         missing) ;;
         empty) : >"$CLASH_CONFIG_BASE" ;;
         no-nodes) printf '{}\n' >"$CLASH_CONFIG_BASE"; BASE_HAS_NODES=false ;;
-        invalid) BASE_VALID=false ;;
-        valid) ;;
+        invalid) printf 'proxies: []\n' >"$CLASH_CONFIG_BASE"; BASE_VALID=false ;;
+        valid) printf 'proxies: []\n' >"$CLASH_CONFIG_BASE" ;;
+        selected-missing) BASE_SELECTED=selected ;;
+        selected-empty) BASE_SELECTED=selected; : >"$CLASH_CONFIG_BASE" ;;
+        invalid-metadata) BASE_META_VALID=false ;;
         esac
         rc=0
         _require_base_config >"$stdout_file" 2>"$stderr_file" || rc=$?
         assert_empty "$stdout_file" "base config $state wrote to stdout"
-        if [ "$state" = valid ]; then
-            assert_eq 0 "$rc" 'valid base config rejected'
-            assert_empty "$stderr_file" 'valid base config emitted an error'
+        if [ "$state" = valid ] || [ "$state" = missing ] || [ "$state" = empty ]; then
+            assert_eq 0 "$rc" "base config $state rejected"
+            assert_empty "$stderr_file" "base config $state emitted an error"
         else
             assert_eq 1 "$rc" "base config $state was accepted"
             case $state in
-            missing | empty)
-                assert_contains "$stderr_file" 'clashctl sub add --use "<URL>"' 'missing config recovery command'
+            selected-missing | selected-empty | invalid-metadata)
+                [ -s "$stderr_file" ] || fail "base config $state omitted its diagnostic"
                 ;;
             no-nodes | invalid)
                 assert_contains "$stderr_file" "$CLASH_CONFIG_BASE" 'invalid config path'

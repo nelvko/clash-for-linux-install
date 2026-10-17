@@ -5,7 +5,7 @@ _download_config() {
     local dest=$1
     local url=$2
     local allow_convert=${3:-true}
-    [ "${url:0:4}" = 'file' ] || _ui_emit_fd 1 step '正在下载...'
+    [ "${url:0:4}" = 'file' ] || _ui_emit_fd 1 step '下载订阅'
     _download_raw_config "$dest" "$url" || return 1
     _normalize_sub_config "$dest" || return 1
 
@@ -15,7 +15,9 @@ _download_config() {
     }
 
     _is_native_yaml_config "$dest" && {
-        _ui_emit_fd 1 info '检测到原生 Clash/Mihomo 配置'
+        if [ "${CLASHCTL_INSTALL_RUNNING:-}" != 1 ] || [ "${_INSTALL_VERBOSE:-}" = 1 ]; then
+            _ui_emit_fd 1 info '检测到原生 Clash/Mihomo 配置'
+        fi
         _valid_config "$dest" && _valid_sub_nodes "$dest" && return
         [ "$allow_convert" = true ] || {
             _errorcat "raw 模式下原生配置校验失败（未尝试转换），可改用默认策略或 --convert"

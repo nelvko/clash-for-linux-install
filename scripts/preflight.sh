@@ -52,7 +52,7 @@ prepare_zip() {
         # 系统 yq 兼容且本地未下载时复用系统副本，跳过下载（bin/yq 存在则照常刷新）
         if [ "$item" = yq ] && [ ! -x "${BIN_BASE_DIR}/yq" ] &&
             system_yq=$(_get_system_yq); then
-            _ui_info "复用系统 yq: $system_yq"
+            _ui_info "使用系统 yq: $system_yq"
             continue
         fi
         normalized+=("$item")
@@ -91,7 +91,7 @@ _resolve_version() {
     local varname=$1 repo=$2 tag local_version
 
     if typeset -f _install_ui_output >/dev/null 2>&1; then
-        _ui_info "查询 $repo 版本"
+        _ui_info "查询 ${repo##*/} 最新版本"
     fi
     # 版本来源优先级：最新版本查询 > 内置备用版本
     if tag=$(_fetch_latest_tag "$repo"); then
@@ -111,19 +111,19 @@ _resolve_version() {
     esac
     if [ -n "$local_version" ]; then
         if [ "${CLASHCTL_LATEST_VERSION_FALLBACK_WARNED:-0}" -eq 0 ]; then
-            _ui_warn "无法查询部分依赖的最新版本，回退内置钉版"
+            _ui_warn "无法查询部分组件的最新版本，改用内置版本"
             CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=1
         fi
         printf -v "$varname" '%s' "$local_version"
         printf -v "${varname}_SOURCE" '%s' '内置版本'
         if ! typeset -f _install_ui_output >/dev/null 2>&1 || [ "${_INSTALL_VERBOSE:-}" = 1 ]; then
-            _ui_detail "$repo" "$local_version（内置钉版）"
+            _ui_detail "$repo" "$local_version（内置版本）"
         fi
         return 0
     fi
 
     _ui_error "无法解析依赖版本：$repo"
-    _ui_detail "原因" "内置钉版缺失，且最新版本查询不可用"
+    _ui_detail "原因" "没有可用的内置版本，且无法查询最新版本"
     return 1
 }
 
@@ -681,7 +681,7 @@ unzip_zip() {
 apply_rc() {
     detect_rc
 
-    local rc rc_status configured=()
+    local rc rc_status shell_name detail configured=()
     for rc in "$SHELL_RC_BASH" "$SHELL_RC_ZSH"; do
         [ -f "$rc" ] || continue
 
@@ -715,9 +715,15 @@ apply_rc() {
     fi
 
     if [ ${#configured[@]} -gt 0 ]; then
-        _ui_ok "Shell 集成已就绪"
+        _ui_ok "终端命令已配置"
         for rc in "${configured[@]}"; do
-            _ui_detail "配置" "$rc"
+            case "$rc" in
+            "$SHELL_RC_BASH") shell_name=Bash ;;
+            "$SHELL_RC_ZSH") shell_name=Zsh ;;
+            *) shell_name=Fish ;;
+            esac
+            printf -v detail '%-5s %s' "$shell_name:" "$rc"
+            _ui_detail "$detail"
         done
     fi
 

@@ -855,7 +855,7 @@ EOF
 }
 
 _sub_use_locked() {
-    local name=$1 rc
+    local name=$1 rc base_existed=true
     _sub_has "$name" || {
         _errorcat "订阅不存在：$name"
         return 1
@@ -872,18 +872,30 @@ _sub_use_locked() {
     _valid_sub_nodes "$path" || return 1
 
     # 切换前备份 BASE：合并校验失败（rc=1）时连同运行配置一起回滚，避免 BASE 与 runtime 不一致
-    cat "$CLASH_CONFIG_BASE" >"${CLASH_CONFIG_BASE}.bak" || {
-        _errorcat "无法备份当前配置（磁盘已满？），已取消切换"
-        return 1
-    }
-    cat "$path" >"$CLASH_CONFIG_BASE"
-    _merge_config_restart
-    rc=$?
-    if [ "$rc" -eq 1 ]; then
-        cat "${CLASH_CONFIG_BASE}.bak" >"$CLASH_CONFIG_BASE" || {
-            _errorcat "回滚失败，原配置备份在 ${CLASH_CONFIG_BASE}.bak，请手动恢复"
+    if [ -e "$CLASH_CONFIG_BASE" ] || [ -L "$CLASH_CONFIG_BASE" ]; then
+        cat "$CLASH_CONFIG_BASE" >"${CLASH_CONFIG_BASE}.bak" || {
+            _errorcat "无法备份当前配置（磁盘已满？），已取消切换"
             return 1
         }
+    else
+        base_existed=false
+    fi
+    rc=0
+    if cat "$path" >"$CLASH_CONFIG_BASE"; then
+        _merge_config_restart || rc=$?
+    else
+        _errorcat '无法写入订阅配置，已取消切换'
+        rc=1
+    fi
+    if [ "$rc" -eq 1 ]; then
+        if [ "$base_existed" = true ]; then
+            cat "${CLASH_CONFIG_BASE}.bak" >"$CLASH_CONFIG_BASE" || {
+                _errorcat "回滚失败，原配置备份在 ${CLASH_CONFIG_BASE}.bak，请手动恢复"
+                return 1
+            }
+        else
+            command rm -f -- "$CLASH_CONFIG_BASE" || return 1
+        fi
         /usr/bin/rm -f "${CLASH_CONFIG_BASE}.bak"
         _errorcat "订阅 [$name] 校验未通过（含 Mixin 合并结果），已回滚"
         return 1

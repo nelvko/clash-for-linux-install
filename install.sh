@@ -438,6 +438,12 @@ _install_main_cleanup() {
     trap - EXIT
     trap '' INT TERM HUP
     set +e
+    if [ "${service_switch_pending:-false}" = true ]; then
+        _install_restore_service || {
+            printf '无法完整恢复原服务，请保留安装目录并检查 INIT_TYPE 和服务状态\n' >&2
+            rc=1
+        }
+    fi
     if [ "${legacy_recovery_required:-false}" = true ]; then
         if [ -n "${legacy_shell_backup:-}" ]; then
             if _install_shell_restore "$legacy_shell_backup"; then
@@ -651,12 +657,17 @@ _install_next_step() {
     [ "${#load_command}" -le "$command_width" ] || command_width=${#load_command}
     printf '\n在当前终端执行（%s）:\n' "$shell" >&2
     printf '  %-*s  # %s\n' "$command_width" "$load_command" '加载命令' >&2
-    if [ ! -s "$CLASH_CONFIG_BASE" ]; then
-        printf '  %-*s  # %s\n' "$command_width" 'clashctl sub add --use "<URL>"' '添加并启用订阅' >&2
-    fi
     printf '  %-*s  # %s\n' "$command_width" 'clashctl on' '启用当前终端代理' >&2
     if service_is_active >/dev/null 2>&1; then
         printf '  %-*s  # %s\n' "$command_width" 'clashctl ui' '查看面板地址' >&2
+    fi
+    if [ ! -s "$CLASH_CONFIG_BASE" ] || [ "${_INSTALL_SUBSCRIPTION_RETRY:-false}" = true ]; then
+        printf '\n按需添加订阅:\n  %s\n' 'clashctl sub add --use "<URL>"' >&2
+    fi
+    if [ "${service_manager:-}" = systemd-user ] &&
+        ! { declare -F _is_tun_enabled >/dev/null 2>&1 && _is_tun_enabled; }; then
+        printf '\n按需设置（需管理员权限）:\n' >&2
+        printf '  sudo loginctl enable-linger %s  # 开机自启与退出登录后常驻\n' "$(id -un)" >&2
     fi
 }
 
@@ -671,6 +682,128 @@ _install_complete() {
     _install_next_step "${shell##*/}"
 }
 
+# 自动模式只为首次安装选型；保存过的后端不随登录会话变化。
+_install_select_service() {
+    local requested=${1:-auto} saved=${2-${INIT_TYPE:-}} answer
+    _INSTALL_SELECTED_SERVICE=$service_manager
+    case $requested in
+    nohup) _INSTALL_SELECTED_SERVICE='nohup' ;;
+    systemd-user)
+        if _is_root; then
+            _install_ui_error 'systemd-user 需要以目标普通用户运行安装器'
+            return 1
+        fi
+        if ! declare -F service_user_available >/dev/null 2>&1 || ! service_user_available; then
+            _install_ui_error '用户级 systemd 不可用（需要 systemd 243 或更高版本），请在该用户的登录会话中重试，或使用 --service nohup'
+            return 1
+        fi
+        _INSTALL_SELECTED_SERVICE=systemd-user
+        ;;
+    auto)
+        [ -z "$saved" ] || return 0
+        _is_root && return 0
+        if declare -F service_user_available >/dev/null 2>&1 && service_user_available; then
+            _INSTALL_SELECTED_SERVICE=systemd-user
+            if [ "${CI+x}" != x ] && ( : </dev/tty ) 2>/dev/null; then
+                printf '%s\n' \
+                    '       服务类型：' \
+                    '         1) systemd --user' \
+                    '            开机自启与退出登录后常驻可能需要管理员权限设置。' \
+                    '         2) nohup' \
+                    '            可后台常驻，无开机自启和异常自动重启。' >&2
+                while :; do
+                    printf '       请选择 [1/2，默认 1]: ' >&2
+                    IFS= read -r answer </dev/tty || answer=1
+                    case $answer in
+                    '' | 1) break ;;
+                    2) _INSTALL_SELECTED_SERVICE='nohup'; break ;;
+                    *) _install_ui_warn '请输入 1 或 2' ;;
+                    esac
+                done
+            fi
+        else
+            _INSTALL_SELECTED_SERVICE='nohup'
+            _install_ui_info '用户级 systemd 不可用，使用 nohup'
+        fi
+        ;;
+    *) _install_ui_error '--service 仅支持 auto、systemd-user 或 nohup'; return 1 ;;
+    esac
+}
+
+_install_use_service() {
+    INIT_TYPE=$1
+    service_manager=''
+    detect_service_manager
+}
+
+# 切换前先检查新服务冲突；旧服务停止后至初始化完成期间可由 EXIT 恢复。
+_install_apply_service() {
+    local selected=$1 saved=${2:-} state
+    if [ "$selected" != "$service_manager" ] && [ -z "$saved" ]; then
+        _install_use_service "$selected" || return 1
+    elif [ "$selected" != "$service_manager" ]; then
+        case "$service_manager:$selected" in
+        nohup:systemd-user | systemd-user:nohup) ;;
+        *) _install_ui_error '已有安装仅支持在 nohup 与 systemd-user 之间切换'; return 1 ;;
+        esac
+        ( _install_use_service "$selected" && _service_check_conflict ) || return 1
+        state=$(service_state) || { _install_ui_error '无法确认原服务状态，未切换运行方式'; return 1; }
+        case $state in
+        running | stopped | failed) ;;
+        *) _install_ui_error '原服务正在启动或停止，请稍后重试'; return 1 ;;
+        esac
+        service_previous_manager=$service_manager
+        service_previous_init=${INIT_TYPE:-$service_manager}
+        service_selected_manager=$selected
+        service_previous_active=false
+        service_previous_enabled=false
+        service_previous_privileged=false
+        [ "$state" != running ] || service_previous_active=true
+        if [ "$service_manager" = systemd-user ]; then
+            systemctl --user is-enabled --quiet "$CLASHCTL_KERNEL" && service_previous_enabled=true
+        fi
+        _service_privileged_marker_exists && service_previous_privileged=true
+        service_switch_pending=true
+        uninstall_service || return 1
+        _install_use_service "$selected" || return 1
+    fi
+    _set_env INIT_TYPE "$service_manager" || return 1
+    install_service || {
+        local service_label=$service_manager
+        [ "$service_label" != systemd-user ] || service_label='systemd --user'
+        _install_ui_error "$service_label 服务注册失败"
+        return 1
+    }
+}
+
+_install_restore_service() {
+    [ "${service_switch_pending:-false}" = true ] || return 0
+    local target=''
+    _install_use_service "$service_selected_manager" || return 1
+    target=$(_service_target 2>/dev/null) || target=''
+    if [ "$service_selected_manager" = systemd-user ] && [ -n "$target" ] &&
+        [ ! -e "$target" ] && [ ! -L "$target" ]; then
+        # 注册失败可能尚未写入 unit；disable 不存在的单元会失败，不能因此跳过旧服务恢复。
+        service_stop_checked && systemctl --user daemon-reload || return 1
+    elif ! uninstall_service; then
+        _install_ui_error '无法停止切换后的服务，已保留现场；请恢复用户级 systemd 连接后重试'
+        return 1
+    fi
+    _install_use_service "$service_previous_init" || return 1
+    _set_env INIT_TYPE "$service_previous_init" || return 1
+    install_service || return 1
+    [ "$service_previous_enabled" != true ] || service_enable || return 1
+    if [ "$service_previous_active" = true ]; then
+        if [ "$service_previous_privileged" = true ]; then
+            service_sudo_start || return 1
+        else
+            service_start || return 1
+        fi
+    fi
+    service_switch_pending=false
+    _install_ui_warn "安装未完成，已恢复原运行方式：$service_previous_manager"
+}
+
 _install_initialize() {
     export CLASHCTL_SRC="$CLASHCTL_HOME"
     . "$CLASHCTL_SRC/scripts/preflight.sh" || return 1
@@ -678,15 +811,24 @@ _install_initialize() {
     [ "${4:-}" != x ] || CLASHCTL_DOWNLOAD_TIMEOUT=$5
     # 参数在 main 中保存，不受 preflight 加载已有 .env 的影响。
     local kernel=${1:-${CLASHCTL_KERNEL:-mihomo}} branch=${2:-${CLASHCTL_UPDATE_BRANCH:-master}}
-    local proxy=${3:-} subscription=${7:-} rc secret shell_backup=''
+    local proxy=${3:-} subscription=${7:-} requested_service=${8:-auto} rc secret shell_backup=''
+    _INSTALL_SUBSCRIPTION_RETRY=false
     export -n subscription secret
     export CLASHCTL_KERNEL="$kernel" CLASHCTL_UPDATE_BRANCH="$branch" GH_PROXY="$proxy"
     # shellcheck disable=SC2034  # preflight 中的组件安装与服务定义共用此路径。
     BIN_KERNEL=$(bin_kernel_path) || return 1
     operation_lock_acquire || return 1
     valid_required || return 1
+    local saved_service=''
+    [ ! -f "$CLASHCTL_HOME/.env" ] || saved_service=${INIT_TYPE:-}
     detect_service_manager
+    _install_select_service "$requested_service" "$saved_service" || return 1
+    local selected_service=$_INSTALL_SELECTED_SERVICE
     _service_check_conflict || return 1
+    # 新后端冲突在下载运行组件和停止旧内核之前报告。
+    if [ "$selected_service" != "$service_manager" ]; then
+        ( _install_use_service "$selected_service" && _service_check_conflict ) || return 1
+    fi
 
     _install_ui_step '准备运行组件'
     install -d -m 0700 "$CLASH_DATA_DIR" "$CLASH_PROFILES_DIR" || return 1
@@ -704,49 +846,66 @@ _install_initialize() {
     _set_env CLASHCTL_UPDATE_BRANCH "$branch" || return 1
     _set_env GH_PROXY "$proxy" || return 1
     _set_env CLASHCTL_DOWNLOAD_TIMEOUT "$CLASHCTL_DOWNLOAD_TIMEOUT" || return 1
-    # shellcheck disable=SC2154  # detect_service_manager 设置
-    _set_env INIT_TYPE "$service_manager" || return 1
+    local switch_saved_service=$saved_service
+    # 旧版迁移已有独立的停止与回滚流程，新目录不再记录一次后端切换事务。
+    [ -z "${6:-}" ] || switch_saved_service=''
+    _install_ui_step '配置运行环境'
+    _install_apply_service "$selected_service" "$switch_saved_service" || return 1
     . "$CLASHCTL_HOME/scripts/cmd/clashctl.sh" || return 1
     _install_restore_operation_lock || return 1
     # 命令加载器会重新加载 service.sh，清空之前检测到的服务方式与路径。
     detect_service_manager
 
-    _install_ui_step '配置服务与终端命令'
     # 密钥直接写入 Mixin，无主配置时不生成 runtime。
     secret=$("$BIN_YQ" '.secret // ""' "$CLASH_CONFIG_MIXIN") || return 1
     if [ -z "$secret" ]; then
         secret=$(_get_random_val) || return 1
         SECRET=$secret "$BIN_YQ" -i '.secret = env(SECRET)' "$CLASH_CONFIG_MIXIN" || return 1
     fi
-    install_service || return 1
-    if [ "$service_manager" = nohup ]; then
-        _install_ui_info '运行方式: nohup（不设置开机自启）'
-    else
-        _install_ui_ok "已注册 $service_manager 服务"
+    local kernel_status='已启动' runtime_mode=''
+    if service_is_active >/dev/null 2>&1; then
+        kernel_status='已在运行'
     fi
 
     if [ -z "$subscription" ] && [ ! -s "$CLASH_CONFIG_BASE" ] &&
         [ "${CI+x}" != x ] && ( : </dev/tty ) 2>/dev/null; then
-        _read_subscription_url subscription '       订阅链接（回车跳过，稍后可添加）: ' </dev/tty || subscription=''
+        _read_subscription_url subscription '       订阅链接（回车跳过）: ' </dev/tty || subscription=''
     fi
     if [ -n "$subscription" ]; then
         # 订阅失败不算安装失败：组件、命令和服务都已就绪，此时报"安装未完成"会误导用户重装。
         if ! clashsub add --use "$subscription"; then
-            _install_ui_warn '订阅添加失败，已跳过；组件与命令安装完成'
-            _ui_detail '稍后重试' 'clashctl sub add --use "<URL>"'
+            _install_ui_warn '订阅添加失败，可稍后重试'
+            _INSTALL_SUBSCRIPTION_RETRY=true
         fi
-    elif [ -s "$CLASH_CONFIG_BASE" ]; then
-        clashstart || return 1
-    else
-        _install_ui_info '尚未配置订阅，内核未启动'
     fi
-    # 订阅生效直接启服；续装时已运行的内核也会跳过 clashstart 的自启步骤。
-    if [ -s "$CLASH_CONFIG_BASE" ] && service_is_active >/dev/null 2>&1; then
-        service_enable || return 1
-        [ "$service_manager" = nohup ] || _install_ui_ok '已设置开机自启'
-    elif [ "$service_manager" != nohup ]; then
-        _install_ui_info '未启用内核，跳过开机自启设置'
+    # 订阅生效已启动内核；跳过订阅时以直连配置启动，续装保留已运行的内核。
+    if ! service_is_active >/dev/null 2>&1; then
+        clashstart >/dev/null || return 1
     fi
+    service_is_active >/dev/null 2>&1 || {
+        _install_ui_error '内核未启动，请检查服务日志'
+        return 1
+    }
+    runtime_mode=$("$BIN_YQ" '.mode // "rule"' "$CLASH_CONFIG_RUNTIME" 2>/dev/null) || runtime_mode=''
+    [ "$runtime_mode" != direct ] || kernel_status+='（直连）'
+    _install_ui_ok "$CLASHCTL_KERNEL $kernel_status"
+    # 已运行内核也需要恢复自启设置；nohup 的 service_enable 不执行操作。
+    service_enable || return 1
+    case "$service_manager" in
+    systemd-user)
+        _install_ui_ok '已注册 systemd --user 服务'
+        if declare -F _is_tun_enabled >/dev/null 2>&1 && _is_tun_enabled; then
+            _install_ui_info 'TUN 需 sudo 手动启动，不支持自启'
+        else
+            _install_ui_ok '已设置登录自启'
+        fi
+        ;;
+    nohup) _install_ui_ok 'nohup 后台运行' ;;
+    *)
+        _install_ui_ok "已注册 $service_manager 服务"
+        _install_ui_ok '已设置开机自启'
+        ;;
+    esac
     if [ -n "${6:-}" ]; then
         shell_backup=$(mktemp -d "${CLASHCTL_HOME}.shell.XXXXXX") || return 1
         _install_shell_snapshot "$shell_backup" || {
@@ -781,7 +940,7 @@ main() (
     local _INSTALL_VERBOSE=${_INSTALL_VERBOSE:-}
     local home_source='默认值（~/.clashctl）'
     [ -z "${CLASHCTL_HOME:-}" ] || home_source=CLASHCTL_HOME
-    local branch=${CLASHCTL_UPDATE_BRANCH:-} kernel='' subscription=''
+    local branch=${CLASHCTL_UPDATE_BRANCH:-} kernel='' subscription='' requested_service=auto
     local proxy=${GH_PROXY:-} proxy_set=${GH_PROXY+x} stage='' arg method
     local requested_timeout=${CLASHCTL_DOWNLOAD_TIMEOUT-} timeout_set=${CLASHCTL_DOWNLOAD_TIMEOUT+x}
     local local_source=false script_dir='' existing_kind='' legacy_home='' legacy_kernel='' backup=''
@@ -791,6 +950,8 @@ main() (
     local legacy_nohup_active=false legacy_nohup_found=false legacy_nohup_pid='' legacy_nohup_starttime=''
     local legacy_nohup_argv_hex='' legacy_nohup_exe_id='' legacy_nohup_log=''
     local finalize_signal=''
+    local service_switch_pending=false service_previous_manager='' service_previous_init='' service_selected_manager=''
+    local service_previous_active=false service_previous_enabled=false service_previous_privileged=false
     local -a legacy_nohup_command=()
     trap _install_main_cleanup EXIT
     trap 'exit 130' INT
@@ -828,6 +989,12 @@ main() (
             shift
             ;;
         --local) local_source=true ;;
+        --service=*) requested_service=${arg#*=} ;;
+        --service)
+            [ "$#" -gt 0 ] && [ -n "$1" ] || { printf '%s\n' '--service 需要 auto、systemd-user 或 nohup' >&2; return 1; }
+            requested_service=$1
+            shift
+            ;;
         --verbose) _INSTALL_VERBOSE=1 ;;
         --home=*)
             install_home=${arg#--home=}
@@ -858,6 +1025,8 @@ main() (
   --home <路径>           指定安装目录（绝对路径，默认 ~/.clashctl）
   --kernel <内核>         mihomo（默认）或 clash；已有安装不可切换
   --sub <URL>             添加并启用订阅；无现有配置时交互询问
+  --service <方式>        auto（默认）、systemd-user 或 nohup
+                          auto 沿用已有方式；新装普通用户优先用户级 systemd
 
 下载与更新:
   --branch <分支>         源码及后续更新分支（新安装默认 master）
@@ -891,6 +1060,14 @@ HELP
     '' | mihomo | clash) ;;
     *) printf '%s\n' '--kernel 仅支持 mihomo 或 clash' >&2; return 1 ;;
     esac
+    case $requested_service in
+    auto | systemd-user | nohup) ;;
+    *) printf '%s\n' '--service 仅支持 auto、systemd-user 或 nohup' >&2; return 1 ;;
+    esac
+    if [ "$requested_service" = systemd-user ] && [ "$(id -u)" -eq 0 ]; then
+        printf '%s\n' 'systemd-user 需要以目标普通用户运行安装器' >&2
+        return 1
+    fi
     if [ -f "${BASH_SOURCE[0]:-}" ]; then
         script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
     fi
@@ -1109,7 +1286,7 @@ HELP
     export CLASHCTL_HOME="$install_home" CLASHCTL_SRC="$install_home" CLASHCTL_KERNEL="$kernel"
     export CLASHCTL_UPDATE_BRANCH="$branch" GH_PROXY="$proxy"
     if ! { (umask 077; : >"$install_home/.clashctl-incomplete") &&
-        _install_initialize "$kernel" "$branch" "$proxy" "$timeout_set" "$requested_timeout" "$backup" "$subscription"; }; then
+        _install_initialize "$kernel" "$branch" "$proxy" "$timeout_set" "$requested_timeout" "$backup" "$subscription" "$requested_service"; }; then
         if [ -n "$backup" ]; then
             _install_legacy_rollback "$legacy_home" "$backup" "$install_home" "$legacy_kernel" || return 1
         else
@@ -1130,12 +1307,17 @@ HELP
                 printf -v proxy_arg ' --gh-proxy=%q' "$proxy"
                 retry_command+=$proxy_arg
             fi
+            if [ "$requested_service" != auto ]; then
+                printf -v arg ' --service=%q' "$requested_service"
+                retry_command+=$arg
+            fi
             printf '安装未完成，已保留目录：%s\n' "$install_home" >&2
             printf '重试: %s\n' "$retry_command" >&2
         fi
         return 1
     fi
     rm -f -- "$install_home/.clashctl-incomplete" || return 1
+    service_switch_pending=false
     # 定时任务切换与目录提交保持一致；这几步收到的信号在提交后再退出。
     trap 'finalize_signal=130' INT
     trap 'finalize_signal=143' TERM

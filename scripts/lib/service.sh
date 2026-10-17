@@ -34,12 +34,26 @@ _service_owned_pids() {
     _service_process_record_pid "$service_pid_path" 2>/dev/null
 }
 
+_service_privileged_pid() {
+    local record
+    _service_privileged_marker_exists || return 1
+    record=$(_service_privileged_record_path /run/clashctl "$(id -u)" "$CLASHCTL_KERNEL") || return 1
+    _service_process_record_pid "$record" 2>/dev/null
+}
+
 # 只返回与本次安装的二进制、启动参数一致的 PID，供 TUN 归属检查使用。
 service_main_pid() {
     detect_service_manager
     local pid='' expected_argv record
     case "$service_manager" in
     systemd) pid=$(systemctl show "$CLASHCTL_KERNEL" -p MainPID --value 2>/dev/null) ;;
+    systemd-user)
+        if _service_privileged_marker_exists; then
+            pid=$(_service_privileged_pid) || return 1
+        else
+            pid=$(systemctl --user show "$CLASHCTL_KERNEL" -p MainPID --value 2>/dev/null)
+        fi
+        ;;
     runit) pid=$(sv status "$CLASHCTL_KERNEL" 2>/dev/null | sed -n 's/.*(pid \([0-9]*\)).*/\1/p') ;;
     sysvinit | openrc) read -r pid <"$service_pid_path" 2>/dev/null || return 1 ;;
     *)
@@ -128,14 +142,30 @@ _service_privileged_marker_exists() {
     _service_privileged_record_is_secure "$record"
 }
 
+# 只读连接探测；degraded 仍可用。用户模板的 ExecCondition 要求 systemd >= 243。
+service_user_available() {
+    local version
+    command -v systemctl >/dev/null 2>&1 || return 1
+    systemctl --user show-environment >/dev/null 2>&1 || return 1
+    version=$(systemctl --user show -p Version --value 2>/dev/null) || return 1
+    [[ $version =~ ^([0-9]+)([[:space:].+~-]|$) ]] || return 1
+    version=${BASH_REMATCH[1]}
+    [ "${#version}" -le 5 ] && [ "$((10#$version))" -ge 243 ]
+}
+
 detect_service_manager() {
     [ -n "$service_manager" ] && return 0
-    [ -z "$INIT_TYPE" ] && INIT_TYPE=$(readlink /proc/1/exe 2>/dev/null || echo "nohup")
-    grep -qsE "docker|kubepods|containerd|podman|lxc" /proc/1/cgroup 2>/dev/null && INIT_TYPE='nohup'
-    _is_root || INIT_TYPE='nohup'
+    [ -n "${INIT_TYPE:-}" ] || INIT_TYPE=$(readlink /proc/1/exe 2>/dev/null || echo "nohup")
+    if [ "$INIT_TYPE" != systemd-user ]; then
+        grep -qsE "docker|kubepods|containerd|podman|lxc" /proc/1/cgroup 2>/dev/null && INIT_TYPE='nohup'
+        _is_root || INIT_TYPE='nohup'
+    fi
     INIT_TYPE=$(basename "$INIT_TYPE")
 
     case "$INIT_TYPE" in
+    systemd-user)
+        service_manager="systemd-user"
+        ;;
     *systemd)
         service_manager="systemd"
         ;;
@@ -159,10 +189,12 @@ detect_service_manager() {
 
     service_log_path="/var/log/${CLASHCTL_KERNEL}.log"
     service_pid_path="/run/${CLASHCTL_KERNEL}.pid"
-    [ "$service_manager" = "nohup" ] && {
+    case "$service_manager" in
+    nohup | systemd-user)
         service_log_path="${CLASH_DATA_DIR}/${CLASHCTL_KERNEL}.log"
         service_pid_path="${CLASH_DATA_DIR}/${CLASHCTL_KERNEL}.pid"
-    }
+        ;;
+    esac
     return 0
 }
 
@@ -210,6 +242,19 @@ service_start() {
     _require_base_config || return 1
     detect_service_manager
     case "$service_manager" in
+    systemd-user)
+        if _is_root; then
+            _ui_error '用户级服务需要由所属普通用户运行，请退出 sudo 后重试'
+            return 1
+        fi
+        # TUN 由独立的 root helper 托管，用户单元始终保持停止。
+        _service_privileged_marker_exists && return 0
+        if _is_tun_enabled; then
+            service_sudo_start
+        else
+            _service_run_without_operation_lock systemctl --user start "$CLASHCTL_KERNEL"
+        fi
+        ;;
     systemd)
         _service_run_without_operation_lock systemctl start "$CLASHCTL_KERNEL"
         ;;
@@ -226,6 +271,14 @@ service_start() {
         _service_run_without_operation_lock sv up "$CLASHCTL_KERNEL"
         ;;
     nohup | *)
+        if [ "$service_manager" = nohup ] && ! _is_root; then
+            _service_privileged_marker_exists && return 0
+            # 从用户服务切回 nohup 或停止后重启时，沿用已保存的 TUN 配置。
+            if declare -F _is_tun_enabled >/dev/null 2>&1 && _is_tun_enabled; then
+                service_sudo_start
+                return
+            fi
+        fi
         local lock rc=0
         /usr/bin/install -d "$(dirname -- "$service_pid_path")" || return 1
         _service_process_lock_acquire "$service_pid_path" || return 1
@@ -244,6 +297,10 @@ service_sudo_start() {
     fi
     _require_base_config || return 1
     detect_service_manager
+    # 显式 stop 会取消 Restart=on-failure，随后再启动 helper，避免双实例。
+    if [ "$service_manager" = systemd-user ]; then
+        systemctl --user stop "$CLASHCTL_KERNEL" || return 1
+    fi
     local owner_uid helper rc=0
     owner_uid=$(id -u) || return 1
     helper=${_SERVICE_PROCESS_HELPER_FILE:-}
@@ -276,6 +333,14 @@ service_sudo_stop() {
 service_stop() {
     detect_service_manager
     case "$service_manager" in
+    systemd-user)
+        local rc=0
+        systemctl --user stop "$CLASHCTL_KERNEL" || rc=$?
+        if _service_privileged_marker_exists; then
+            service_sudo_stop || rc=$?
+        fi
+        return "$rc"
+        ;;
     systemd)
         systemctl stop "$CLASHCTL_KERNEL"
         ;;
@@ -303,6 +368,13 @@ service_stop() {
 service_status() {
     detect_service_manager
     case "$service_manager" in
+    systemd-user)
+        if _service_privileged_marker_exists; then
+            printf '%s\n' "$CLASHCTL_KERNEL 正以特权模式运行（TUN helper；用户服务已停止）"
+        else
+            systemctl --user status "$CLASHCTL_KERNEL" "$@"
+        fi
+        ;;
     systemd)
         systemctl status "$CLASHCTL_KERNEL" "$@"
         ;;
@@ -332,6 +404,10 @@ service_status() {
 service_is_active() {
     detect_service_manager
     case "$service_manager" in
+    systemd-user)
+        _service_privileged_marker_exists ||
+            systemctl --user is-active "$CLASHCTL_KERNEL" >/dev/null 2>&1
+        ;;
     systemd)
         systemctl is-active "$CLASHCTL_KERNEL" >/dev/null 2>&1
         ;;
@@ -356,8 +432,16 @@ service_state() {
     detect_service_manager || return 1
     local output rc=0 state
     case "$service_manager" in
-    systemd)
-        output=$(systemctl is-active "$CLASHCTL_KERNEL" 2>/dev/null) || rc=$?
+    systemd | systemd-user)
+        if [ "$service_manager" = systemd-user ]; then
+            if _service_privileged_marker_exists; then
+                printf 'running\n'
+                return 0
+            fi
+            output=$(systemctl --user is-active "$CLASHCTL_KERNEL" 2>/dev/null) || rc=$?
+        else
+            output=$(systemctl is-active "$CLASHCTL_KERNEL" 2>/dev/null) || rc=$?
+        fi
         case "$rc:$output" in
         0:active | 0:reloading | 0:refreshing) state=running ;;
         3:inactive) state=stopped ;;
@@ -502,7 +586,22 @@ _service_atomic_symlink() {
 
 service_enable() {
     detect_service_manager
+    local rc=0
+    _service_enable || rc=$?
+    [ "$rc" -ne 0 ] || return 0
+    if [ "$service_manager" = systemd-user ]; then
+        _ui_error '登录自启设置失败'
+    else
+        _ui_error '开机自启设置失败'
+    fi
+    return "$rc"
+}
+
+_service_enable() {
     case "$service_manager" in
+    systemd-user)
+        systemctl --user enable --quiet "$CLASHCTL_KERNEL"
+        ;;
     systemd)
         systemctl enable --quiet "$CLASHCTL_KERNEL"
         ;;
@@ -540,6 +639,9 @@ service_enable() {
 service_disable() {
     detect_service_manager
     case "$service_manager" in
+    systemd-user)
+        systemctl --user disable --quiet "$CLASHCTL_KERNEL"
+        ;;
     systemd)
         systemctl disable --quiet "$CLASHCTL_KERNEL"
         ;;
@@ -593,6 +695,17 @@ _service_unregister() {
 service_log() {
     detect_service_manager
     case "$service_manager" in
+    systemd-user)
+        if _service_uses_privileged_log; then
+            if [ $# -gt 0 ]; then
+                tail "$@" "$service_log_path"
+            else
+                less "$service_log_path"
+            fi
+        else
+            journalctl --user -u "$CLASHCTL_KERNEL" "$@"
+        fi
+        ;;
     systemd)
         journalctl -u "$CLASHCTL_KERNEL" "$@"
         ;;
@@ -609,6 +722,13 @@ service_log() {
 service_follow_log() {
     detect_service_manager
     case "$service_manager" in
+    systemd-user)
+        if _service_uses_privileged_log; then
+            tail -f -n 0 "$service_log_path"
+        else
+            journalctl --user -u "$CLASHCTL_KERNEL" -q -f -n 0
+        fi
+        ;;
     systemd)
         journalctl -u "$CLASHCTL_KERNEL" -q -f -n 0
         ;;
@@ -618,10 +738,33 @@ service_follow_log() {
     esac
 }
 
+_service_uses_privileged_log() {
+    _service_privileged_marker_exists ||
+        { declare -F _is_tun_enabled >/dev/null 2>&1 && _is_tun_enabled; }
+}
+
+service_log_location() {
+    detect_service_manager
+    case "$service_manager" in
+    systemd) printf 'journalctl -u %s\n' "$CLASHCTL_KERNEL" ;;
+    systemd-user)
+        if _service_uses_privileged_log; then
+            printf '%s\n' "$service_log_path"
+        else
+            printf 'journalctl --user -u %s\n' "$CLASHCTL_KERNEL"
+        fi
+        ;;
+    *) printf '%s\n' "$service_log_path" ;;
+    esac
+}
+
 _service_target() {
     detect_service_manager
 
     case "$service_manager" in
+    systemd-user)
+        printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/${CLASHCTL_KERNEL}.service"
+        ;;
     systemd)
         printf '%s\n' "/etc/systemd/system/${CLASHCTL_KERNEL}.service"
         ;;
@@ -650,6 +793,9 @@ _render_service_unit() {
     local service_src
 
     case "$service_manager" in
+    systemd-user)
+        service_src="${template_dir}/systemd-user.sh"
+        ;;
     systemd)
         service_src="${template_dir}/systemd.sh"
         ;;
@@ -672,6 +818,8 @@ _render_service_unit() {
         -e "s#placeholder_cmd_path#$cmd_path#g" \
         -e "s#placeholder_cmd_args#$cmd_arg#g" \
         -e "s#placeholder_cmd_full#$cmd_full#g" \
+        -e "s#placeholder_yq_path#${BIN_YQ:-${CLASHCTL_HOME:-}/bin/yq}#g" \
+        -e "s#placeholder_config_path#$CLASH_CONFIG_RUNTIME#g" \
         -e "s#placeholder_log_path#$service_log_path#g" \
         -e "s#placeholder_pid_path#$service_pid_path#g" \
         -e "s#placeholder_kernel_name#$CLASHCTL_KERNEL#g" \
@@ -683,7 +831,7 @@ _service_definition_is_owned() {
     local target=$1 command_line
     command_line="$BIN_KERNEL -d $CLASH_RESOURCES_DIR -f $CLASH_CONFIG_RUNTIME"
     case $service_manager in
-    systemd)
+    systemd | systemd-user)
         grep -Fqx -- "ExecStart=$command_line" "$target" 2>/dev/null
         ;;
     sysvinit)
@@ -712,8 +860,12 @@ _service_check_conflict() {
         _ui_error "同名服务已存在，请先处理后重试：$target"
         return 1
     fi
-    if [ "$service_manager" = systemd ]; then
-        fragment=$(systemctl show "$CLASHCTL_KERNEL.service" -p FragmentPath --value) || return 1
+    if [ "$service_manager" = systemd ] || [ "$service_manager" = systemd-user ]; then
+        if [ "$service_manager" = systemd-user ]; then
+            fragment=$(systemctl --user show "$CLASHCTL_KERNEL.service" -p FragmentPath --value) || return 1
+        else
+            fragment=$(systemctl show "$CLASHCTL_KERNEL.service" -p FragmentPath --value) || return 1
+        fi
         [ -z "$fragment" ] || { _ui_error "同名服务已存在：$fragment"; return 1; }
     fi
 }
@@ -726,9 +878,10 @@ install_service() (
     candidate=$(mktemp) || return 1
     trap 'rm -f -- "$candidate"' EXIT
     _render_service_unit "$candidate" || return 1
-    [ "$service_manager" != systemd ] || mode=0644
+    case "$service_manager" in systemd | systemd-user) mode=0644 ;; esac
     install -D -m "$mode" "$candidate" "$target" || return 1
     [ "$service_manager" != systemd ] || systemctl daemon-reload || return 1
+    [ "$service_manager" != systemd-user ] || systemctl --user daemon-reload || return 1
     # 这里只注册服务；有效配置启动成功后才设置自启。
     return 0
 )
@@ -755,5 +908,6 @@ uninstall_service() {
     _service_unregister || return 1
     rm -f -- "$target" || return 1
     [ "$service_manager" != systemd ] || systemctl daemon-reload || return 1
+    [ "$service_manager" != systemd-user ] || systemctl --user daemon-reload || return 1
     return 0
 }

@@ -262,7 +262,14 @@ _status_render() {
     fi
     if [ -n "$verbose_pid" ]; then
         local log_location=${service_log_path:-无法读取}
-        [ "${service_manager:-}" != systemd ] || log_location="journalctl -u ${CLASHCTL_KERNEL:-mihomo}"
+        if declare -F service_log_location >/dev/null 2>&1; then
+            log_location=$(service_log_location) || log_location='无法读取'
+        else
+            case ${service_manager:-} in
+            systemd) log_location="journalctl -u ${CLASHCTL_KERNEL:-mihomo}" ;;
+            systemd-user) log_location="journalctl --user -u ${CLASHCTL_KERNEL:-mihomo}" ;;
+            esac
+        fi
         labels+=('' 'PID' '主配置' '运行配置' '日志')
         values+=('' "$verbose_pid" "$CLASH_CONFIG_BASE" "$CLASH_CONFIG_RUNTIME" "$log_location")
     fi
