@@ -356,6 +356,61 @@ _hint_fzf() {
     _ui_info '未检测到 fzf，已使用编号选择；安装 fzf 可启用搜索式选择界面。'
 }
 
+# 多个字符串中最大的显示宽度
+_max_width() {
+    local s w max=0
+    for s; do
+        w=$(_dispwidth "$s")
+        ((w > max)) && max=$w
+    done
+    printf '%d' "$max"
+}
+
+# 交互选择的公共部分；各菜单的显示格式由调用方拼好。
+# 预览文件放在临时目录里，按从 1 开始的序号命名。
+_pick_preview_dir() {
+    mktemp -d "${TMPDIR:-/tmp}/clashctl-pick.XXXXXX" 2>/dev/null
+}
+
+# fzf 选择：stdin 每行 "序号<TAB>名称<TAB>显示文本"，选中的名称输出到 stdout。
+# 用法：_pick_fzf <提示> <标题> <预览目录或空> [额外 fzf 参数…]；结束后删除预览目录。
+_pick_fzf() {
+    local prompt=$1 header=$2 preview_dir=$3 selected status preview_args=()
+    shift 3
+    # fzf 在其子 shell 中展开 {1} 与 $CLASHCTL_PICK_PREVIEW_DIR，故此处刻意用单引号
+    # shellcheck disable=SC2016
+    [ -n "$preview_dir" ] && preview_args=(--preview 'cat "$CLASHCTL_PICK_PREVIEW_DIR"/{1}' --preview-window='right:45%:wrap')
+    selected=$(CLASHCTL_PICK_PREVIEW_DIR=$preview_dir fzf \
+        --height=80% \
+        --layout=reverse \
+        --border \
+        --delimiter=$'\t' \
+        --with-nth=3 \
+        --prompt="$prompt" \
+        --header="$header" \
+        "${preview_args[@]}" "$@")
+    status=$?
+    [ -n "$preview_dir" ] && rm -rf -- "$preview_dir"
+    [ "$status" -eq 0 ] && [ -n "$selected" ] || return 1
+    selected=${selected#*$'\t'}
+    printf '%s\n' "${selected%%$'\t'*}"
+}
+
+# 编号选择：菜单由调用方先打到 stderr，这里读入序号并输出对应的名称。
+# 用法：_pick_read <提示> <名称…>
+_pick_read() {
+    local prompt=$1 choice
+    shift
+    printf '%s' "$prompt" >&2
+    read -r choice
+    [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le $# ] && {
+        printf '%s\n' "${@:choice:1}"
+        return 0
+    }
+    _errorcat "无效选择：$choice"
+    return 1
+}
+
 _set_env() {
     local key=$1
     local value=$2
