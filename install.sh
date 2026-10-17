@@ -838,7 +838,9 @@ _install_initialize() {
         [ -f "$target" ] || install -m 0600 "$CLASH_RESOURCES_DIR/$source" "$target" || return 1
     done
     [ -f "$CLASH_CONFIG_BASE" ] || install -m 0600 /dev/null "$CLASH_CONFIG_BASE" || return 1
-    prepare_zip kernel yq || return 1
+    local defer_download_hint=1
+    [ -z "${6:-}" ] || defer_download_hint=0
+    _INSTALL_DEFER_DOWNLOAD_HINT=$defer_download_hint prepare_zip kernel yq || return 1
     # 在写入配置、注册服务之前撤销未初始化凭据；后续丢失 .env 不能按空安装删除。
     command rm -f -- "$CLASHCTL_HOME/.clashctl-uninitialized" || return 1
     [ -f "$CLASHCTL_HOME/.env" ] || install -m 0600 "$CLASHCTL_HOME/.env.example" "$CLASHCTL_HOME/.env" || return 1
@@ -938,6 +940,7 @@ main() (
     CLASHCTL_INSTALL_RUNNING=1
     local install_home=${CLASHCTL_HOME:-$HOME/.clashctl}
     local _INSTALL_VERBOSE=${_INSTALL_VERBOSE:-}
+    local _INSTALL_DOWNLOAD_FAILED_URL='' _INSTALL_DOWNLOAD_FAILED_TARGET=''
     local home_source='默认值（~/.clashctl）'
     [ -z "${CLASHCTL_HOME:-}" ] || home_source=CLASHCTL_HOME
     local branch=${CLASHCTL_UPDATE_BRANCH:-} kernel='' subscription='' requested_service=auto
@@ -1039,7 +1042,8 @@ main() (
   CLASHCTL_HOME              安装目录
   CLASHCTL_UPDATE_BRANCH     源码及后续更新分支
   GH_PROXY                   GitHub 下载代理前缀
-  CLASHCTL_DOWNLOAD_TIMEOUT   依赖下载超时（秒，默认 60）
+  CLASHCTL_DOWNLOAD_TIMEOUT   每次依赖下载尝试的最长时间（秒，默认 0 表示不限）
+                             重试重新计时，连接或下载停滞时仍会中断
 
 重复安装沿用已保存配置，命令行参数可覆盖。参数支持 --选项 值 或 --选项=值。
 --local 需从本地 install.sh 执行，不支持管道安装。
@@ -1292,8 +1296,9 @@ HELP
         else
             local retry_command branch_arg proxy_arg
             if [ "${CLASHCTL_DOWNLOAD_TIMED_OUT:-0}" = 1 ]; then
-                local retry_timeout=${CLASHCTL_DOWNLOAD_TIMEOUT:-60}
-                if [[ ! $retry_timeout =~ ^[0-9]+$ ]] || [ "$retry_timeout" -lt 180 ]; then
+                local retry_timeout=${CLASHCTL_DOWNLOAD_TIMEOUT:-0}
+                [[ $retry_timeout =~ ^[0-9]+$ ]] || retry_timeout=0
+                if [ "$retry_timeout" -gt 0 ] && [ "$retry_timeout" -lt 180 ]; then
                     retry_timeout=180
                 fi
                 printf -v retry_command 'CLASHCTL_DOWNLOAD_TIMEOUT=%q bash %q --home %q' \
@@ -1311,8 +1316,12 @@ HELP
                 printf -v arg ' --service=%q' "$requested_service"
                 retry_command+=$arg
             fi
-            printf '安装未完成，已保留目录：%s\n' "$install_home" >&2
-            printf '重试: %s\n' "$retry_command" >&2
+            printf '\n安装未完成，已保留目录：%s\n' "$install_home" >&2
+            printf '\n重试:\n  %s\n' "$retry_command" >&2
+            if [ -n "$_INSTALL_DOWNLOAD_FAILED_URL" ] && [ -n "$_INSTALL_DOWNLOAD_FAILED_TARGET" ]; then
+                printf '\n手动下载安装包:\n  下载地址: %s\n  保存位置: %s\n  保存完整安装包后，执行上述重试命令。\n' \
+                    "$_INSTALL_DOWNLOAD_FAILED_URL" "$_INSTALL_DOWNLOAD_FAILED_TARGET" >&2
+            fi
         fi
         return 1
     fi

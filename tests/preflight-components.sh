@@ -164,8 +164,9 @@ fi
 rc=0
 GH_PROXY=https://proxy.example download_zip yq >"$guard_root/proxy.stdout" 2>"$guard_root/proxy.stderr" || rc=$?
 assert_eq 1 "$rc" 'proxied symlink archive directory rejection status'
-assert_contains "$guard_root/proxy.stderr" '加速代理: https://proxy.example' \
-    'proxy download omitted channel hint'
+if grep -q '加速代理:' "$guard_root/proxy.stderr"; then
+    fail 'proxy hint appeared before a component download started'
+fi
 assert_external_untouched "$archives_external" 'symlink archive directory rejection'
 
 bin_home="$guard_root/bin-home"

@@ -13,6 +13,15 @@ cleanup() {
 }
 trap cleanup EXIT
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+retry_command_from_output() {
+    awk '/^重试:$/ {
+        if ((getline) > 0 && /^  /) {
+            sub(/^  /, "")
+            print
+        }
+        exit
+    }' "$1"
+}
 export REAL_GIT
 REAL_GIT=$(command -v git)
 export FIXTURE="$WORK_DIR/source" CI=1 CLASHCTL_HOME="$WORK_DIR/installed"
@@ -71,6 +80,11 @@ _service_check_conflict() { :; }
 prepare_zip() {
     if [ "${FAIL_PREPARE:-0}" != 0 ]; then
         [ "${FAIL_PREPARE_TIMEOUT:-0}" != 1 ] || CLASHCTL_DOWNLOAD_TIMED_OUT=1
+        if [ "${FAIL_DOWNLOAD_HINT:-0}" = 1 ]; then
+            [ "${_INSTALL_DEFER_DOWNLOAD_HINT:-0}" = 1 ] || return 1
+            _INSTALL_DOWNLOAD_FAILED_URL=$(gh_proxy_url https://example.invalid/mihomo.gz)
+            _INSTALL_DOWNLOAD_FAILED_TARGET="$CLASHCTL_HOME/archives/mihomo.gz"
+        fi
         return 1
     fi
     mkdir -p "$CLASHCTL_HOME/bin"
@@ -249,13 +263,31 @@ grep -q '订阅添加失败，可稍后重试' "$WORK_DIR/subscription-failed.ou
     fail 'subscription retry command was duplicated'
 # 下载运行组件失败时仍可凭安装阶段标记清理，不能依靠 .env 缺失猜测。
 interrupted_home="$WORK_DIR/prepare-failed"
-if FAIL_PREPARE=1 FAIL_PREPARE_TIMEOUT=1 CLASHCTL_HOME="$interrupted_home" bash "$REPO_DIR/install.sh" \
+if FAIL_PREPARE=1 FAIL_PREPARE_TIMEOUT=1 FAIL_DOWNLOAD_HINT=1 CLASHCTL_HOME="$interrupted_home" bash "$REPO_DIR/install.sh" \
     --gh-proxy=https://slow.proxy.test >"$WORK_DIR/prepare-failed.out" 2>&1; then
     fail 'component preparation failure was ignored'
 fi
-[ "$(tail -n 1 "$WORK_DIR/prepare-failed.out")" = \
-    "重试: CLASHCTL_DOWNLOAD_TIMEOUT=180 bash $interrupted_home/install.sh --home $interrupted_home --branch=master --gh-proxy=https://slow.proxy.test" ] ||
-    fail 'retry hint lost the proxy or timeout adjustment'
+[ "$(retry_command_from_output "$WORK_DIR/prepare-failed.out")" = \
+    "CLASHCTL_DOWNLOAD_TIMEOUT=0 bash $interrupted_home/install.sh --home $interrupted_home --branch=master --gh-proxy=https://slow.proxy.test" ] ||
+    fail 'retry hint lost the proxy or unlimited timeout'
+python3 - "$WORK_DIR/prepare-failed.out" "$interrupted_home" <<'PY'
+from pathlib import Path
+import sys
+output = Path(sys.argv[1]).read_text()
+expected = ('安装未完成，已保留目录：', '\n重试:\n  CLASHCTL_DOWNLOAD_TIMEOUT=0 bash ',
+            '\n手动下载安装包:\n', '  下载地址: https://slow.proxy.test/https://example.invalid/mihomo.gz',
+            f'  保存位置: {sys.argv[2]}/archives/mihomo.gz', '保存完整安装包后，执行上述重试命令。')
+positions = [output.index(value) for value in expected]
+assert positions == sorted(positions), 'manual download instructions interrupt the retry steps'
+assert output.count('下载地址:') == 1, 'failed installation repeats its download URL'
+assert '目标:' not in output and '保存目录:' not in output, 'failed installation repeats the destination'
+PY
+if FAIL_PREPARE=1 FAIL_PREPARE_TIMEOUT=1 CLASHCTL_DOWNLOAD_TIMEOUT=30 CLASHCTL_HOME="$interrupted_home" \
+    bash "$interrupted_home/install.sh" >"$WORK_DIR/prepare-limited.out" 2>&1; then
+    fail 'component preparation with a finite timeout unexpectedly succeeded'
+fi
+[[ "$(retry_command_from_output "$WORK_DIR/prepare-limited.out")" == 'CLASHCTL_DOWNLOAD_TIMEOUT=180 bash '* ]] ||
+    fail 'retry hint did not extend an explicit finite timeout'
 [ ! -e "$interrupted_home/.env" ] || fail 'failed preparation wrote environment'
 [ "$(cat "$interrupted_home/.clashctl-uninitialized")" = "$interrupted_home" ] || fail 'missing uninitialized path marker'
 bash "$interrupted_home/uninstall.sh" --yes >"$WORK_DIR/prepare-uninstall.out" 2>&1 || fail 'interrupted installation cannot be cleaned'
@@ -306,7 +338,7 @@ if FAIL_PREPARE=1 CLASHCTL_HOME="$branch_failed_home" CLASHCTL_UPDATE_BRANCH=mas
     fail 'failed branch installation succeeded'
 fi
 [ ! -e "$branch_failed_home/.env" ] || fail 'branch retry fixture already has saved options'
-branch_retry_command=$(sed -n 's/^重试: //p' "$WORK_DIR/branch-failed.out")
+branch_retry_command=$(retry_command_from_output "$WORK_DIR/branch-failed.out")
 [ -n "$branch_retry_command" ] || fail 'branch installation omitted retry command'
 env -u CLASHCTL_UPDATE_BRANCH bash -c "$branch_retry_command" >"$WORK_DIR/branch-recovery.out" 2>&1
 grep -q '^CLASHCTL_UPDATE_BRANCH=iu$' "$branch_failed_home/.env" || fail 'retry command lost branch before configuration was saved'

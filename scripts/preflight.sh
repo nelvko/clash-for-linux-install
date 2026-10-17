@@ -41,6 +41,7 @@ valid_required() {
 
 prepare_zip() {
     # 首次安装与按需补装共用；下载结果仅在本次调用内有效。
+    _INSTALL_DOWNLOAD_FAILED_URL='' _INSTALL_DOWNLOAD_FAILED_TARGET=''
     local -a normalized=()
     local item system_yq ZIP_KERNEL='' ZIP_YQ='' ZIP_SUBCONVERTER='' ZIP_UI=''
     (($#)) || {
@@ -210,17 +211,106 @@ _cache_token() {
     printf '%s' "$value"
 }
 
+_download_archive_output() {
+    if [ "${_INSTALL_VERBOSE:-}" = 1 ]; then
+        cat >&2
+        return
+    fi
+
+    # curl 用回车刷新进度条；按回车读取可实时保留进度，同时隐藏原始错误。
+    local chunk='' progress=0
+    while IFS= read -r -d $'\r' chunk || [ -n "$chunk" ]; do
+        if [ "$progress" -eq 1 ]; then
+            case "$chunk" in
+            *curl:*)
+                chunk=${chunk%%curl:*}
+                printf '\r%s\n' "${chunk%$'\n'}" >&2
+                ;;
+            *) printf '\r%s' "$chunk" >&2 ;;
+            esac
+        fi
+        progress=1
+    done
+}
+
+_download_archive_fetch() {
+    local url=$1 part=$2
+    shift 2
+    local download_rc http_code resumed attempt=0 restarted=0 retryable reason
+
+    while :; do
+        resumed=0
+        if [ -s "$part" ]; then
+            resumed=1
+            [ "$attempt" -ne 0 ] || _ui_info '检测到上次未完成的下载，继续下载'
+        fi
+        download_rc=0
+        # curl 内置重试会回退本轮新增的字节；每轮独立调用才能从最新位置续传。
+        http_code=$(curl "$@" --retry 0 --continue-at - --write-out '%{http_code}' \
+            --output "$part" --url "$url" 2> >(_download_archive_output)) || download_rc=$?
+
+        # 部分 curl 版本在续传收到 HTTP 416 时仍返回 0，必须单独判断。
+        if [ "$resumed" -eq 1 ] && [ "$restarted" -eq 0 ] &&
+            { [ "$download_rc" -eq 33 ] || [ "$http_code" = 416 ]; }; then
+            _ui_warn '无法继续上次的下载，将从头重新下载'
+            command rm -f -- "$part" || return 1
+            restarted=1
+            continue
+        fi
+        [ "$http_code" != 416 ] || download_rc=22
+        [ "$download_rc" -ne 0 ] || return 0
+
+        retryable=0
+        case "$download_rc" in
+        5 | 6 | 7 | 18 | 28 | 52 | 55 | 56) retryable=1 ;;
+        22)
+            case "$http_code" in
+            408 | 429 | 500 | 502 | 503 | 504 | 522 | 524) retryable=1 ;;
+            esac
+            ;;
+        esac
+        if [ "$attempt" -ge 1 ] || [ "$retryable" -eq 0 ]; then
+            return "$download_rc"
+        fi
+        attempt=$((attempt + 1))
+        case "$download_rc" in
+        28) reason='下载超时' ;;
+        18 | 52 | 55 | 56) reason='下载连接中断' ;;
+        *) reason='暂时无法完成下载' ;;
+        esac
+        if [ -s "$part" ]; then
+            _ui_warn "$reason，1 秒后继续下载（自动重试 1/1）"
+        else
+            _ui_warn "$reason，1 秒后自动重试（1/1）"
+        fi
+        sleep 1
+    done
+}
+
+_download_archive_failure_hint() {
+    if [ "${_INSTALL_DEFER_DOWNLOAD_HINT:-0}" = 1 ]; then
+        _INSTALL_DOWNLOAD_FAILED_URL=$1 _INSTALL_DOWNLOAD_FAILED_TARGET=$2
+        return 0
+    fi
+    printf '\n手动下载安装包:\n  下载地址: %s\n  保存位置: %s\n  保存完整安装包后，重新执行原命令。\n' \
+        "$1" "$2" >&2
+}
+
 _download_archive() {
-    local label=$1 url=$2 target=$3
-    local download_url download_rc=0
+    local label=$1 url=$2 target=$3 failure_label
+    _INSTALL_DOWNLOAD_FAILED_URL='' _INSTALL_DOWNLOAD_FAILED_TARGET=''
+    failure_label=${label%%（*}
+    local download_url download_rc=0 part_complete=0
     download_url=$(gh_proxy_url "$url")
     local part="${target}.part"
     local -a curl_args=(
         --show-error
         --fail
         --location
+        --connect-timeout 15
+        --speed-limit 1024
+        --speed-time 60
         --max-time "$CLASHCTL_DOWNLOAD_TIMEOUT"
-        --retry 1
     )
 
     if _archive_is_valid "$target"; then
@@ -234,18 +324,25 @@ _download_archive() {
     fi
 
     if [ -e "$target" ] || [ -L "$target" ]; then
-        _ui_warn "忽略损坏的依赖缓存：$label"
+        _ui_warn "本地安装包不完整或已损坏，将重新下载：$label"
         _ui_detail "文件" "$target"
         command rm -f -- "$target" || {
-            _ui_error "无法移除损坏的依赖缓存：$label"
+            _ui_error "无法删除损坏的安装包：$label"
+            _ui_detail '建议' '请检查文件和目录权限后重试'
             return 1
         }
     fi
-    command rm -f -- "$part" || {
-        _ui_error "无法清理上次下载的残片：$label"
-        _ui_detail "残片" "$part"
-        return 1
-    }
+    # 仅续写当前用户所有的单链接普通文件，避免跟随符号链接或修改外部硬链接。
+    if { [ -e "$part" ] || [ -L "$part" ]; } &&
+        { [ ! -f "$part" ] || [ -L "$part" ] ||
+            [ "$(stat -c '%u:%h' -- "$part" 2>/dev/null)" != "$(id -u):1" ]; }; then
+        command rm -f -- "$part" || {
+            _ui_error "无法清理未完成的下载文件：$label"
+            _ui_detail '文件' "$part"
+            _ui_detail '建议' '请检查文件和目录权限后重试'
+            return 1
+        }
+    fi
 
     if [ -t 2 ] && { [ "${_INSTALL_VERBOSE:-}" = 1 ] ||
         typeset -f _install_ui_output >/dev/null 2>&1; }; then
@@ -254,61 +351,99 @@ _download_archive() {
         curl_args+=(--silent)
     fi
 
-    _ui_info "下载 $label"
+    if _archive_is_valid "$part"; then
+        part_complete=1
+        _ui_info "使用上次已下载完成的安装包：$label"
+    else
+        _ui_info "下载 $label"
+    fi
     if ! typeset -f _install_ui_output >/dev/null 2>&1 || [ "${_INSTALL_VERBOSE:-}" = 1 ]; then
         _ui_detail "下载地址" "$download_url"
     else
         _ui_detail "文件" "${target##*/}"
     fi
-    curl "${curl_args[@]}" --output "$part" --url "$download_url" || download_rc=$?
+    if [ "$part_complete" -eq 0 ] && [ -n "${GH_PROXY:-}" ]; then
+        _ui_detail '加速代理' "$GH_PROXY"
+    fi
+    # 中断发生在下载完成之后时，完整的 .part 可以直接校验并采用。
+    if [ "$part_complete" -eq 0 ]; then
+        _download_archive_fetch "$download_url" "$part" "${curl_args[@]}" || download_rc=$?
+    fi
     if [ "$download_rc" -ne 0 ]; then
         if [ "$download_rc" -eq 28 ]; then
             # shellcheck disable=SC2034  # 安装入口在下载失败后读取此状态生成重试命令。
             CLASHCTL_DOWNLOAD_TIMED_OUT=1
-            _ui_error "下载超时：$label"
-            if [ -n "${GH_PROXY:-}" ]; then
-                _ui_detail '建议' "可调大 CLASHCTL_DOWNLOAD_TIMEOUT（当前 ${CLASHCTL_DOWNLOAD_TIMEOUT} 秒）或更换当前加速代理"
+            if [ "$CLASHCTL_DOWNLOAD_TIMEOUT" = 0 ]; then
+                _ui_error "$failure_label 下载超时"
             else
-                _ui_detail '建议' "可调大 CLASHCTL_DOWNLOAD_TIMEOUT（当前 ${CLASHCTL_DOWNLOAD_TIMEOUT} 秒）或使用加速代理"
+                _ui_error "$failure_label 下载超时（单次限时 $CLASHCTL_DOWNLOAD_TIMEOUT 秒）"
             fi
         else
-            _ui_error "下载失败：$label"
-            if [ -n "${GH_PROXY:-}" ]; then
-                _ui_detail '建议' '检查或更换当前加速代理，也可尝试直连'
-            else
-                _ui_detail '建议' '检查网络；需要时可用 --gh-proxy 指定加速代理'
-            fi
+            _ui_error "$failure_label 下载失败"
         fi
-        _ui_detail "下载地址" "$download_url"
-        _ui_detail "目标" "$target"
+        if [ -s "$part" ]; then
+            _ui_detail '进度' '已保留，重试时继续下载'
+        fi
+        if [ "$download_rc" -eq 28 ]; then
+            if [ "$CLASHCTL_DOWNLOAD_TIMEOUT" = 0 ]; then
+                _ui_detail '原因' '连接超过 15 秒，或下载速度连续 60 秒低于 1 KiB/s'
+                if [ -n "${GH_PROXY:-}" ]; then
+                    _ui_detail '建议' '请检查网络或更换加速代理后重试'
+                else
+                    _ui_detail '建议' '请检查网络后重试，也可使用加速代理'
+                fi
+            else
+                if [ -n "${GH_PROXY:-}" ]; then
+                    _ui_detail '建议' '延长单次下载时限，或更换加速代理'
+                else
+                    _ui_detail '建议' '延长单次下载时限，或使用加速代理'
+                fi
+            fi
+        else
+            case "$download_rc" in
+            5 | 6) _ui_detail '原因' '无法解析下载服务器地址，请检查网络或代理设置' ;;
+            7) _ui_detail '原因' '无法连接下载服务器，请检查网络或稍后重试' ;;
+            18 | 52 | 55 | 56) _ui_detail '原因' '下载连接中断，请稍后重试或更换下载地址' ;;
+            23) _ui_detail '原因' '无法保存下载文件，请检查磁盘空间和目录权限' ;;
+            35 | 60) _ui_detail '原因' '无法建立安全连接，请检查系统时间、证书或代理设置' ;;
+            *)
+                if [ -n "${GH_PROXY:-}" ]; then
+                    _ui_detail '建议' '请检查或更换加速代理，也可尝试直连'
+                else
+                    _ui_detail '建议' '请检查网络后重试，也可用 --gh-proxy 指定加速代理'
+                fi
+                ;;
+            esac
+        fi
+        _download_archive_failure_hint "$download_url" "$target"
         return 1
     fi
-    # 校验/搬移失败都不必清理 .part：下次进入时会先删残片，且这里随即 return。
     if ! _archive_is_valid "$part"; then
-        _ui_error "下载文件校验失败：$label"
-        _ui_detail "下载地址" "$download_url"
+        _ui_error "下载的安装包不完整或已损坏：$label"
+        # 下载已完成仍校验失败，不能继续复用这份残片。
+        command rm -f -- "$part" || _ui_warn "无法删除损坏的下载文件：$part"
+        _ui_detail '建议' '请重新运行刚才的命令，重新下载文件'
+        _download_archive_failure_hint "$download_url" "$target"
         return 1
     fi
     if ! /bin/mv -f -- "$part" "$target"; then
-        _ui_error "无法写入依赖缓存：$label"
+        _ui_error "无法保存安装包：$label"
         _ui_detail "目标" "$target"
+        _ui_detail '建议' '请检查磁盘空间和目录权限后重试'
         return 1
     fi
 
     if typeset -f _install_ui_output >/dev/null 2>&1; then
-        _ui_ok '下载完成，校验通过'
+        _ui_ok '下载完成，文件检查通过'
     else
-        _ui_ok "$label 已下载并通过校验"
+        _ui_ok "$label 下载完成，文件检查通过"
     fi
     return 0
 }
 
 download_zip() {
+    _INSTALL_DOWNLOAD_FAILED_URL='' _INSTALL_DOWNLOAD_FAILED_TARGET=''
     (($#)) || return 0
-    # 显示实际使用的代理；完整请求地址在安装失败时输出。
-    if [ -n "${GH_PROXY:-}" ]; then
-        _ui_detail '加速代理' "$GH_PROXY"
-    fi
     _managed_directory_prepare "$ZIP_BASE_DIR" 0755 || {
         _ui_error "依赖缓存目录无法安全使用"
         _ui_detail "目录" "$ZIP_BASE_DIR"
