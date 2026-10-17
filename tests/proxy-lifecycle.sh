@@ -10,7 +10,7 @@ for shell in bash zsh fish; do command -v "$shell" >/dev/null || fail "$shell is
 cat >"$WORK_DIR/services.sh" <<'STUB'
 service_is_active() { [ -f "$CLASHCTL_HOME/running" ]; }
 _require_base_config() { [ -f "$CLASHCTL_HOME/base-ready" ]; }
-_merge_config() { printf 'merge\n' >>"$CLASHCTL_HOME/calls"; }
+_merge_config() { _require_base_config || return 1; printf 'merge\n' >>"$CLASHCTL_HOME/calls"; }
 _detect_proxy_port() { :; }
 _detect_ext_addr() { :; }
 service_start() {
