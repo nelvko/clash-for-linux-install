@@ -413,11 +413,9 @@ _node_has_fzf() {
 }
 
 _node_hint_fzf() {
-    [ "${_NODE_FZF_HINT_SHOWN:-false}" = true ] && return 0
     [ -t 0 ] || return 0
     command -v fzf >&/dev/null && return 0
 
-    _NODE_FZF_HINT_SHOWN=true
     _ui_info '未检测到 fzf，已使用编号选择；安装 fzf 可启用搜索式选择界面。'
 }
 

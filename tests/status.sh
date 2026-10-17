@@ -31,11 +31,6 @@ service_main_pid() {
     [ "${STATUS_STATE:-running}" = running ] && [ "${STATUS_PID:-24680}" != unavailable ] || return 1
     printf '%s\n' "${STATUS_PID:-24680}"
 }
-service_status() {
-    printf 'native\n' >>"$CLASHCTL_HOME/calls"
-    printf 'native status details\n'
-    return "${STATUS_NATIVE_RC:-0}"
-}
 service_uptime() {
     printf 'uptime\n' >>"$CLASHCTL_HOME/calls"
     [ "${STATUS_UPTIME:-90061}" != unavailable ] || return 1
@@ -303,8 +298,7 @@ def run(shell='bash', args=(), expected=0, extra=None, tty=False, width=100):
     assert rc == expected, (label, 'exit', rc, expected, stdout, stderr)
     assert before == after, (label, 'query changed runtime data')
     assert 'MUTATION' not in calls, (label, calls)
-    assert 'native' not in calls, (label, 'queried native service status', calls)
-    assert 'native status details' not in stdout + stderr and '原生状态' not in stdout + stderr, (label, stdout, stderr)
+    assert '原生状态' not in stdout + stderr, (label, stdout, stderr)
     no_frame(stdout)
     assert '代理地址（运行配置）' not in stdout, (label, 'old address heading', stdout)
     if not args:
@@ -389,7 +383,7 @@ for shell in ('bash', 'zsh', 'fish'):
         field(out, label, value)
     contains(out, 'http://runtime-user:runtime-pass@127.0.0.1:7890',
              'socks5h://runtime-user:runtime-pass@127.0.0.1:7890')
-    assert calls.count('state') == 1 and 'native' not in calls, calls
+    assert calls.count('state') == 1, calls
     assert calls.count('version') == 1 and calls.count('uptime') == 1, calls
     assert 'Web 面板' not in out and 'PID' not in out, out
     assert str(home / 'data') not in out, out
@@ -405,7 +399,7 @@ for shell in ('bash', 'zsh', 'fish'):
     field(out, '状态', '未运行')
     field(out, '运行时长', '—')
     field(out, 'TUN', '关闭')
-    assert '24680' not in out and 'native' not in calls, out
+    assert '24680' not in out, out
     out, _, _ = run(shell, expected=2, extra={'STATUS_STATE': 'error'})
     assert '检测失败' in out, out
     field(out, '运行时长', '—')
@@ -427,7 +421,7 @@ for shell in ('bash', 'zsh', 'fish'):
     for state, expected in (('running', 0), ('stopped', 1), ('unknown', 2), ('error', 2)):
         for args in ((), ('--verbose',)):
             out, err, calls = run(shell, args=args, expected=expected,
-                                  extra={'STATUS_STATE': state, 'STATUS_NATIVE_RC': '19'})
+                                  extra={'STATUS_STATE': state})
             assert not err, (shell, state, args, err)
             plain(out)
             field(out, '已选订阅', '订阅 A')

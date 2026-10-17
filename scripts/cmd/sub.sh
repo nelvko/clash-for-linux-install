@@ -97,12 +97,12 @@ _sub_rows() {
 }
 
 # 一次性载入全部订阅到全局并行数组（list/pick 共用，替代逐订阅×逐字段的 _sub_get）：
-#   _SUB_NAMES/_SUB_URLS/_SUB_UPDS/_SUB_UIS   原始字段（顺序与文件一致）
+#   _SUB_NAMES/_SUB_URLS/_SUB_UPDS            原始字段（顺序与文件一致）
 #   _SUB_TRAFFICS/_SUB_EXPIRES                 由 userinfo 派生的展示列
 #   _SUB_CUR                                   当前生效订阅名
 # 只取数不渲染，展示形态由调用方决定。
 _sub_load() {
-    _SUB_NAMES=() _SUB_URLS=() _SUB_UPDS=() _SUB_UIS=()
+    _SUB_NAMES=() _SUB_URLS=() _SUB_UPDS=()
     _SUB_TRAFFICS=() _SUB_EXPIRES=()
     _SUB_CUR=$(_sub_current)
 
@@ -112,7 +112,6 @@ _sub_load() {
         _SUB_NAMES+=("$name")
         _SUB_URLS+=("$url")
         _SUB_UPDS+=("$upd")
-        _SUB_UIS+=("$ui")
         IFS=$'\t' read -r tf ex < <(_userinfo_display "$ui")
         _SUB_TRAFFICS+=("$tf")
         _SUB_EXPIRES+=("$ex")

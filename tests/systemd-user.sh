@@ -72,7 +72,6 @@ systemctl() {
         ;;
     start) printf 'active\n' >"$NATIVE_STATE" ;;
     stop) printf 'inactive\n' >"$NATIVE_STATE" ;;
-    status) printf 'user unit status\n' ;;
     enable)
         if [ "$ENABLE_RC" -ne 0 ]; then
             printf 'user enable command failed\n' >&2
@@ -188,7 +187,6 @@ test_native_lifecycle_and_queries() (
     service_start || fail 'user service did not start'
     service_is_active || fail 'active user unit was not active'
     [ "$(service_state)" = running ] || fail 'active user unit state is wrong'
-    [ "$(service_status --no-pager)" = 'user unit status' ] || fail 'user status did not pass through'
     service_enable || fail 'user service did not enable'
     service_disable || fail 'user service did not disable'
     _service_process_snapshot() {
@@ -202,7 +200,6 @@ test_native_lifecycle_and_queries() (
     [ "$(service_state)" = stopped ] || fail 'stopped user unit state is wrong'
     expect_call 'systemctl --user start mihomo'
     expect_call 'systemctl --user stop mihomo'
-    expect_call 'systemctl --user status mihomo --no-pager'
     expect_call 'systemctl --user enable --quiet mihomo'
     expect_call 'systemctl --user disable --quiet mihomo'
     expect_call 'systemctl --user show mihomo -p MainPID --value'
@@ -296,8 +293,6 @@ test_privileged_tun_lifecycle() (
     service_start || fail 'repeated TUN start was not idempotent'
     service_is_active || fail 'TUN helper was not reported active'
     [ "$(service_state)" = running ] || fail 'TUN helper was reported stopped with inactive user unit'
-    service_status >"$WORK_DIR/helper-status" || fail 'TUN helper status failed'
-    command grep -q '特权' "$WORK_DIR/helper-status" || fail 'TUN helper status did not describe privileged mode'
     # 私有记录不可读时，不能冒认用户 unit 的旧 PID 为 TUN 内核 PID。
     _service_process_snapshot() { return 0; }
     if service_main_pid >/dev/null; then fail 'TUN helper exposed an unverified user unit PID'; fi

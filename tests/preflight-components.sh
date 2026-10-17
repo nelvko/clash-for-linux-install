@@ -622,16 +622,6 @@ assert_absent "$CLASH_RESOURCES_DIR/dist/stale.js" 'ui-only provisioning cleans 
 assert_no_stages
 assert_contains "$stderr_file" '运行组件已安装' 'ui-only provisioning success output'
 
-# 空组件集拒绝
-configure_home empty-set
-stdout_file="$WORK_DIR/empty-set.stdout"
-stderr_file="$WORK_DIR/empty-set.stderr"
-rc=0
-ZIP_KERNEL='' ZIP_YQ='' ZIP_SUBCONVERTER='' ZIP_UI='' unzip_zip \
-    >"$stdout_file" 2>"$stderr_file" || rc=$?
-assert_eq 1 "$rc" 'empty component set is rejected'
-assert_contains "$stderr_file" '没有待安装的组件归档' 'empty set diagnostic is actionable'
-
 if [ "$(id -u)" -eq 0 ]; then
     printf 'preflight-components: ok (root numeric-owner coverage)\n'
 else

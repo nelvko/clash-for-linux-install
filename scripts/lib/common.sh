@@ -11,8 +11,6 @@ CLASH_DATA_DIR="${CLASHCTL_HOME}/data"
 CLASH_CONFIG_BASE="${CLASH_DATA_DIR}/config.yaml"
 CLASH_CONFIG_MIXIN="${CLASH_DATA_DIR}/mixin.yaml"
 CLASH_CONFIG_RUNTIME="${CLASH_DATA_DIR}/runtime.yaml"
-# 旧 config.sh 的合并回滚临时文件（本次迁移未纳入 config.sh，故保留符号）
-CLASH_CONFIG_TEMP="${CLASH_DATA_DIR}/temp.yaml"
 # 订阅下载/校验失败时保留的调试产物（稳定路径，便于排障）
 CLASH_CONFIG_DEBUG="${CLASH_DATA_DIR}/last-failed.yaml"
 CLASH_CONFIG_DEBUG_RAW="${CLASH_DATA_DIR}/last-failed.raw"
@@ -239,7 +237,6 @@ _install_ui_info() { _install_ui_emit_fd 2 info "$*"; }
 _install_ui_ok() { _install_ui_emit_fd 2 ok "$*"; }
 _install_ui_warn() { _install_ui_emit_fd 2 warn "$*"; }
 _install_ui_error() { _install_ui_emit_fd 2 error "$*"; }
-_install_ui_ok_out() { _install_ui_emit_fd 1 ok "$*"; }
 
 _ui_emit() {
     _ui_emit_fd 2 "$@"

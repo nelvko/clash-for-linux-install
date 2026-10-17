@@ -44,10 +44,6 @@ prepare_zip() {
     _INSTALL_DOWNLOAD_FAILED_URL='' _INSTALL_DOWNLOAD_FAILED_TARGET=''
     local -a normalized=()
     local item system_yq kernel_version ZIP_KERNEL='' ZIP_YQ='' ZIP_SUBCONVERTER='' ZIP_UI='' ZIP_KERNEL_LOCAL=0
-    (($#)) || {
-        _ui_error 'prepare_zip 需要显式组件列表'
-        return 1
-    }
     for item in "$@"; do
         [ "$item" != kernel ] || item=$CLASHCTL_KERNEL
         [ "$item" != mihomo ] || _mihomo_install_path_available || return 1
@@ -184,22 +180,16 @@ _resolve_version() {
     VERSION_SUBCONVERTER) local_version=$DEFAULT_VERSION_SUBCONVERTER ;;
     VERSION_UI) local_version=$DEFAULT_VERSION_UI ;;
     esac
-    if [ -n "$local_version" ]; then
-        if [ "${CLASHCTL_LATEST_VERSION_FALLBACK_WARNED:-0}" -eq 0 ]; then
-            _ui_warn "无法查询部分组件的最新版本，改用内置版本"
-            CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=1
-        fi
-        printf -v "$varname" '%s' "$local_version"
-        printf -v "${varname}_SOURCE" '%s' '内置版本'
-        if ! typeset -f _install_ui_output >/dev/null 2>&1 || [ "${_INSTALL_VERBOSE:-}" = 1 ]; then
-            _ui_detail "$repo" "$local_version（内置版本）"
-        fi
-        return 0
+    if [ "${CLASHCTL_LATEST_VERSION_FALLBACK_WARNED:-0}" -eq 0 ]; then
+        _ui_warn "无法查询部分组件的最新版本，改用内置版本"
+        CLASHCTL_LATEST_VERSION_FALLBACK_WARNED=1
     fi
-
-    _ui_error "无法解析依赖版本：$repo"
-    _ui_detail "原因" "没有可用的内置版本，且无法查询最新版本"
-    return 1
+    printf -v "$varname" '%s' "$local_version"
+    printf -v "${varname}_SOURCE" '%s' '内置版本'
+    if ! typeset -f _install_ui_output >/dev/null 2>&1 || [ "${_INSTALL_VERBOSE:-}" = 1 ]; then
+        _ui_detail "$repo" "$local_version（内置版本）"
+    fi
+    return 0
 }
 
 _archive_is_valid() {
@@ -517,7 +507,6 @@ _download_archive() {
 
 download_zip() {
     _INSTALL_DOWNLOAD_FAILED_URL='' _INSTALL_DOWNLOAD_FAILED_TARGET=''
-    (($#)) || return 0
     _managed_directory_prepare "$ZIP_BASE_DIR" 0755 || {
         _ui_error "依赖缓存目录无法安全使用"
         _ui_detail "目录" "$ZIP_BASE_DIR"
@@ -655,28 +644,6 @@ download_zip() {
         ui) ZIP_UI=$target ;;
         esac
     done
-    return 0
-}
-
-valid_zip() {
-    if (($# == 0)); then
-        _ui_error "没有可验证的依赖归档"
-        return 1
-    fi
-
-    local archive
-    local invalid=()
-    for archive in "$@"; do
-        _archive_is_valid "$archive" || invalid+=("$archive")
-    done
-
-    if [ ${#invalid[@]} -gt 0 ]; then
-        _ui_error "依赖归档校验失败"
-        for archive in "${invalid[@]}"; do
-            _ui_detail "文件" "$archive"
-        done
-        return 1
-    fi
     return 0
 }
 
@@ -829,7 +796,6 @@ _install_component() (
         ;;
     *) return 1 ;;
     esac
-    valid_zip "$archive" || return 1
     _managed_directory_prepare "$root" 0755 || {
         _ui_error "${label}无法安全使用"
         _ui_detail "目录" "$root"
@@ -904,7 +870,7 @@ _install_component() (
 )
 
 unzip_zip() {
-    local component archive count=0
+    local component archive
     for component in kernel yq subconverter ui; do
         case "$component" in
         kernel) archive=${ZIP_KERNEL:-} ;;
@@ -914,12 +880,7 @@ unzip_zip() {
         esac
         [ -n "$archive" ] || continue
         _install_component "$component" "$archive" || return 1
-        count=$((count + 1))
     done
-    [ "$count" -gt 0 ] || {
-        _ui_error '没有待安装的组件归档'
-        return 1
-    }
     _ui_ok "运行组件已安装"
 }
 

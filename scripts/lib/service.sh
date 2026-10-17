@@ -34,35 +34,20 @@ _service_owned_pids() {
     _service_process_record_pid "$service_pid_path" 2>/dev/null
 }
 
-_service_privileged_pid() {
-    local record
-    _service_privileged_marker_exists || return 1
-    record=$(_service_privileged_record_path /run/clashctl "$(id -u)" "$CLASHCTL_KERNEL") || return 1
-    _service_process_record_pid "$record" 2>/dev/null
-}
-
 # 只返回与本次安装的二进制、启动参数一致的 PID，供 TUN 归属检查使用。
+# 特权 helper 的进程记录归 root 且权限为 600，普通用户读不到，不能拿用户 unit 的旧 PID 顶替。
 service_main_pid() {
     detect_service_manager
-    local pid='' expected_argv record
+    local pid='' expected_argv
     case "$service_manager" in
     systemd) pid=$(systemctl show "$CLASHCTL_KERNEL" -p MainPID --value 2>/dev/null) ;;
     systemd-user)
-        if _service_privileged_marker_exists; then
-            pid=$(_service_privileged_pid) || return 1
-        else
-            pid=$(systemctl --user show "$CLASHCTL_KERNEL" -p MainPID --value 2>/dev/null)
-        fi
+        _service_privileged_marker_exists && return 1
+        pid=$(systemctl --user show "$CLASHCTL_KERNEL" -p MainPID --value 2>/dev/null)
         ;;
     runit) pid=$(sv status "$CLASHCTL_KERNEL" 2>/dev/null | sed -n 's/.*(pid \([0-9]*\)).*/\1/p') ;;
     sysvinit | openrc) read -r pid <"$service_pid_path" 2>/dev/null || return 1 ;;
-    *)
-        pid=$(_service_owned_pids) || {
-            record=$(_service_privileged_record_path /run/clashctl "$(id -u)" "$CLASHCTL_KERNEL") || return 1
-            _service_privileged_record_is_secure "$record" || return 1
-            pid=$(_service_process_record_pid "$record" 2>/dev/null) || return 1
-        }
-        ;;
+    *) pid=$(_service_owned_pids) || return 1 ;;
     esac
     case $pid in '' | *[!0-9]*) return 1 ;; esac
     [ "$pid" -gt 1 ] || return 1
@@ -361,42 +346,6 @@ service_stop() {
         _service_nohup_stop_locked || rc=$?
         _service_process_lock_release "$lock" || rc=1
         return "$rc"
-        ;;
-    esac
-}
-
-service_status() {
-    detect_service_manager
-    case "$service_manager" in
-    systemd-user)
-        if _service_privileged_marker_exists; then
-            printf '%s\n' "$CLASHCTL_KERNEL 正以特权模式运行（TUN helper；用户服务已停止）"
-        else
-            systemctl --user status "$CLASHCTL_KERNEL" "$@"
-        fi
-        ;;
-    systemd)
-        systemctl status "$CLASHCTL_KERNEL" "$@"
-        ;;
-    sysvinit)
-        service "$CLASHCTL_KERNEL" status "$@"
-        ;;
-    openrc)
-        rc-service "$CLASHCTL_KERNEL" status "$@"
-        ;;
-    runit)
-        sv status "$CLASHCTL_KERNEL" "$@"
-        ;;
-    nohup | *)
-        local pid
-        pid=$(_service_owned_pids) || pid=
-        if [ -n "$pid" ]; then
-            printf '%s\n' "$CLASHCTL_KERNEL 正在运行 (PID $pid)"
-        elif _service_privileged_marker_exists; then
-            printf '%s\n' "$CLASHCTL_KERNEL 正以特权模式运行"
-        else
-            return 1
-        fi
         ;;
     esac
 }
