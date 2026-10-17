@@ -62,7 +62,12 @@ clashstatus() {
     tun_label=$(_status_tun_label "$kernel_state" "$pid")
     subscription_label=$(_status_subscription_label)
     dashboard_url=$(_status_dashboard_url) || dashboard_url=''
-    _status_proxy_addresses
+    if [ ! -e "$CLASH_CONFIG_RUNTIME" ]; then
+        http_address='' socks_address=''
+    elif ! _proxy_addresses; then
+        http_address='无法读取' socks_address='无法读取'
+    fi
+    : "${http_address:=未配置}" "${socks_address:=未配置}"
     local verbose_pid=''
     if [ "${1:-}" = --verbose ]; then
         verbose_pid=$pid
@@ -143,8 +148,8 @@ _status_dashboard_url() {
     esac
     [ -f "$ui_dir/index.html" ] || return 1
     [[ $controller == *:* ]] || return 1
-    port=$(_status_proxy_port "${controller##*:}") || return 1
-    host=$(_status_local_host "${controller%:*}") || return 1
+    port=$(_connect_port "${controller##*:}") || return 1
+    host=$(_connect_host "${controller%:*}") || return 1
     printf 'http://%s:%s/ui\n' "$host" "$port"
 }
 
@@ -156,84 +161,6 @@ _status_subscription_label() {
         subscription=${subscription//[[:cntrl:]]/ }
     fi
     printf '%s\n' "$subscription"
-}
-
-# 仅从运行配置生成可复制的连接地址，不调整端口或修改配置。
-# http_address/socks_address 由 clashstatus 的局部变量接收。
-_status_proxy_addresses() {
-    http_address='未配置'
-    socks_address='未配置'
-    [ -e "$CLASH_CONFIG_RUNTIME" ] || return 0
-
-    local values mixed_port http_port socks_port bind_addr allow_lan host port auth_base64 auth='' auth_prefix=''
-    if ! values=$("$BIN_YQ" -er 'select(tag == "!!map") |
-        [.mixed-port // 0, .port // 0, .socks-port // 0,
-         .bind-address // "*", .allow-lan // false,
-         (.authentication[0] // "" | @base64)] | @tsv' "$CLASH_CONFIG_RUNTIME" 2>/dev/null); then
-        http_address='无法读取'
-        socks_address='无法读取'
-        return 0
-    fi
-    # 非空白分隔符保留空字段；认证字段用 base64 避免换行、制表符干扰拆分。
-    values=${values//$'\t'/$'\x1f'}
-    IFS=$'\x1f' read -r mixed_port http_port socks_port bind_addr allow_lan auth_base64 <<<"$values"
-    if [ -n "$auth_base64" ]; then
-        if ! auth=$(printf '%s' "$auth_base64" | base64 --decode 2>/dev/null && printf '.'); then
-            http_address='无法读取'
-            socks_address='无法读取'
-            return 0
-        fi
-        auth=${auth%.}
-        if [ -n "$auth" ]; then
-            case $auth in
-            *:*) auth_prefix="$(_urlencode "${auth%%:*}"):$(_urlencode "${auth#*:}")@" ;;
-            *) auth_prefix="$(_urlencode "$auth")@" ;;
-            esac
-        fi
-    fi
-    case $allow_lan in
-    false) host=127.0.0.1 ;;
-    true)
-        if ! host=$(_status_local_host "$bind_addr"); then
-            http_address='无法读取'
-            socks_address='无法读取'
-            return 0
-        fi
-        ;;
-    *)
-        http_address='无法读取'
-        socks_address='无法读取'
-        return 0
-        ;;
-    esac
-    if port=$(_status_proxy_port "$http_port" "$mixed_port"); then
-        http_address="http://${auth_prefix}${host}:${port}"
-    fi
-    if port=$(_status_proxy_port "$socks_port" "$mixed_port"); then
-        socks_address="socks5h://${auth_prefix}${host}:${port}"
-    fi
-}
-
-_status_local_host() {
-    local host=$1
-    case $host in
-    '' | '*' | 0.0.0.0) host=127.0.0.1 ;;
-    :: | '[::]') host='::1' ;;
-    esac
-    host=${host#\[}
-    host=${host%\]}
-    # 拒绝控制字符及 URL 中的凭据、路径，避免破坏终端布局。
-    case $host in '' | *[!a-zA-Z0-9.:%_-]*) return 1 ;; esac
-    case $host in *:*) host="[${host//%/%25}]" ;; esac
-    printf '%s\n' "$host"
-}
-
-_status_proxy_port() {
-    local port=${1:-0}
-    [ "$port" != 0 ] || port=${2:-0}
-    [[ $port =~ ^[0-9]+$ ]] && [ "${#port}" -le 5 ] || return 1
-    ((10#$port > 0 && 10#$port <= 65535)) || return 1
-    printf '%d\n' "$((10#$port))"
 }
 
 _status_render() {

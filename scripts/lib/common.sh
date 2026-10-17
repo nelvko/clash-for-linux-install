@@ -134,6 +134,15 @@ _get_random_port() {
     _errorcat "未找到可用的代理端口"
 }
 
+# 端口被占用时提示并输出一个随机空闲端口；端口空闲返回 1，找不到空闲端口返回 2。
+_replacement_port() {
+    local label=$1 port=$2 new_port
+    _is_port_used "$port" || return 1
+    new_port=$(_get_random_port) || return 2
+    _ui_warn "端口冲突：[$label] $port，随机分配 $new_port"
+    printf '%s\n' "$new_port"
+}
+
 _get_local_ip() {
     local local_ip iface
     # 取主路由表默认出口网卡的地址：不探测公网 IP（Tun 下 ip route get

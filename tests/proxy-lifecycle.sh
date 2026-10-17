@@ -13,7 +13,6 @@ _require_base_config() { [ -f "$CLASHCTL_HOME/base-ready" ]; }
 _merge_config() { printf 'merge\n' >>"$CLASHCTL_HOME/calls"; }
 _detect_proxy_port() { :; }
 _detect_ext_addr() { :; }
-_get_bind_addr() { printf 127.0.0.1; }
 service_start() {
     [ ! -f "$CLASHCTL_HOME/fail-start" ] || return 1
     printf 'start\n' >>"$CLASHCTL_HOME/calls"
@@ -298,7 +297,7 @@ for shell in bash zsh fish; do
     cp -a "$REPO_DIR/scripts" "$home_dir/"
     cp "$WORK_DIR/services.sh" "$home_dir/scripts/lib/zz-test.sh"
     printf 'CLASHCTL_KERNEL=mihomo\n' >"$home_dir/.env"
-    printf '#!/bin/sh\nprintf "7890|||"\n' >"$home_dir/bin/yq"
+    printf '#!/bin/sh\nprintf "7890\\t0\\t0\\t*\\tfalse\\t\\n"\n' >"$home_dir/bin/yq"
     printf '#!/bin/sh\nexit 0\n' >"$home_dir/bin/mihomo"
     chmod +x "$home_dir/bin/yq" "$home_dir/bin/mihomo"
     touch "$home_dir/base-ready"

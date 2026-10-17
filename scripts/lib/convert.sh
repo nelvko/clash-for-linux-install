@@ -199,17 +199,6 @@ _download_convert_config() {
     )
 }
 
-_detect_subconverter_port() {
-    BIN_SUBCONVERTER_PORT=$("$BIN_YQ" '.server.port' "$BIN_SUBCONVERTER_CONFIG")
-    _is_port_used "$BIN_SUBCONVERTER_PORT" && {
-        local new_port
-        new_port=$(_get_random_port) || return
-        _ui_warn "端口冲突：[subconverter] ${BIN_SUBCONVERTER_PORT}，随机分配：$new_port"
-        BIN_SUBCONVERTER_PORT=$new_port
-        "$BIN_YQ" -i ".server.port = $new_port" "$BIN_SUBCONVERTER_CONFIG" 2>/dev/null
-    }
-}
-
 _start_convert() {
     [ -x "$BIN_SUBCONVERTER" ] || _ci_provision subconverter || return 1
     [ -x "$BIN_SUBCONVERTER" ] || {
@@ -219,12 +208,17 @@ _start_convert() {
 
     # 先在配置端口上探活：已有可用实例则直接复用（不记录 PID，_stop_convert 不误杀他人实例）
     BIN_SUBCONVERTER_PORT=$("$BIN_YQ" '.server.port' "$BIN_SUBCONVERTER_CONFIG")
-    local check_url="http://localhost:${BIN_SUBCONVERTER_PORT}/version"
+    local check_url="http://localhost:${BIN_SUBCONVERTER_PORT}/version" new_port
     curl --silent --fail "$check_url" >/dev/null 2>&1 && return 0
 
     # 端口被其他进程占用时换端口，再拉起自己的实例并记录 PID
-    _detect_subconverter_port
-    check_url="http://localhost:${BIN_SUBCONVERTER_PORT}/version"
+    if new_port=$(_replacement_port subconverter "$BIN_SUBCONVERTER_PORT"); then
+        BIN_SUBCONVERTER_PORT=$new_port
+        "$BIN_YQ" -i ".server.port = $new_port" "$BIN_SUBCONVERTER_CONFIG" 2>/dev/null
+        check_url="http://localhost:${new_port}/version"
+    elif [ $? -eq 2 ]; then
+        return 1
+    fi
     BIN_SUBCONVERTER_PID=$(
         (
             trap - INT TERM HUP
