@@ -21,21 +21,12 @@ clashsub() {
         return
     fi
 
-    _sub_migrate
-
-    case "${1:-}" in
-    add)
-        shift
-        sub_add "$@"
-        ;;
-    del | delete)
-        shift
-        _sub_del "$@"
-        ;;
-    list | ls)
-        shift
-        _sub_list "$@"
-        ;;
+    local cmd=${1:-}
+    shift
+    case $cmd in
+    add) sub_add "$@" ;;
+    del | delete) _sub_del "$@" ;;
+    list | ls) _sub_list "$@" ;;
     '')
         # 裸命令：交互终端直接进选择器（选中即切换），管道/脚本下输出表格
         if [ -t 0 ] && [ -t 1 ]; then
@@ -44,25 +35,11 @@ clashsub() {
             _sub_list
         fi
         ;;
-    use)
-        shift
-        _sub_use "$@"
-        ;;
-    update)
-        shift
-        _sub_update "$@"
-        ;;
-    rename)
-        shift
-        _sub_rename "$@"
-        ;;
-    log)
-        shift
-        _sub_log "$@"
-        ;;
-    *)
-        sub_help
-        ;;
+    use) _sub_use "$@" ;;
+    update) _sub_update "$@" ;;
+    rename) _sub_rename "$@" ;;
+    log) _sub_log "$@" ;;
+    *) sub_help ;;
     esac
 }
 
@@ -167,15 +144,13 @@ _with_profiles_lock() (
 #     convert 始终经 subconverter 转换
 #   返回：0 表示已下载且通过内核校验；非 0 表示失败。
 # 成功后：_SUB_DL_FILE 指向可原子 mv 到目标的工作文件。
-# 失败后：产物落到 last-failed.*（供排障），
-#   _SUB_DL_REASON     去除颜色码后的最后一行错误（写入日志）
-#   _SUB_DL_DEBUG_HINT 指向已保留调试产物的多行提示（供报错展示）
+# 失败后：产物落到 last-failed.*（供排障）并报错列出它们，
+#   _SUB_DL_REASON 为去除颜色码后的最后一行错误（写入日志）
 _sub_download() {
     local url=$1 strategy=${2:-auto}
     local work err_log rc
     _SUB_DL_FILE=''
     _SUB_DL_REASON=''
-    _SUB_DL_DEBUG_HINT=''
     FETCH_USERINFO='' # 由 _download_raw_config 在成功时填充（机场流量信息）
     FETCH_FILENAME='' # 由 _download_raw_config 在成功时填充（content-disposition 文件名）
 
@@ -217,7 +192,8 @@ _sub_download() {
     }
     [ "$converted" = true ] && hint="${hint:+$hint
 }转换日志：$BIN_SUBCONVERTER_LOG"
-    _SUB_DL_DEBUG_HINT=$hint
+    _errorcat "订阅无效${hint:+，请检查：
+$hint}"
     return "$rc"
 }
 
@@ -284,46 +260,12 @@ _sub_validate_name() {
 _sub_filename() {
     local name=$1 safe path n=1
     safe=$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '_')
-    [ -z "$safe" ] && safe=sub
     path="${CLASH_PROFILES_DIR}/${safe}.yaml"
     while [ -e "$path" ]; do
         n=$((n + 1))
         path="${CLASH_PROFILES_DIR}/${safe}-${n}.yaml"
     done
     printf '%s' "$path"
-}
-
-# 一次性把旧的数字 id 模型迁移为 name 模型（幂等：以 id 字段存在为哨兵）
-_sub_migrate() {
-    [ -f "$CLASH_PROFILES_META" ] || return 0
-    "$BIN_YQ" -e '([.profiles // [] | .[] | select(has("id"))] | length) > 0' \
-        "$CLASH_PROFILES_META" >/dev/null 2>&1 || return 0
-
-    local count i url name
-    count=$("$BIN_YQ" '.profiles // [] | length' "$CLASH_PROFILES_META")
-    for ((i = 0; i < count; i++)); do
-        IDX=$i "$BIN_YQ" -e '.profiles[env(IDX)] | has("name")' "$CLASH_PROFILES_META" >/dev/null 2>&1 && continue
-        url=$(IDX=$i "$BIN_YQ" '.profiles[env(IDX)].url // ""' "$CLASH_PROFILES_META")
-        name=$(_sub_unique_name "$(_sub_default_name "$url")")
-        IDX=$i PROFILE_NAME=$name "$BIN_YQ" -i '.profiles[env(IDX)].name = strenv(PROFILE_NAME)' "$CLASH_PROFILES_META"
-    done
-
-    # 顶层 use 若是旧的数字 id，映射为对应 name
-    local use mapped
-    use=$("$BIN_YQ" '.use // "" | tostring' "$CLASH_PROFILES_META")
-    if [ -n "$use" ] && [[ "$use" =~ ^[0-9]+$ ]]; then
-        mapped=$(PROFILE_ID=$use "$BIN_YQ" \
-            '.profiles // [] | .[] | select((.id // "" | tostring) == strenv(PROFILE_ID)) | .name // ""' \
-            "$CLASH_PROFILES_META" | head -n1)
-        if [ -n "$mapped" ]; then
-            PROFILE_NAME=$mapped "$BIN_YQ" -i '.use = strenv(PROFILE_NAME)' "$CLASH_PROFILES_META"
-        else
-            "$BIN_YQ" -i '.use = ""' "$CLASH_PROFILES_META"
-        fi
-    fi
-
-    "$BIN_YQ" -i 'del(.profiles[].id)' "$CLASH_PROFILES_META"
-    _logging_sub "🔄 已将订阅数据迁移为 name 模式"
 }
 
 ########################################
@@ -343,15 +285,9 @@ _sub_pick() {
     # 即使只有 1 个订阅也进入选择界面：use 会重启内核、del 为破坏性操作，
     # 需用户明确确认，不做隐式自动选择。
 
-    local i w namew=0 trafw=0 expw=0
-    for i in "${!_SUB_NAMES[@]}"; do
-        w=$(_dispwidth "${_SUB_NAMES[$i]}")
-        ((w > namew)) && namew=$w
-        w=$(_dispwidth "${_SUB_TRAFFICS[$i]}")
-        ((w > trafw)) && trafw=$w
-        w=$(_dispwidth "${_SUB_EXPIRES[$i]}")
-        ((w > expw)) && expw=$w
-    done
+    local i namew trafw
+    namew=$(_max_width "${_SUB_NAMES[@]}")
+    trafw=$(_max_width "${_SUB_TRAFFICS[@]}")
 
     # 列标题行（与数据行同宽对齐），fzf 与编号菜单共用
     local col_header
@@ -359,13 +295,9 @@ _sub_pick() {
 
     local marker
     if _has_fzf; then
-        local selected status preview_dir preview_args=()
-        preview_dir=$(mktemp -d "${TMPDIR:-/tmp}/clashsub-preview.XXXXXX" 2>/dev/null)
+        local preview_dir now
+        preview_dir=$(_pick_preview_dir)
         if [ -n "$preview_dir" ]; then
-            # fzf 在其子 shell 中展开 {1} 与 $SUB_FZF_PREVIEW_DIR，故此处刻意用单引号
-            # shellcheck disable=SC2016
-            preview_args=(--preview 'cat "$SUB_FZF_PREVIEW_DIR"/{1}' --preview-window='right:45%:wrap')
-            local now
             for i in "${!_SUB_NAMES[@]}"; do
                 now=否
                 [ "${_SUB_NAMES[$i]}" = "$_SUB_CUR" ] && now=是
@@ -380,113 +312,70 @@ _sub_pick() {
                 } >"$preview_dir/$((i + 1))"
             done
         fi
-        selected=$(
-            for i in "${!_SUB_NAMES[@]}"; do
-                marker=' '
-                [ "${_SUB_NAMES[$i]}" = "$_SUB_CUR" ] && marker='*'
-                printf '%s\t%s\t%s %s  %s  %s\n' \
-                    "$((i + 1))" \
-                    "${_SUB_NAMES[$i]}" \
-                    "$marker" \
-                    "$(_pad "${_SUB_NAMES[$i]}" "$namew")" \
-                    "$(_pad "${_SUB_TRAFFICS[$i]}" "$trafw")" \
-                    "${_SUB_EXPIRES[$i]}"
-            done | SUB_FZF_PREVIEW_DIR=$preview_dir fzf \
-                --height=80% \
-                --layout=reverse \
-                --border \
-                --delimiter=$'\t' \
-                --with-nth=3 \
-                --prompt="$prompt" \
-                --header="  $col_header
-选择订阅，Enter 确认，Esc 退出" \
-                "${preview_args[@]}"
-        )
-        status=$?
-        [ -n "$preview_dir" ] && rm -rf -- "$preview_dir"
-        [ "$status" -eq 0 ] || return 1
-        [ -n "$selected" ] || return 1
-        selected=${selected#*$'\t'}
-        printf '%s\n' "${selected%%$'\t'*}"
-        return 0
+        for i in "${!_SUB_NAMES[@]}"; do
+            marker=' '
+            [ "${_SUB_NAMES[$i]}" = "$_SUB_CUR" ] && marker='*'
+            printf '%s\t%s\t%s %s  %s  %s\n' \
+                "$((i + 1))" \
+                "${_SUB_NAMES[$i]}" \
+                "$marker" \
+                "$(_pad "${_SUB_NAMES[$i]}" "$namew")" \
+                "$(_pad "${_SUB_TRAFFICS[$i]}" "$trafw")" \
+                "${_SUB_EXPIRES[$i]}"
+        done | _pick_fzf "$prompt" "  $col_header
+选择订阅，Enter 确认，Esc 退出" "$preview_dir"
+        return
     fi
 
     _hint_fzf
 
-    local tok idxw=${#_SUB_NAMES[@]}
+    local idxw=${#_SUB_NAMES[@]}
     idxw=${#idxw} # 序号位数
     # 序号列宽 + 标记列（空格偏移）后输出标题，与数据行对齐
     printf '  %*s   %s\n' "$((idxw + 2))" '' "$col_header" >&2
     for i in "${!_SUB_NAMES[@]}"; do
         marker=' '
         [ "${_SUB_NAMES[$i]}" = "$_SUB_CUR" ] && marker='*'
-        tok="[$((i + 1))]"
         printf '  %-*s %s %s  %s  %s\n' \
-            $((idxw + 2)) "$tok" \
+            $((idxw + 2)) "[$((i + 1))]" \
             "$marker" \
             "$(_pad "${_SUB_NAMES[$i]}" "$namew")" \
             "$(_pad "${_SUB_TRAFFICS[$i]}" "$trafw")" \
             "${_SUB_EXPIRES[$i]}" >&2
     done
-    local choice
-    printf '%s' "$prompt" >&2
-    read -r choice
-    [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#_SUB_NAMES[@]} ] && {
-        printf '%s\n' "${_SUB_NAMES[$((choice - 1))]}"
-        return 0
-    }
-    _errorcat "无效选择：$choice"
-    return 1
+    _pick_read "$prompt" "${_SUB_NAMES[@]}"
 }
 
-########################################
-#            子命令
-########################################
-
-sub_add() {
-    local use_after_add=false name='' url='' strategy=auto
-
+# 解析 add 与 update 共用的选项，结果写入调用方的 strategy、args、help，
+# 以及 add 的 name、use_after_add 和 update 的 all。$1 为子命令名。
+_sub_parse_opts() {
+    local cmd=$1
+    shift
+    args=()
     while [ $# -gt 0 ]; do
+        case "$cmd:$1" in
+        update:-u | update:--use | update:-n | update:--name | update:--name=* | add:--all)
+            _errorcat "未知选项：$1"
+            return 1
+            ;;
+        esac
         case "$1" in
         -h | --help)
-            cat <<EOF
-
-Usage:
-  clashctl sub add [选项] [URL]
-
-下载并校验订阅，成功后保存；默认不启用。省略 URL 时交互输入。
-默认直接校验下载内容，失败时尝试转换并重新校验。
-
-Options:
-  -n, --name <名称>   指定名称（默认取订阅文件名或链接域名）
-  -u, --use           保存后立即启用
-  --raw               不转换，直接校验下载内容
-  --convert           强制转换后校验
-  -t, --timeout <秒>  下载超时（默认 ${CLASHCTL_SUB_TIMEOUT:-20} 秒）
-  --ua <UA>           请求 User-Agent（默认 ${CLASHCTL_SUB_UA:-clash-verge/v2.4.0}）
-
---raw 和 --convert 仅对本次添加生效，更新时需重新指定。
-示例：clashctl sub add --use "<URL>"
-
-EOF
+            help=true
             return 0
             ;;
         -u | --use)
             use_after_add=true
             ;;
-        --convert)
-            [ "$strategy" = raw ] && {
-                _errorcat "--convert 与 --raw 互斥"
-                return 1
-            }
-            strategy=convert
+        --all)
+            all=true
             ;;
-        --raw)
-            [ "$strategy" = convert ] && {
-                _errorcat "--raw 与 --convert 互斥"
+        --convert | --raw)
+            [ "$strategy" = auto ] || [ "$strategy" = "${1#--}" ] || {
+                _errorcat "$1 与 --$strategy 互斥"
                 return 1
             }
-            strategy=raw
+            strategy=${1#--}
             ;;
         -n | --name)
             [ -n "${2-}" ] || {
@@ -529,6 +418,7 @@ EOF
             ;;
         --)
             shift
+            args+=("$@")
             break
             ;;
         -*)
@@ -536,17 +426,48 @@ EOF
             return 1
             ;;
         *)
-            [ -n "$url" ] && {
-                _errorcat "仅支持一个订阅链接"
-                return 1
-            }
-            url=$1
+            args+=("$1")
             ;;
         esac
         shift
     done
+}
 
-    [ -z "$url" ] && [ $# -gt 0 ] && url=$1
+########################################
+#            子命令
+########################################
+
+sub_add() {
+    local use_after_add=false name='' strategy=auto args help=false url
+    _sub_parse_opts add "$@" || return 1
+    if [ "$help" = true ]; then
+        cat <<EOF
+
+Usage:
+  clashctl sub add [选项] [URL]
+
+下载并校验订阅，成功后保存；默认不启用。省略 URL 时交互输入。
+默认直接校验下载内容，失败时尝试转换并重新校验。
+
+Options:
+  -n, --name <名称>   指定名称（默认取订阅文件名或链接域名）
+  -u, --use           保存后立即启用
+  --raw               不转换，直接校验下载内容
+  --convert           强制转换后校验
+  -t, --timeout <秒>  下载超时（默认 ${CLASHCTL_SUB_TIMEOUT:-20} 秒）
+  --ua <UA>           请求 User-Agent（默认 ${CLASHCTL_SUB_UA:-clash-verge/v2.4.0}）
+
+--raw 和 --convert 仅对本次添加生效，更新时需重新指定。
+示例：clashctl sub add --use "<URL>"
+
+EOF
+        return 0
+    fi
+    [ ${#args[@]} -gt 1 ] && {
+        _errorcat "仅支持一个订阅链接"
+        return 1
+    }
+    url=${args[0]:-}
     [ -z "$url" ] && {
         _read_subscription_url url '请输入要添加的订阅链接：' || return 1
         [ -z "$url" ] && {
@@ -568,11 +489,7 @@ EOF
         return 1
     }
 
-    _sub_download "$url" "$strategy" || {
-        _errorcat "订阅无效，请检查：
-${_SUB_DL_DEBUG_HINT:-转换日志：$BIN_SUBCONVERTER_LOG}"
-        return 1
-    }
+    _sub_download "$url" "$strategy" || return 1
 
     local dl_file=$_SUB_DL_FILE rc=0
     _with_profiles_lock _sub_add_locked "$name" "$url" "$use_after_add" "$dl_file" "$FETCH_USERINFO" "$FETCH_FILENAME" || rc=$?
@@ -587,7 +504,6 @@ _sub_add_locked() {
     # 下载期间可能已有并发操作占用了同名/同链接，锁内再权威校验一次
     if [ -n "$name" ]; then
         _sub_has "$name" && {
-            /usr/bin/rm -f "$dl_file"
             _errorcat "订阅名称已存在：$name"
             return 1
         }
@@ -599,7 +515,6 @@ _sub_add_locked() {
         name=$(_sub_unique_name "$base")
     fi
     _sub_url_exists "$url" && {
-        /usr/bin/rm -f "$dl_file"
         _errorcat "该订阅链接已存在：$url"
         return 1
     }
@@ -650,11 +565,6 @@ EOF
         name=$(_sub_pick "请选择要删除的订阅：") || return 1
     }
 
-    _sub_has "$name" || {
-        _errorcat "订阅不存在：$name"
-        return 1
-    }
-
     _with_profiles_lock _sub_del_locked "$name"
 }
 
@@ -690,10 +600,14 @@ _fmt_bytes() {
     }'
 }
 
-# 解析 subscription-userinfo 原始串，输出：used<TAB>total<TAB>expire（bytes / epoch）
-_userinfo_fields() {
-    local s=${1//;/ } kv k v upload=0 download=0 total=0 expire=0
-    for kv in $s; do
+# 由 subscription-userinfo 原始串生成展示用「流量」「到期」两字段（无信息为 —），以 TAB 分隔
+_userinfo_display() {
+    local raw=$1 kv k v upload=0 download=0 used total=0 expire=0 traffic exp
+    [ -z "$raw" ] && {
+        printf '%s\t%s' '—' '—'
+        return
+    }
+    for kv in ${raw//;/ }; do
         k=${kv%%=*}
         v=${kv#*=}
         [[ $v =~ ^[0-9]+$ ]] || continue
@@ -704,17 +618,7 @@ _userinfo_fields() {
         expire) expire=$v ;;
         esac
     done
-    printf '%s\t%s\t%s' "$((upload + download))" "$total" "$expire"
-}
-
-# 由 userinfo 原始串生成展示用「流量」「到期」两字段（无信息为 —），以 TAB 分隔
-_userinfo_display() {
-    local raw=$1 used total expire traffic exp
-    [ -z "$raw" ] && {
-        printf '%s\t%s' '—' '—'
-        return
-    }
-    IFS=$'\t' read -r used total expire < <(_userinfo_fields "$raw")
+    used=$((upload + download))
     if [ "${total:-0}" -gt 0 ] 2>/dev/null; then
         traffic="$(_fmt_bytes "$used")/$(_fmt_bytes "$total")"
     elif [ "${used:-0}" -gt 0 ] 2>/dev/null; then
@@ -754,21 +658,14 @@ EOF
     }
 
     local NAME_H='名称' UPD_H='更新时间' TRAF_H='流量' EXP_H='到期'
-    local namew updw trafw expw w i upd
-    namew=$(_dispwidth "$NAME_H")
-    updw=$(_dispwidth "$UPD_H")
-    trafw=$(_dispwidth "$TRAF_H")
-    expw=$(_dispwidth "$EXP_H")
-    for i in "${!_SUB_NAMES[@]}"; do
-        w=$(_dispwidth "${_SUB_NAMES[$i]}")
-        ((w > namew)) && namew=$w
-        w=$(_dispwidth "${_SUB_UPDS[$i]:-—}")
-        ((w > updw)) && updw=$w
-        w=$(_dispwidth "${_SUB_TRAFFICS[$i]}")
-        ((w > trafw)) && trafw=$w
-        w=$(_dispwidth "${_SUB_EXPIRES[$i]}")
-        ((w > expw)) && expw=$w
+    local namew updw trafw expw i upds=()
+    for i in "${!_SUB_UPDS[@]}"; do
+        upds+=("${_SUB_UPDS[$i]:-—}")
     done
+    namew=$(_max_width "$NAME_H" "${_SUB_NAMES[@]}")
+    updw=$(_max_width "$UPD_H" "${upds[@]}")
+    trafw=$(_max_width "$TRAF_H" "${_SUB_TRAFFICS[@]}")
+    expw=$(_max_width "$EXP_H" "${_SUB_EXPIRES[@]}")
 
     printf '  %s %s  %s  %s  %s  %s\n' \
         ' ' \
@@ -782,11 +679,10 @@ EOF
     for i in "${!_SUB_NAMES[@]}"; do
         marker=' '
         [ "${_SUB_NAMES[$i]}" = "$_SUB_CUR" ] && marker='*'
-        upd=${_SUB_UPDS[$i]:-—}
         printf '  %s %s  %s  %s  %s  %s\n' \
             "$marker" \
             "$(_pad "${_SUB_NAMES[$i]}" "$namew")" \
-            "$(_pad "$upd" "$updw")" \
+            "$(_pad "${upds[$i]}" "$updw")" \
             "$(_pad "${_SUB_TRAFFICS[$i]}" "$trafw")" \
             "$(_pad "${_SUB_EXPIRES[$i]}" "$expw")" \
             "${_SUB_URLS[$i]}"
@@ -813,11 +709,6 @@ EOF
     local name=$1
     [ -z "$name" ] && {
         name=$(_sub_pick "请选择要使用的订阅：") || return 1
-    }
-
-    _sub_has "$name" || {
-        _errorcat "订阅不存在：$name"
-        return 1
     }
 
     _with_profiles_lock _sub_use_locked "$name"
@@ -882,8 +773,9 @@ _sub_use_locked() {
 }
 
 _sub_update() {
-    case "${1:-}" in
-    -h | --help)
+    local strategy=auto name='' all=false args help=false
+    _sub_parse_opts update "$@" || return 1
+    if [ "$help" = true ]; then
         cat <<EOF
 
 Usage:
@@ -905,71 +797,8 @@ Options:
 
 EOF
         return 0
-        ;;
-    esac
-
-    local strategy=auto name='' all=false
-    while [ $# -gt 0 ]; do
-        case "$1" in
-        --all)
-            all=true
-            ;;
-        --convert)
-            [ "$strategy" = raw ] && {
-                _errorcat "--convert 与 --raw 互斥"
-                return 1
-            }
-            strategy=convert
-            ;;
-        --raw)
-            [ "$strategy" = convert ] && {
-                _errorcat "--raw 与 --convert 互斥"
-                return 1
-            }
-            strategy=raw
-            ;;
-        -t | --timeout)
-            [ -n "${2-}" ] || {
-                _errorcat "选项 $1 需要一个超时参数（秒）"
-                return 1
-            }
-            CLASHCTL_SUB_TIMEOUT=$2
-            shift
-            ;;
-        --timeout=*)
-            CLASHCTL_SUB_TIMEOUT="${1#*=}"
-            ;;
-        --ua)
-            [ -n "${2-}" ] || {
-                _errorcat "选项 $1 需要一个 UA 参数"
-                return 1
-            }
-            # shellcheck disable=SC2034  # 供 scripts/lib/convert.sh 读取
-            CLASHCTL_SUB_UA=$2
-            shift
-            ;;
-        --ua=*)
-            # shellcheck disable=SC2034  # 供 scripts/lib/convert.sh 读取
-            CLASHCTL_SUB_UA="${1#*=}"
-            [ -n "$CLASHCTL_SUB_UA" ] || {
-                _errorcat "选项 $1 需要一个 UA 参数"
-                return 1
-            }
-            ;;
-        --)
-            shift
-            break
-            ;;
-        -*)
-            _errorcat "未知选项：$1"
-            return 1
-            ;;
-        *)
-            [ -z "$name" ] && name=$1
-            ;;
-        esac
-        shift
-    done
+    fi
+    name=${args[0]:-}
 
     [ "$all" = true ] && {
         [ -n "$name" ] && {
@@ -1018,8 +847,6 @@ _sub_update_one() {
 
     _sub_download "$url" "$strategy" || {
         _logging_sub "❌ 订阅更新失败：[$name] $url${_SUB_DL_REASON:+ — ${_SUB_DL_REASON}}"
-        _errorcat "订阅无效：请检查：
-${_SUB_DL_DEBUG_HINT:-转换日志：$BIN_SUBCONVERTER_LOG}"
         return 1
     }
 
@@ -1034,7 +861,6 @@ _sub_update_locked() {
 
     # 下载期间该订阅可能已被并发删除，锁内复检
     _sub_has "$name" || {
-        /usr/bin/rm -f "$dl_file"
         _errorcat "订阅不存在（可能已被删除）：$name"
         return 1
     }
@@ -1142,11 +968,7 @@ EOF
         ;;
     esac
 
-    [ $# -gt 0 ] && {
-        tail "$@" "$CLASH_PROFILES_LOG"
-        return
-    }
-    tail "$CLASH_PROFILES_LOG"
+    tail "$@" "$CLASH_PROFILES_LOG"
 }
 
 sub_help() {

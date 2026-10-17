@@ -221,6 +221,4 @@ _stop_convert() {
     kill -TERM "$BIN_SUBCONVERTER_PID" 2>/dev/null
     sleep 0.2
     kill -KILL "$BIN_SUBCONVERTER_PID" 2>/dev/null
-    BIN_SUBCONVERTER_PID=
-    return 0
 }

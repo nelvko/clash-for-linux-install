@@ -15,7 +15,6 @@ cat >"$WORK_DIR/home/scripts/cmd/zz-fixture.sh" <<'EOF'
 service_is_active() { [ "${NO_SERVICE:-0}" = 0 ]; }
 _node_api_base() { printf 'http://fixture.invalid'; }
 _get_secret() { :; }
-_sub_migrate() { :; }
 _sub_has() { case $1 in '订阅 A' | '订阅 B') return 0 ;; *) return 1 ;; esac; }
 _sub_url_exists() { return 1; }
 _sub_current() { printf '订阅 A'; }

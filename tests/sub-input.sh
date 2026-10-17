@@ -8,7 +8,6 @@ mkdir -p "$WORK_DIR/home/scripts" "$WORK_DIR/user"
 cp -r "$REPO_DIR/scripts/"{lib,cmd} "$WORK_DIR/home/scripts/"
 printf 'CLASHCTL_KERNEL=mihomo\nINIT_TYPE=nohup\n' >"$WORK_DIR/home/.env"
 cat >"$WORK_DIR/home/scripts/cmd/zz-fixture.sh" <<'EOF'
-_sub_migrate() { :; }
 _sub_url_exists() { return 1; }
 _sub_download() {
     printf '%s' "$1" >"$CLASHCTL_HOME/received"
